@@ -203,12 +203,3 @@ Os ficheiros `.jsx` ficam inlined no `perdidos-algures.html` por causa de uma li
 
 ---
 
-## Segurança — leitura honesta
-
-Esta versão (localStorage):
-- ✅ Bom para grupo fechado de amigos, baixo risco
-- ❌ Passwords (excepto admin) são guardadas hashed em SHA-256 — não é o ideal mas é melhor que plaintext
-- ❌ A password do admin (`7415963a`) **está no código fonte**. Qualquer pessoa com browser dev tools consegue vê-la. Para o vosso caso isto está OK, mas se isto fosse para fora do grupo trocava já para Supabase auth
-- ❌ Os dados só vivem no browser de cada um — não há partilha. Cada pessoa vê os seus dados locais. Para haver partilha precisas mesmo de Supabase
-
-Para uma versão "a sério", migrar para Supabase resolve os 3 pontos.
