@@ -2001,7 +2001,7 @@ const memberById = (id) => {
   try {
     const users = window.AuthStore ? window.AuthStore.getUsers() : [];
     const u = users.find((u) => u.id === id);
-    if (u) { const { passHash, ...clean } = u; return clean; }
+    if (u) return u;
   } catch {}
   return null;
 };
@@ -2309,7 +2309,8 @@ function _profileToSession(r) {
 }
 
 const AuthStore = {
-  async getUsers() {
+  getUsers() { return _usersCache; },  // síncrono — cache populado no arranque
+  async getUsersAsync() {
     const { data } = await _sb.from('profiles').select('id,name,initials,color,photo_url,is_admin');
     return (data||[]).map(r => ({ id:r.id, name:r.name, initials:r.initials, color:r.color, photoDataUrl:r.photo_url||null, isAdmin:r.is_admin }));
   },
@@ -2481,9 +2482,22 @@ function readPhotoFile(file) {
   });
 }
 
+// Cache síncrono de utilizadores — populado no arranque
+let _usersCache = [];
+
 async function initSupabase() {
   await Promise.all([AppStore.init(), ChatStore.init()]);
-  console.log('[PA] Supabase iniciado ✓');
+  // Carrega utilizadores para cache síncrono
+  try {
+    const { data } = await _sb.from('profiles').select('id,name,initials,color,photo_url,is_admin');
+    _usersCache = (data||[]).map(r => ({ id:r.id, name:r.name, initials:r.initials, color:r.color, photoDataUrl:r.photo_url||null, isAdmin:r.is_admin }));
+  } catch {}
+  // Subscreve novos registos para manter cache actualizado
+  _sb.channel('profiles_ch').on('postgres_changes', { event:'INSERT', schema:'public', table:'profiles' }, payload => {
+    const r = payload.new;
+    _usersCache.push({ id:r.id, name:r.name, initials:r.initials, color:r.color, photoDataUrl:r.photo_url||null, isAdmin:r.is_admin });
+  }).subscribe();
+  console.log('[PA] Supabase iniciado ✓', _usersCache.length, 'utilizadores');
 }
 
 Object.assign(window, {
@@ -3876,7 +3890,7 @@ const PhaseCtx = dCreateContext({ phase: 1, setPhase: () => {}, reset: () => {},
 // ─── Helpers ────────────────────────────────────────────────
 // Todos os utilizadores: admin + membros registados
 function getAllMembers() {
-  const registered = AuthStore.getUsers().map(({ passHash, ...u }) => u);
+  const registered = AuthStore.getUsers();
   const ids = new Set(registered.map((u) => u.id));
   const base = D.members.filter((m) => !ids.has(m.id));
   return [...base, ...registered];
