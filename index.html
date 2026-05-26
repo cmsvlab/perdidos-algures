@@ -1999,7 +1999,7 @@ const memberById = (id) => {
   const mock = D.members.find((m) => m.id === id);
   if (mock) return mock;
   try {
-    const users = window.AuthStore ? window.AuthStore.getUsers() : [];
+    const users = typeof _usersCache !== 'undefined' ? _usersCache : [];
     const u = users.find((u) => u.id === id);
     if (u) return u;
   } catch {}
@@ -2308,6 +2308,9 @@ function _profileToSession(r) {
   return { id: r.id, name: r.name, initials: r.initials, color: r.color, photoDataUrl: r.photo_url || null, isAdmin: r.is_admin };
 }
 
+// Cache síncrono de utilizadores — populado no arranque
+let _usersCache = [];
+
 const AuthStore = {
   getUsers() { return _usersCache; },  // síncrono — cache populado no arranque
   async getUsersAsync() {
@@ -2481,9 +2484,6 @@ function readPhotoFile(file) {
     reader.readAsDataURL(file);
   });
 }
-
-// Cache síncrono de utilizadores — populado no arranque
-let _usersCache = [];
 
 async function initSupabase() {
   await Promise.all([AppStore.init(), ChatStore.init()]);
