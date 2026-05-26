@@ -47,12 +47,13 @@ function LiveApp() {
 
   const me = sessionToMember(auth.user);
   const viewAs = auth.user.isAdmin ? 'admin' : 'member';
-  const phase = D.edition.currentPhase;
+  // Do NOT pass phase — let DesktopShell/MobileApp manage phase via localStorage
+  // so admin navigation persists and isn't frozen.
 
   if (isDesktop) {
     return (
       <div style={{ width: '100vw', height: '100vh' }}>
-        <DesktopShell viewAs={viewAs} phase={phase} liveUser={me} onLogout={auth.logout} />
+        <DesktopShell viewAs={viewAs} liveUser={me} onLogout={auth.logout} />
       </div>
     );
   }
@@ -60,7 +61,7 @@ function LiveApp() {
   return (
     <div style={{ width: '100vw', height: '100vh', background: '#000', display: 'flex', alignItems: 'stretch', justifyContent: 'center' }}>
       <div style={{ width: '100%', maxWidth: 480, background: 'var(--pa-bg)', display: 'flex', flexDirection: 'column' }}>
-        <MobileApp viewAs={viewAs} phase={phase} liveUser={me} onLogout={auth.logout} />
+        <MobileApp viewAs={viewAs} liveUser={me} onLogout={auth.logout} />
       </div>
     </div>
   );

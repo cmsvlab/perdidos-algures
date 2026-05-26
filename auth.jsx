@@ -123,6 +123,29 @@ const AuthStore = {
   },
 };
 
+// ─────────────────────────────────────────────────────────────
+// VoteStore — persiste votos por utilizador + fase em localStorage
+// ─────────────────────────────────────────────────────────────
+const VoteStore = {
+  _key: 'pa-votes-v2',
+  load() {
+    try { return JSON.parse(safeStore.get(this._key) || '{}'); } catch { return {}; }
+  },
+  getVote(userId, phaseKey) {
+    return this.load()[userId + '::' + phaseKey] || null;
+  },
+  setVote(userId, phaseKey, voteId) {
+    const d = this.load();
+    d[userId + '::' + phaseKey] = voteId;
+    safeStore.set(this._key, JSON.stringify(d));
+  },
+  clearVote(userId, phaseKey) {
+    const d = this.load();
+    delete d[userId + '::' + phaseKey];
+    safeStore.set(this._key, JSON.stringify(d));
+  },
+};
+
 function useAuth() {
   const [user, setUser] = aUseState(() => AuthStore.getSession());
   return {
@@ -423,6 +446,6 @@ function AuthGate({ auth, narrow }) {
 }
 
 Object.assign(window, {
-  AuthStore, useAuth, AuthLayout, LoginScreen, RegisterScreen, AuthGate,
+  safeStore, VoteStore, AuthStore, useAuth, AuthLayout, LoginScreen, RegisterScreen, AuthGate,
   AuthPasswordField, AuthError, readPhotoFile, ADMIN_NAME,
 });

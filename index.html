@@ -32,15 +32,8 @@
 <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
-<script>
-// Remove BroadcastChannel before Supabase loads — throws in sandboxed iframes.
-try { new BroadcastChannel('__test__').close(); }
-catch(e) { try { delete window.BroadcastChannel; } catch {} window.BroadcastChannel = undefined; }
-</script>
-<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
 
-<script>
-// Perdidos Algures — data model (v2: 8 phases).
+<script>// Perdidos Algures — data model (v2: 8 phases).
 // Edition flow:
 //   1. RSVP — who's in
 //   2. Sugerir localizações (up to 3 each)
@@ -255,337 +248,8 @@ function buildMonth(year, monthIndex) {
   while (cells.length % 7 !== 0) cells.push(null);
   return cells;
 }
-
-</script>
-<script>
-// Perdidos Algures — Supabase client + data layer.
-// Loaded first (before auth, chat, desktop, mobile).
-// Exports: window.sb, window.DB, window.safeStore,
-//          window.colorFromName, window.initialsFromName, window.nameToEmail
-
-// ── safeStore ─────────────────────────────────────────────────
-const _mem = {};
-const safeStore = {
-  get(k)    { try { return localStorage.getItem(k);      } catch { return _mem[k] ?? null; } },
-  set(k, v) { try { localStorage.setItem(k, v);          } catch { _mem[k] = v; } },
-  remove(k) { try { localStorage.removeItem(k);          } catch { delete _mem[k]; } },
-};
-window.safeStore = safeStore;
-
-// ── Helpers ────────────────────────────────────────────────────
-const MEMBER_PALETTE = ['#d97757','#6b8e6f','#b08968','#8b6f47','#c08552','#7a8c5a','#a47148','#5a8caa','#c8956d'];
-function colorFromName(n) {
-  let h = 0;
-  for (const c of (n || '')) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return MEMBER_PALETTE[h % MEMBER_PALETTE.length];
-}
-function initialsFromName(n) {
-  const p = (n || '').trim().split(/\s+/);
-  return ((p[0]?.[0] || '') + (p.length > 1 ? p[p.length - 1][0] : '')).toUpperCase() || '?';
-}
-function nameToEmail(n) {
-  return n.trim().toLowerCase().replace(/\s+/g, '.').replace(/[^a-z0-9.]/g, '') + '@perdidos.local';
-}
-window.colorFromName  = colorFromName;
-window.initialsFromName = initialsFromName;
-window.nameToEmail    = nameToEmail;
-
-// ── Supabase client ────────────────────────────────────────────
-const _SUPA_URL = 'https://sinhsvdzajgfnyjitqbw.supabase.co';
-const _SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNpbmhzdmR6YWpnZm55aml0cWJ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3NTEzNTYsImV4cCI6MjA5NTMyNzM1Nn0.BkWf2y1B7gsLwaYESQWFzr3eY8CL4coQ8XmuRpSOg9U';
-const sb = supabase.createClient(_SUPA_URL, _SUPA_KEY, {
-  auth: {
-    storageKey: 'pa-sb-auth',
-    persistSession: true,
-    // Override the lock function so Supabase doesn't use navigator.locks,
-    // which is blocked in sandboxed iframes (preview env). On GitHub Pages
-    // this is a no-op since navigator.locks works normally there.
-    lock: async (name, acquireTimeout, fn) => fn(),
-  },
-  realtime: { params: { eventsPerSecond: 10 } },
-});
-window.sb = sb;
-
-// ── DB: all async operations ────────────────────────────────────
-const DB = {
-
-  // ── AUTH ────────────────────────────────────────────────────
-  async signUp({ name, password, photoFile }) {
-    const n = (name || '').trim();
-    if (!n) throw new Error('Falta o nome.');
-    if (!password || password.length < 4) throw new Error('Password precisa de ter pelo menos 4 caracteres.');
-    const email = nameToEmail(n);
-    const { data, error } = await sb.auth.signUp({
-      email, password,
-      options: { data: { name: n, initials: initialsFromName(n), color: colorFromName(n) } },
-    });
-    if (error) {
-      if (error.message.match(/already registered/i)) throw new Error('Já existe uma conta com esse nome.');
-      throw new Error(error.message);
-    }
-    // Upload photo if provided
-    if (photoFile && data.user) {
-      try {
-        await sb.storage.from('avatars').upload(`${data.user.id}/avatar`, photoFile, { upsert: true });
-        const url = sb.storage.from('avatars').getPublicUrl(`${data.user.id}/avatar`).data.publicUrl;
-        await sb.from('profiles').update({ photo_url: url }).eq('id', data.user.id);
-      } catch {}
-    }
-    return data.user;
-  },
-
-  async signIn({ name, password }) {
-    const n = (name || '').trim();
-    if (!n) throw new Error('Falta o nome.');
-    if (!password) throw new Error('Falta a password.');
-    const email = nameToEmail(n);
-    const { data, error } = await sb.auth.signInWithPassword({ email, password });
-    if (error) {
-      if (error.message.match(/invalid/i)) throw new Error('Nome ou password incorretos.');
-      throw new Error(error.message);
-    }
-    return data.user;
-  },
-
-  async signOut() { await sb.auth.signOut(); },
-
-  async getProfile(id) {
-    const { data } = await sb.from('profiles').select('*').eq('id', id).single();
-    return data;
-  },
-
-  async getAllProfiles() {
-    const { data } = await sb.from('profiles').select('*').order('name');
-    return data || [];
-  },
-
-  // ── EDITION ─────────────────────────────────────────────────
-  async getEdition() {
-    const { data } = await sb.from('editions').select('*')
-      .order('created_at', { ascending: false }).limit(1).single();
-    return data;
-  },
-
-  async createEdition({ number, title, subtitle, adminId }) {
-    const { data, error } = await sb.from('editions').insert({
-      number, title, subtitle, current_phase: 1, started_by: adminId,
-    }).select().single();
-    if (error) throw new Error(error.message);
-    return data;
-  },
-
-  async updatePhase(editionId, phase) {
-    const { error } = await sb.from('editions')
-      .update({ current_phase: phase }).eq('id', editionId);
-    if (error) throw new Error(error.message);
-  },
-
-  async lockDates(editionId, range) {
-    const { error } = await sb.from('editions')
-      .update({ locked_dates: range }).eq('id', editionId);
-    if (error) throw new Error(error.message);
-  },
-
-  async updateTiebreak(editionId, state) {
-    const { error } = await sb.from('editions')
-      .update({ tiebreak_state: state }).eq('id', editionId);
-    if (error) throw new Error(error.message);
-  },
-
-  subscribeEdition(editionId, cb) {
-    return sb.channel(`ed:${editionId}`)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'editions', filter: `id=eq.${editionId}` },
-        (p) => cb(p.new))
-      .subscribe();
-  },
-
-  // ── RSVP ────────────────────────────────────────────────────
-  async getRsvp(editionId) {
-    const { data } = await sb.from('rsvp')
-      .select('user_id, state, profiles(id, name, initials, color, photo_url, is_admin)')
-      .eq('edition_id', editionId);
-    return data || [];
-  },
-
-  async upsertRsvp(editionId, userId, state) {
-    const { error } = await sb.from('rsvp')
-      .upsert({ edition_id: editionId, user_id: userId, state, updated_at: new Date().toISOString() },
-        { onConflict: 'edition_id,user_id' });
-    if (error) throw new Error(error.message);
-  },
-
-  subscribeRsvp(editionId, cb) {
-    return sb.channel(`rsvp:${editionId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'rsvp', filter: `edition_id=eq.${editionId}` },
-        () => DB.getRsvp(editionId).then(cb))
-      .subscribe();
-  },
-
-  // ── LOCATION SUGGESTIONS ────────────────────────────────────
-  async getLocationSuggestions(editionId) {
-    const { data } = await sb.from('location_suggestions')
-      .select('*, by_profile:profiles!by_user(id, name, initials, color, is_admin)')
-      .eq('edition_id', editionId).order('created_at');
-    return data || [];
-  },
-
-  async addLocationSuggestion(editionId, userId, { name, city, tags, accent }) {
-    const { data, error } = await sb.from('location_suggestions')
-      .insert({ edition_id: editionId, by_user: userId, name, city, tags, accent }).select().single();
-    if (error) throw new Error(error.message);
-    return data;
-  },
-
-  // ── ACCOMMODATION SUGGESTIONS ────────────────────────────────
-  async getAccommodations(editionId) {
-    const { data } = await sb.from('accommodation_suggestions')
-      .select('*, by_profile:profiles!by_user(id, name, initials, color)')
-      .eq('edition_id', editionId).order('created_at');
-    return data || [];
-  },
-
-  async addAccommodation(editionId, userId, { type, price, area, link, note }) {
-    const { data, error } = await sb.from('accommodation_suggestions')
-      .insert({ edition_id: editionId, by_user: userId, type, price, area, link, note }).select().single();
-    if (error) throw new Error(error.message);
-    return data;
-  },
-
-  // ── VOTES ────────────────────────────────────────────────────
-  async vote(editionId, userId, phase, suggestionId) {
-    const { error } = await sb.from('votes')
-      .upsert({ edition_id: editionId, user_id: userId, phase, suggestion_id: suggestionId },
-        { onConflict: 'edition_id,user_id,phase' });
-    if (error) throw new Error(error.message);
-  },
-
-  async getVotes(editionId, phase) {
-    const { data } = await sb.from('votes').select('*')
-      .eq('edition_id', editionId).eq('phase', phase);
-    return data || [];
-  },
-
-  async getMyVote(editionId, userId, phase) {
-    const { data } = await sb.from('votes').select('suggestion_id')
-      .eq('edition_id', editionId).eq('user_id', userId).eq('phase', phase).maybeSingle();
-    return data?.suggestion_id ?? null;
-  },
-
-  // ── AVAILABILITY ────────────────────────────────────────────
-  async getAvailability(editionId) {
-    const { data } = await sb.from('availability')
-      .select('user_id, days, profiles(id, name, initials, color)')
-      .eq('edition_id', editionId);
-    return data || [];
-  },
-
-  async setAvailability(editionId, userId, days) {
-    const { error } = await sb.from('availability')
-      .upsert({ edition_id: editionId, user_id: userId, days, updated_at: new Date().toISOString() },
-        { onConflict: 'edition_id,user_id' });
-    if (error) throw new Error(error.message);
-  },
-
-  // ── MESSAGES ────────────────────────────────────────────────
-  async getMessages(editionId) {
-    const { data } = await sb.from('messages')
-      .select('*, by_profile:profiles!by_user(id, name, initials, color, photo_url, is_admin)')
-      .eq('edition_id', editionId).order('created_at').limit(100);
-    return data || [];
-  },
-
-  async sendMessage(editionId, userId, text) {
-    const { error } = await sb.from('messages')
-      .insert({ edition_id: editionId, by_user: userId, text });
-    if (error) throw new Error(error.message);
-  },
-
-  subscribeMessages(editionId, cb) {
-    // cb receives { type: 'insert'|'delete', msg? } so caller can react
-    return sb.channel(`msgs:${editionId}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `edition_id=eq.${editionId}` },
-        async (payload) => {
-          const { data } = await sb.from('messages')
-            .select('*, by_profile:profiles!by_user(id, name, initials, color, photo_url, is_admin)')
-            .eq('id', payload.new.id).single();
-          if (data) cb({ type: 'insert', msg: data });
-        })
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages', filter: `edition_id=eq.${editionId}` },
-        (payload) => {
-          cb({ type: 'delete', id: payload.old.id });
-        })
-      .subscribe();
-  },
-
-  async resetEdition(editionId) {
-    // Wipe all phase data but keep the edition itself, reset to phase 1
-    await sb.from('messages').delete().eq('edition_id', editionId);
-    await sb.from('votes').delete().eq('edition_id', editionId);
-    await sb.from('rsvp').delete().eq('edition_id', editionId);
-    await sb.from('location_suggestions').delete().eq('edition_id', editionId);
-    await sb.from('accommodation_suggestions').delete().eq('edition_id', editionId);
-    await sb.from('availability').delete().eq('edition_id', editionId);
-    const { error } = await sb.from('editions')
-      .update({ current_phase: 1, locked_dates: null, tiebreak_state: null }).eq('id', editionId);
-    if (error) throw new Error(error.message);
-  },
-  // ── ADMIN MANAGEMENT ─────────────────────────────────────────
-  async deleteMessage(messageId) {
-    const { error } = await sb.from('messages').delete().eq('id', messageId);
-    if (error) throw new Error(error.message);
-  },
-
-  async deleteRsvp(editionId, userId) {
-    const { error } = await sb.from('rsvp').delete()
-      .eq('edition_id', editionId).eq('user_id', userId);
-    if (error) throw new Error(error.message);
-  },
-
-  async deleteVote(editionId, userId, phase) {
-    const { error } = await sb.from('votes').delete()
-      .eq('edition_id', editionId).eq('user_id', userId).eq('phase', phase);
-    if (error) throw new Error(error.message);
-  },
-
-  async deleteLocationSuggestion(id) {
-    const { error } = await sb.from('location_suggestions').delete().eq('id', id);
-    if (error) throw new Error(error.message);
-  },
-
-  async deleteAccommodation(id) {
-    const { error } = await sb.from('accommodation_suggestions').delete().eq('id', id);
-    if (error) throw new Error(error.message);
-  },
-
-  async deleteAvailability(editionId, userId) {
-    const { error } = await sb.from('availability').delete()
-      .eq('edition_id', editionId).eq('user_id', userId);
-    if (error) throw new Error(error.message);
-  },
-
-  async deleteEdition(editionId) {
-    // Delete all related data first, then the edition
-    await sb.from('messages').delete().eq('edition_id', editionId);
-    await sb.from('votes').delete().eq('edition_id', editionId);
-    await sb.from('rsvp').delete().eq('edition_id', editionId);
-    await sb.from('location_suggestions').delete().eq('edition_id', editionId);
-    await sb.from('accommodation_suggestions').delete().eq('edition_id', editionId);
-    await sb.from('availability').delete().eq('edition_id', editionId);
-    const { error } = await sb.from('editions').delete().eq('id', editionId);
-    if (error) throw new Error(error.message);
-  },
-
-  async getAllEditions() {
-    const { data } = await sb.from('editions').select('*').order('created_at', { ascending: false });
-    return data || [];
-  },
-};
-
-window.DB = DB;
-
 </script>
 <script type="text/babel">
-
 // iOS.jsx — Simplified iOS 26 (Liquid Glass) device frame
 // Based on the iOS 26 UI Kit + Figma status bar spec. No assets, no deps.
 // Exports: IOSDevice, IOSStatusBar, IOSNavBar, IOSGlassPill, IOSList, IOSListRow, IOSKeyboard
@@ -923,10 +587,8 @@ function IOSKeyboard({ dark = false }) {
 Object.assign(window, {
   IOSDevice, IOSStatusBar, IOSNavBar, IOSGlassPill, IOSList, IOSListRow, IOSKeyboard,
 });
-
 </script>
 <script type="text/babel">
-
 // DesignCanvas.jsx — Figma-ish design canvas wrapper
 // Warm gray grid bg + Sections + Artboards + PostIt notes.
 // Artboards are reorderable (grip-drag), deletable, labels/titles are
@@ -1892,10 +1554,8 @@ function DCPostIt({ children, top, left, right, bottom, rotate = -2, width = 180
 
 Object.assign(window, { DesignCanvas, DCSection, DCArtboard, DCPostIt });
 
-
 </script>
 <script type="text/babel">
-
 // tweaks-panel.jsx
 // Reusable Tweaks shell + form-control helpers.
 //
@@ -2463,13 +2123,21 @@ Object.assign(window, {
   TweakSlider, TweakToggle, TweakRadio, TweakSelect,
   TweakText, TweakNumber, TweakColor, TweakButton,
 });
-
 </script>
-<script type="text/babel">
-// Perdidos Algures — shared atoms (reused by desktop + mobile).
+<script type="text/babel">// Perdidos Algures — shared atoms (reused by desktop + mobile).
 
 const D = window.PA_DATA;
-const memberById = (id) => D.members.find((m) => m.id === id);
+// memberById: procura primeiro nos membros mock; depois nos utilizadores registados em AuthStore
+const memberById = (id) => {
+  const mock = D.members.find((m) => m.id === id);
+  if (mock) return mock;
+  try {
+    const users = window.AuthStore ? window.AuthStore.getUsers() : [];
+    const u = users.find((u) => u.id === id);
+    if (u) { const { passHash, ...clean } = u; return clean; }
+  } catch {}
+  return null;
+};
 const ADMIN = memberById(D.adminId);
 
 // ─────────────────────────────────────────────────────────────
@@ -2477,7 +2145,7 @@ const ADMIN = memberById(D.adminId);
 // ─────────────────────────────────────────────────────────────
 function Avatar({ member, size = 36, ring = false, ringColor }) {
   if (!member) return null;
-  const photo = member.photo_url || member.photoDataUrl;
+  const photo = member.photoDataUrl;
   return (
     <div style={{
       width: size, height: size, borderRadius: size,
@@ -2734,122 +2402,166 @@ Object.assign(window, {
   D, memberById, ADMIN,
   Avatar, Stack, Pill, Btn, Field, PhotoSlot, Logo, Calendar, MobileTopInset,
 });
-
 </script>
-<script type="text/babel">
-// Perdidos Algures — Auth screens & hook (Supabase-backed).
-// Replaces localStorage-based AuthStore with real Supabase auth.
-// The trigger in supabase-setup.sql creates the profile row automatically.
-// Admin is whoever registers with the name "Miguel" first.
+<script type="text/babel">// Perdidos Algures — Authentication store + UI screens.
+// localStorage-backed for now. Designed to be swappable for Supabase later
+// (see README.md). Admin is reserved: name "Miguel" + a fixed password.
 
-const { useState: aUseState, useEffect: aUseEffect, useRef: aUseRef } = React;
+const { useState: aUseState, useRef: aUseRef } = React;
 
-// ── useAuth hook ───────────────────────────────────────────────
-// Returns { user, profile, loading, login, register, logout }
-// Ensure a profile row exists. If the DB trigger failed, creates it on the fly.
-async function ensureProfile(u) {
-  let p = await DB.getProfile(u.id).catch(() => null);
-  if (p) return p;
-  const meta = u.user_metadata || {};
-  const name = meta.name || u.email?.split('@')[0] || 'Utilizador';
-  const isAdmin = name.trim().toLowerCase() === 'miguel';
-  try {
-    await sb.from('profiles').insert({
-      id: u.id, name,
-      initials: meta.initials || initialsFromName(name),
-      color:    meta.color    || colorFromName(name),
-      photo_url: meta.photo_url || null,
-      is_admin: isAdmin,
-    });
-  } catch {}
-  return await DB.getProfile(u.id).catch(() => null);
+// ─────────────────────────────────────────────────────────────
+// Constants — admin credentials and storage keys.
+// In production these should live in env vars + a real auth backend.
+// ─────────────────────────────────────────────────────────────
+const ADMIN_NAME = 'Miguel';
+const ADMIN_PASS = '7415963a';
+const STORE_USERS   = 'pa-users';
+const STORE_SESSION = 'pa-session';
+
+async function sha256(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-// user   = Supabase auth.User (raw)
-// profile = profiles row from DB (name, color, is_admin, etc.)
+// localStorage with in-memory fallback. Some sandboxed iframes (preview
+// environments, embedded contexts) throw SecurityError on localStorage
+// access — we want the app to keep working there for testing, even though
+// the data won't persist across reloads.
+const _memStore = {};
+const safeStore = {
+  get(key) {
+    try { return localStorage.getItem(key); }
+    catch { return _memStore[key] || null; }
+  },
+  set(key, value) {
+    try { localStorage.setItem(key, value); }
+    catch { _memStore[key] = value; }
+  },
+  remove(key) {
+    try { localStorage.removeItem(key); }
+    catch { delete _memStore[key]; }
+  },
+};
+
+// ─────────────────────────────────────────────────────────────
+// Auth store — pure JS, no React
+// ─────────────────────────────────────────────────────────────
+const AuthStore = {
+  getUsers() {
+    try { return JSON.parse(safeStore.get(STORE_USERS) || '[]'); }
+    catch { return []; }
+  },
+  saveUsers(users) { safeStore.set(STORE_USERS, JSON.stringify(users)); },
+  getSession() {
+    try { return JSON.parse(safeStore.get(STORE_SESSION) || 'null'); }
+    catch { return null; }
+  },
+  setSession(user) { safeStore.set(STORE_SESSION, JSON.stringify(user)); },
+  clearSession() { safeStore.remove(STORE_SESSION); },
+
+  initialsFromName(name) {
+    const parts = name.trim().split(/\s+/);
+    const head = parts[0]?.[0] || '';
+    const tail = parts.length > 1 ? parts[parts.length - 1][0] : '';
+    return (head + tail).toUpperCase() || '?';
+  },
+  colorFromName(name) {
+    const palette = ['#d97757','#6b8e6f','#b08968','#8b6f47','#c08552','#7a8c5a','#a47148','#5a8caa','#8a4220','#5e7a5a','#9a7b4f','#6b7d8a'];
+    let h = 0;
+    for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+    return palette[h % palette.length];
+  },
+
+  async login(name, password) {
+    const n = (name || '').trim();
+    if (!n) throw new Error('Falta o nome.');
+    if (!password) throw new Error('Falta a password.');
+
+    // Admin path
+    if (n.toLowerCase() === ADMIN_NAME.toLowerCase()) {
+      if (password !== ADMIN_PASS) throw new Error('Password do admin não bate certo.');
+      const session = {
+        id: 'miguel', name: ADMIN_NAME, initials: 'M',
+        color: '#1f1a14', photoDataUrl: null, isAdmin: true,
+      };
+      this.setSession(session);
+      return session;
+    }
+
+    // Regular user
+    const users = this.getUsers();
+    const u = users.find((x) => x.name.toLowerCase() === n.toLowerCase());
+    if (!u) throw new Error('Conta não encontrada. Regista-te primeiro.');
+    const hash = await sha256(password);
+    if (u.passHash !== hash) throw new Error('Password errada.');
+    const { passHash, ...session } = u;
+    this.setSession(session);
+    return session;
+  },
+
+  async register({ name, password, passwordRepeat, photoDataUrl }) {
+    const n = (name || '').trim();
+    if (!n) throw new Error('Falta o nome.');
+    if (n.toLowerCase() === ADMIN_NAME.toLowerCase()) throw new Error('Esse nome é reservado. Escolhe outro.');
+    if (!password || password.length < 4) throw new Error('Password tem de ter 4+ caracteres.');
+    if (password !== passwordRepeat) throw new Error('As passwords não batem certo.');
+    const users = this.getUsers();
+    if (users.find((u) => u.name.toLowerCase() === n.toLowerCase())) {
+      throw new Error('Já existe alguém com esse nome.');
+    }
+    const passHash = await sha256(password);
+    const user = {
+      id: 'u_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      name: n,
+      initials: this.initialsFromName(n),
+      color: this.colorFromName(n),
+      photoDataUrl: photoDataUrl || null,
+      passHash,
+      isAdmin: false,
+      createdAt: Date.now(),
+    };
+    users.push(user);
+    this.saveUsers(users);
+    const { passHash: _, ...session } = user;
+    this.setSession(session);
+    return session;
+  },
+};
+
+// ─────────────────────────────────────────────────────────────
+// VoteStore — persiste votos por utilizador + fase em localStorage
+// ─────────────────────────────────────────────────────────────
+const VoteStore = {
+  _key: 'pa-votes-v2',
+  load() {
+    try { return JSON.parse(safeStore.get(this._key) || '{}'); } catch { return {}; }
+  },
+  getVote(userId, phaseKey) {
+    return this.load()[userId + '::' + phaseKey] || null;
+  },
+  setVote(userId, phaseKey, voteId) {
+    const d = this.load();
+    d[userId + '::' + phaseKey] = voteId;
+    safeStore.set(this._key, JSON.stringify(d));
+  },
+  clearVote(userId, phaseKey) {
+    const d = this.load();
+    delete d[userId + '::' + phaseKey];
+    safeStore.set(this._key, JSON.stringify(d));
+  },
+};
+
 function useAuth() {
-  const [user,    setUser]    = aUseState(null);
-  const [profile, setProfile] = aUseState(null);
-  const [loading, setLoading] = aUseState(true);
-
-  aUseEffect(() => {
-    // Check existing session
-    sb.auth.getSession().then(({ data }) => {
-      const u = data.session?.user ?? null;
-      setUser(u);
-      if (u) {
-        DB.getProfile(u.id).then((p) => { setProfile(p); setLoading(false); });
-      } else {
-        setLoading(false);
-      }
-    }).catch(() => {
-      // Graceful fallback if Supabase auth is unavailable (e.g. sandboxed iframe)
-      setLoading(false);
-    });
-
-    // Listen for auth changes
-    const { data: { subscription } } = sb.auth.onAuthStateChange((event, session) => {
-      const u = session?.user ?? null;
-      setUser(u);
-      if (u) {
-        DB.getProfile(u.id).then((p) => {
-          // If profile doesn't exist yet (new user), wait a bit and retry
-          // (profile is created by a Supabase trigger after signUp)
-          if (!p) {
-            setTimeout(() => {
-              DB.getProfile(u.id).then((p2) => { setProfile(p2); setLoading(false); })
-                .catch(() => setLoading(false));
-            }, 1500);
-          } else {
-            setProfile(p); setLoading(false);
-          }
-        }).catch(() => setLoading(false));
-      } else {
-        setProfile(null);
-        setLoading(false);
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
-
-  const login = async (name, password) => {
-    setLoading(true);
-    try {
-      const u = await DB.signIn({ name, password });
-      // onAuthStateChange will update state
-      return u;
-    } catch (e) {
-      setLoading(false);
-      throw e;
-    }
+  const [user, setUser] = aUseState(() => AuthStore.getSession());
+  return {
+    user,
+    login: async (name, pw) => { const u = await AuthStore.login(name, pw); setUser(u); return u; },
+    register: async (data) => { const u = await AuthStore.register(data); setUser(u); return u; },
+    logout: () => { AuthStore.clearSession(); setUser(null); },
   };
-
-  const register = async (data) => {
-    setLoading(true);
-    try {
-      await DB.signUp(data);
-      // After signup, immediately sign in so the session is established
-      // (Supabase may not auto-confirm email, so we force signIn here)
-      const u = await DB.signIn({ name: data.name, password: data.password });
-      // onAuthStateChange will update state, but set loading false as safety
-      return u;
-    } catch (e) {
-      setLoading(false);
-      throw e;
-    }
-  };
-
-  const logout = async () => {
-    await DB.signOut();
-    setUser(null);
-    setProfile(null);
-  };
-
-  return { user, profile, loading, login, register, logout };
 }
 
-// Photo file → downscaled data URL (for preview before upload)
+// File → data URL with downscale (keeps localStorage manageable)
 async function readPhotoFile(file) {
   if (!file) return null;
   const dataUrl = await new Promise((res, rej) => {
@@ -2866,58 +2578,74 @@ async function readPhotoFile(file) {
   });
   const max = 400;
   const scale = Math.min(1, max / Math.max(img.width, img.height));
+  const w = Math.round(img.width * scale);
+  const h = Math.round(img.height * scale);
   const canvas = document.createElement('canvas');
-  canvas.width  = Math.round(img.width  * scale);
-  canvas.height = Math.round(img.height * scale);
-  canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+  canvas.width = w; canvas.height = h;
+  canvas.getContext('2d').drawImage(img, 0, 0, w, h);
   return canvas.toDataURL('image/jpeg', 0.85);
 }
 
-// ── Auth layout (split screen) ─────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// AuthLayout — split-screen brand + form
+// ─────────────────────────────────────────────────────────────
 function AuthLayout({ children, narrow }) {
   return (
     <div style={{
-      width: '100%', height: '100%', minHeight: 640,
+      width: '100%', height: '100%', minHeight: 700,
       background: 'var(--pa-bg)',
       display: 'flex', flexDirection: narrow ? 'column' : 'row',
-      fontFamily: 'var(--pa-body)', color: 'var(--pa-ink)', overflow: 'auto',
+      fontFamily: 'var(--pa-body)',
+      color: 'var(--pa-ink)',
+      overflow: 'auto',
     }}>
       {/* brand panel */}
       <div style={{
-        flex: narrow ? '0 0 auto' : 1, minHeight: narrow ? 200 : 'auto',
-        padding: narrow ? '40px 28px 28px' : '60px 52px',
+        flex: narrow ? '0 0 auto' : 1,
+        minHeight: narrow ? 220 : 'auto',
+        padding: narrow ? '48px 28px 36px' : '64px 56px',
         background: 'var(--pa-ink)', color: '#fff',
         display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
         position: 'relative', overflow: 'hidden',
       }}>
-        <div style={{ position: 'absolute', top: -120, right: -80, width: 360, height: 360, borderRadius: '50%', background: 'var(--pa-accent)', opacity: 0.22 }} />
+        <div style={{
+          position: 'absolute', top: -120, right: -80, width: 360, height: 360,
+          borderRadius: '50%', background: 'var(--pa-accent)', opacity: 0.22,
+        }} />
         <div style={{ position: 'relative' }}>
           <Logo size={16} color="#fff" />
         </div>
         <div style={{ position: 'relative' }}>
-          <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 11, letterSpacing: 1.4, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase' }}>
-            A sua aplicação de grupo
+          <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 11, letterSpacing: 1.4, color: 'rgba(255,255,255,0.55)', textTransform: 'uppercase' }}>
+            14ª edição · em curso
           </div>
-          <div style={{ marginTop: 10, fontFamily: 'var(--pa-display)', fontSize: narrow ? 30 : 48, fontWeight: 600, letterSpacing: -1.5, lineHeight: 0.98 }}>
-            Perdidos<br/><span style={{ color: 'var(--pa-accent)' }}>Algures.</span>
+          <div style={{
+            marginTop: 10,
+            fontFamily: 'var(--pa-display)', fontSize: narrow ? 32 : 52, fontWeight: 600,
+            letterSpacing: -1.5, lineHeight: 0.98,
+          }}>
+            Tropa<br/><span style={{ color: 'var(--pa-accent)' }}>Mediterrânica.</span>
           </div>
-          {!narrow && <div style={{ marginTop: 14, fontSize: 14, color: 'rgba(255,255,255,0.65)', maxWidth: 340, lineHeight: 1.5 }}>
-            Votem nos destinos, escolham o alojamento, marquem os dias. Tudo junto, sem WhatsApp a explodir.
+          {!narrow && <div style={{
+            marginTop: 16, fontSize: 15, color: 'rgba(255,255,255,0.7)', maxWidth: 340, lineHeight: 1.5,
+          }}>
+            Algures entre o sol e o vinho. Entra com a tua conta para votar, sugerir e planear.
           </div>}
         </div>
         {!narrow && (
-          <div style={{ position: 'relative', fontFamily: 'var(--pa-mono)', fontSize: 10.5, color: 'rgba(255,255,255,0.4)', letterSpacing: 1 }}>
-            Só para o grupo · privado
+          <div style={{ position: 'relative', fontFamily: 'var(--pa-mono)', fontSize: 11, color: 'rgba(255,255,255,0.5)', letterSpacing: 1 }}>
+            Só para o grupo · sem partilha pública
           </div>
         )}
       </div>
 
       {/* form panel */}
       <div style={{
-        flex: 1, padding: narrow ? '32px 28px 52px' : '60px 52px',
+        flex: narrow ? '1 1 auto' : 1,
+        padding: narrow ? '32px 28px 56px' : '64px 56px',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
-        <div style={{ width: '100%', maxWidth: 360 }}>
+        <div style={{ width: '100%', maxWidth: 380 }}>
           {children}
         </div>
       </div>
@@ -2925,7 +2653,9 @@ function AuthLayout({ children, narrow }) {
   );
 }
 
-// ── Login screen ───────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// Login screen
+// ─────────────────────────────────────────────────────────────
 function LoginScreen({ auth, onSwitch, narrow }) {
   const [name, setName] = aUseState('');
   const [pw, setPw]     = aUseState('');
@@ -2941,29 +2671,27 @@ function LoginScreen({ auth, onSwitch, narrow }) {
 
   return (
     <AuthLayout narrow={narrow}>
-      <div style={{ fontFamily: 'var(--pa-display)', fontSize: 34, fontWeight: 600, letterSpacing: -1.2, lineHeight: 1 }}>
+      <div style={{ fontFamily: 'var(--pa-display)', fontSize: 36, fontWeight: 600, letterSpacing: -1.2, lineHeight: 1 }}>
         Bem-vindo<br/>de volta.
       </div>
       <div style={{ marginTop: 10, color: 'var(--pa-muted)', fontSize: 14 }}>
-        Entra com o nome e a password que criaste.
+        Inicia sessão para entrar na edição em curso.
       </div>
 
       <form onSubmit={submit} style={{ marginTop: 28, display: 'flex', flexDirection: 'column', gap: 14 }}>
         <Field label="O teu nome" placeholder="Rita / Tiago / ..." value={name} onChange={setName} />
         <AuthPasswordField label="Password" value={pw} onChange={setPw} />
         {err && <AuthError msg={err} />}
-        <button type="submit" disabled={busy || !name || !pw} style={{
+        <button type="submit" disabled={busy} style={{
           marginTop: 6, height: 52, borderRadius: 999, border: 'none',
-          background: 'var(--pa-ink)', color: '#fff',
-          cursor: (busy || !name || !pw) ? 'default' : 'pointer',
+          background: 'var(--pa-ink)', color: '#fff', cursor: busy ? 'default' : 'pointer',
           fontFamily: 'var(--pa-body)', fontSize: 15, fontWeight: 600,
-          opacity: (busy || !name || !pw) ? 0.5 : 1, transition: 'opacity .15s',
+          opacity: busy ? 0.5 : 1,
         }}>{busy ? 'A entrar...' : 'Entrar'}</button>
       </form>
 
-      <div style={{ marginTop: 24, paddingTop: 22, borderTop: '1px solid var(--pa-line)', textAlign: 'center', fontSize: 13, color: 'var(--pa-muted)' }}>
-        Ainda não tens conta?{' '}
-        <button type="button" onClick={onSwitch} style={{
+      <div style={{ marginTop: 22, paddingTop: 22, borderTop: '1px solid var(--pa-line)', textAlign: 'center', fontSize: 13.5, color: 'var(--pa-muted)' }}>
+        Ainda não tens conta? <button type="button" onClick={onSwitch} style={{
           background: 'none', border: 'none', color: 'var(--pa-accent)',
           fontFamily: 'inherit', fontSize: 'inherit', fontWeight: 600, cursor: 'pointer', padding: 0,
         }}>Cria a tua →</button>
@@ -2972,76 +2700,72 @@ function LoginScreen({ auth, onSwitch, narrow }) {
   );
 }
 
-// ── Register screen ────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// Register screen
+// ─────────────────────────────────────────────────────────────
 function RegisterScreen({ auth, onSwitch, narrow }) {
   const [name, setName]   = aUseState('');
   const [pw, setPw]       = aUseState('');
   const [pw2, setPw2]     = aUseState('');
-  const [photoFile, setPhotoFile] = aUseState(null);
-  const [photoPreview, setPhotoPreview] = aUseState(null);
+  const [photo, setPhoto] = aUseState(null);
   const [busy, setBusy]   = aUseState(false);
   const [err, setErr]     = aUseState(null);
   const fileRef = aUseRef(null);
 
   const onPick = async (e) => {
-    const f = e.target.files?.[0];
+    const f = e.target.files && e.target.files[0];
     if (!f) return;
-    setPhotoFile(f);
-    try { const url = await readPhotoFile(f); setPhotoPreview(url); }
-    catch {}
+    try {
+      const url = await readPhotoFile(f);
+      setPhoto(url);
+    } catch { setErr('Não consegui ler a foto.'); }
   };
 
   const submit = async (e) => {
     e.preventDefault();
-    if (pw !== pw2) { setErr('As passwords não batem certo.'); return; }
     setBusy(true); setErr(null);
-    try {
-      await auth.register({ name, password: pw, photoFile });
-      // auth.register now auto-signs in, so onAuthStateChange will redirect
-    }
-    catch (ex) {
-      // If signUp succeeded but signIn failed (e.g. email not confirmed),
-      // show a helpful message instead of the raw error
-      if (ex.message && ex.message.match(/confirm/i)) {
-        setErr('Conta criada! A tentar entrar automaticamente... Se ficar preso, tenta fazer login manualmente.');
-      } else {
-        setErr(ex.message);
-      }
-      setBusy(false);
-    }
+    try { await auth.register({ name, password: pw, passwordRepeat: pw2, photoDataUrl: photo }); }
+    catch (ex) { setErr(ex.message); setBusy(false); }
   };
 
-  const color = name ? colorFromName(name) : 'var(--pa-muted)';
-  const initials = name ? initialsFromName(name) : '?';
+  const previewMember = {
+    initials: name ? AuthStore.initialsFromName(name) : '?',
+    color: name ? AuthStore.colorFromName(name) : 'var(--pa-muted)',
+    photoDataUrl: photo,
+  };
 
   return (
     <AuthLayout narrow={narrow}>
-      <div style={{ fontFamily: 'var(--pa-display)', fontSize: 34, fontWeight: 600, letterSpacing: -1.2, lineHeight: 1 }}>
+      <div style={{ fontFamily: 'var(--pa-display)', fontSize: 36, fontWeight: 600, letterSpacing: -1.2, lineHeight: 1 }}>
         Bora arrancar.
       </div>
       <div style={{ marginTop: 10, color: 'var(--pa-muted)', fontSize: 14 }}>
-        Nome, foto (opcional) e uma password.
+        Nome, foto e uma password. Mais nada.
       </div>
 
       <form onSubmit={submit} style={{ marginTop: 24, display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {/* Photo picker */}
+        {/* Photo dropzone */}
         <button type="button" onClick={() => fileRef.current?.click()} style={{
           display: 'flex', alignItems: 'center', gap: 14,
           padding: 14, borderRadius: 14, cursor: 'pointer', textAlign: 'left',
           background: '#fff', border: '1px solid var(--pa-line)',
         }}>
           <div style={{
-            width: 52, height: 52, borderRadius: 52, flexShrink: 0,
-            background: photoPreview ? `center/cover no-repeat url(${photoPreview})` : color,
-            color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontFamily: 'var(--pa-display)', fontWeight: 600, fontSize: 18, overflow: 'hidden',
-          }}>{!photoPreview && initials}</div>
+            width: 56, height: 56, borderRadius: 56, flexShrink: 0,
+            background: photo ? `#000 center/cover no-repeat url(${photo})` : previewMember.color,
+            color: '#fff',
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            fontFamily: 'var(--pa-display)', fontWeight: 600, fontSize: 20,
+            overflow: 'hidden',
+          }}>
+            {!photo && previewMember.initials}
+          </div>
           <div>
             <div style={{ fontFamily: 'var(--pa-body)', fontSize: 13, fontWeight: 600 }}>
-              {photoPreview ? 'Trocar foto' : 'Adicionar foto'}
+              {photo ? 'Trocar foto' : 'Põe a tua cara'}
             </div>
             <div style={{ fontSize: 11.5, color: 'var(--pa-muted)', marginTop: 2 }}>
-              Opcional · JPG ou PNG
+              Opcional. Se saltares, fica com as iniciais.
             </div>
           </div>
         </button>
@@ -3049,22 +2773,20 @@ function RegisterScreen({ auth, onSwitch, narrow }) {
 
         <Field label="Como te chamas" placeholder="Tiago, Matilde, ..." value={name} onChange={setName} />
         <AuthPasswordField label="Password" value={pw} onChange={setPw} />
-        <AuthPasswordField label="Repete a password" value={pw2} onChange={setPw2} />
+        <AuthPasswordField label="Repete" value={pw2} onChange={setPw2} />
 
         {err && <AuthError msg={err} />}
 
-        <button type="submit" disabled={busy || !name || !pw} style={{
+        <button type="submit" disabled={busy} style={{
           marginTop: 6, height: 52, borderRadius: 999, border: 'none',
-          background: 'var(--pa-accent)', color: '#fff',
-          cursor: (busy || !name || !pw) ? 'default' : 'pointer',
+          background: 'var(--pa-accent)', color: '#fff', cursor: busy ? 'default' : 'pointer',
           fontFamily: 'var(--pa-body)', fontSize: 15, fontWeight: 600,
-          opacity: (busy || !name || !pw) ? 0.5 : 1, transition: 'opacity .15s',
+          opacity: busy ? 0.5 : 1,
         }}>{busy ? 'A criar...' : 'Criar conta'}</button>
       </form>
 
-      <div style={{ marginTop: 24, paddingTop: 22, borderTop: '1px solid var(--pa-line)', textAlign: 'center', fontSize: 13, color: 'var(--pa-muted)' }}>
-        Já tens conta?{' '}
-        <button type="button" onClick={onSwitch} style={{
+      <div style={{ marginTop: 22, paddingTop: 22, borderTop: '1px solid var(--pa-line)', textAlign: 'center', fontSize: 13.5, color: 'var(--pa-muted)' }}>
+        Já tens? <button type="button" onClick={onSwitch} style={{
           background: 'none', border: 'none', color: 'var(--pa-accent)',
           fontFamily: 'inherit', fontSize: 'inherit', fontWeight: 600, cursor: 'pointer', padding: 0,
         }}>Inicia sessão →</button>
@@ -3073,18 +2795,30 @@ function RegisterScreen({ auth, onSwitch, narrow }) {
   );
 }
 
+// Password input with reveal toggle
 function AuthPasswordField({ label, value, onChange }) {
   const [show, setShow] = aUseState(false);
   return (
     <label style={{ display: 'block' }}>
-      <span style={{ fontFamily: 'var(--pa-mono)', fontSize: 10, letterSpacing: 1.2, color: 'var(--pa-muted)', textTransform: 'uppercase' }}>
-        {label}
-      </span>
-      <div style={{ marginTop: 6, padding: '12px 14px', borderRadius: 12, background: '#fff', border: '1px solid var(--pa-line)', display: 'flex', alignItems: 'center', gap: 6 }}>
+      <span style={{
+        fontFamily: 'var(--pa-mono)', fontSize: 10, letterSpacing: 1.2,
+        color: 'var(--pa-muted)', textTransform: 'uppercase',
+      }}>{label}</span>
+      <div style={{
+        marginTop: 6, padding: '12px 14px', borderRadius: 12,
+        background: '#fff', border: '1px solid var(--pa-line)',
+        display: 'flex', alignItems: 'center', gap: 6,
+      }}>
         <input value={value || ''} onChange={(e) => onChange(e.target.value)}
           type={show ? 'text' : 'password'} placeholder="••••••••"
-          style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontFamily: 'var(--pa-body)', fontSize: 15, color: 'var(--pa-ink)' }} />
-        <button type="button" onClick={() => setShow((s) => !s)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 4, color: 'var(--pa-muted)' }}>
+          style={{
+            flex: 1, border: 'none', outline: 'none', background: 'transparent',
+            fontFamily: 'var(--pa-body)', fontSize: 15, color: 'var(--pa-ink)',
+          }} />
+        <button type="button" onClick={() => setShow((s) => !s)} style={{
+          border: 'none', background: 'transparent', cursor: 'pointer',
+          padding: 4, color: 'var(--pa-muted)',
+        }}>
           <svg width="18" height="14" viewBox="0 0 18 14" fill="none">
             <path d="M1 7s2.5-5 8-5 8 5 8 5-2.5 5-8 5S1 7 1 7z" stroke="currentColor" strokeWidth="1.4"/>
             <circle cx="9" cy="7" r="2.2" stroke="currentColor" strokeWidth="1.4"/>
@@ -3098,13 +2832,18 @@ function AuthPasswordField({ label, value, onChange }) {
 
 function AuthError({ msg }) {
   return (
-    <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(217,119,87,0.14)', color: '#8a4220', fontSize: 13, fontWeight: 500, display: 'flex', gap: 8, alignItems: 'center' }}>
+    <div style={{
+      padding: '10px 14px', borderRadius: 10,
+      background: 'rgba(217,119,87,0.14)', color: '#8a4220',
+      fontSize: 13, fontWeight: 500, display: 'flex', gap: 8, alignItems: 'center',
+    }}>
       <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6" stroke="currentColor" strokeWidth="1.3" fill="none"/><path d="M7 4v3.5M7 10v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
       {msg}
     </div>
   );
 }
 
+// AuthGate — chooses login vs register
 function AuthGate({ auth, narrow }) {
   const [mode, setMode] = aUseState('login');
   if (mode === 'register') return <RegisterScreen auth={auth} onSwitch={() => setMode('login')} narrow={narrow} />;
@@ -3112,111 +2851,95 @@ function AuthGate({ auth, narrow }) {
 }
 
 Object.assign(window, {
-  useAuth, AuthLayout, LoginScreen, RegisterScreen, AuthGate,
-  AuthPasswordField, AuthError, readPhotoFile,
+  safeStore, VoteStore, AuthStore, useAuth, AuthLayout, LoginScreen, RegisterScreen, AuthGate,
+  AuthPasswordField, AuthError, readPhotoFile, ADMIN_NAME,
 });
-
 </script>
-<script type="text/babel">
-// Perdidos Algures — Chat (Supabase realtime).
-// Messages persisted in DB, new ones arrive via realtime subscription.
-// Falls back to seeded messages if Supabase is unavailable.
+<script type="text/babel">// Perdidos Algures — group chat: store + panel + mobile bubble.
+// Messages live in safeStore (localStorage with in-memory fallback).
+// Seeded with a few in-character messages so the panel isn't empty on first run.
 
-const { useState: cUseState, useEffect: cUseEffect, useRef: cUseRef, useContext: cUseContext } = React;
+const { useState: cUseState, useEffect: cUseEffect, useRef: cUseRef } = React;
 
-// Messages are managed through AppCtx — the panel just reads/writes to it.
-// EditionId and userId come from AppCtx as well.
+const CHAT_KEY = 'pa-chat-14';
 
 const CHAT_SEED = [
-  { id: 'seed1', by_profile: { id: 'tiago',   name: 'Tiago',   initials: 'TM', color: '#6b8e6f', is_admin: false }, text: 'Pessoal, já podem começar a sugerir alojamentos.',    created_at: '2026-05-20T10:00:00Z' },
-  { id: 'seed2', by_profile: { id: 'matilde', name: 'Matilde', initials: 'MS', color: '#b08968', is_admin: false }, text: 'A Casa do Faro tem 4 quartos, fiquei a olhar 👀',        created_at: '2026-05-20T10:12:00Z' },
-  { id: 'seed3', by_profile: { id: 'rita',    name: 'Rita',    initials: 'RP', color: '#d97757', is_admin: false }, text: 'Cíes em junho vai ser brutal, mas o ferry tem horário fixo', created_at: '2026-05-21T09:30:00Z' },
-  { id: 'seed4', by_profile: { id: 'joao',    name: 'João',    initials: 'JF', color: '#8b6f47', is_admin: false }, text: 'Voto Bouzas + dia nas ilhas, melhor dos dois mundos', created_at: '2026-05-21T14:20:00Z' },
-  { id: 'seed5', by_profile: { id: 'miguel',  name: 'Miguel',  initials: 'M',  color: '#1f1a14', is_admin: true  }, text: 'Empate na votação. Usem o Borda Count ou a Segunda Volta para decidir.', created_at: '2026-05-22T19:00:00Z' },
+  { id: 1, who: 'miguel',  text: 'Bora, malta. 14ª edição arrancou.',                          when: 'há 12 dias' },
+  { id: 2, who: 'matilde', text: 'Boa! Já sabia que era para sair daqui ✈️',                  when: 'há 12 dias' },
+  { id: 3, who: 'tiago',   text: 'Eu meto Samil. Casa partilhada bonita, a 200m da praia.',    when: 'há 5 dias' },
+  { id: 4, who: 'rita',    text: 'Cíes em junho deve ser brutal',                              when: 'há 4 dias' },
+  { id: 5, who: 'joao',    text: 'E se misturarmos? Dormir em Bouzas, dia nas ilhas',          when: 'há 3 dias' },
+  { id: 6, who: 'matilde', text: 'Sim please',                                                  when: 'há 3 dias' },
+  { id: 7, who: 'ines',    text: 'O preço por noite tem de ficar abaixo dos 70€ pls',          when: 'há 2 dias' },
+  { id: 8, who: 'tiago',   text: 'A Casa do Faro fica em 65, vejam o link 👀',                 when: 'há 2 dias' },
+  { id: 9, who: 'miguel',  text: 'Empate apertado entre Casa do Faro e Glamping. Vou decidir.', when: 'há 4h' },
 ];
 
-// ── ChatPanel ─────────────────────────────────────────────────
-function ChatPanel({ me, editionId, compact = false }) {
-  const [messages, setMessages] = cUseState([]);
-  const [text, setText]         = cUseState('');
-  const [loading, setLoading]   = cUseState(true);
-  const [realtimeOk, setRealtimeOk] = cUseState(false);
-  const scrollRef  = cUseRef(null);
-  const chanRef    = cUseRef(null);
-  const pollRef    = cUseRef(null);
-  const pendingRef = cUseRef(new Set()); // track optimistic IDs
+const ChatStore = {
+  load() {
+    try {
+      const raw = safeStore.get(CHAT_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch {}
+    return CHAT_SEED.slice();
+  },
+  save(messages) { safeStore.set(CHAT_KEY, JSON.stringify(messages)); },
+};
 
-  const loadMessages = cUseRef(null);
-  loadMessages.current = async () => {
-    if (!editionId) return;
-    const msgs = await DB.getMessages(editionId).catch(() => null);
-    if (msgs) setMessages(msgs.length > 0 ? msgs : CHAT_SEED);
-  };
+// Hook: shared chat state. Lives on window so all panels (desktop rail +
+// mobile sheet) stay in sync within a single page lifetime.
+const _chatListeners = new Set();
+let _chatCache = null;
 
-  cUseEffect(() => {
-    if (!editionId) {
-      setMessages(CHAT_SEED);
-      setLoading(false);
-      return;
+function getChatMessages() {
+  if (!_chatCache) _chatCache = ChatStore.load();
+  return _chatCache;
+}
+
+function pushChatMessage(msg) {
+  _chatCache = [...getChatMessages(), msg];
+  ChatStore.save(_chatCache);
+  _chatListeners.forEach((fn) => fn(_chatCache.slice()));
+}
+
+function deleteChatMessage(id) {
+  _chatCache = getChatMessages().filter((m) => m.id !== id);
+  ChatStore.save(_chatCache);
+  _chatListeners.forEach((fn) => fn(_chatCache.slice()));
+}
+
+// Cross-tab / cross-window sync via storage event
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key === CHAT_KEY) {
+      try {
+        _chatCache = e.newValue ? JSON.parse(e.newValue) : CHAT_SEED.slice();
+        _chatListeners.forEach((fn) => fn(_chatCache.slice()));
+      } catch {}
     }
+  });
+}
 
-    let mounted = true;
+function useChat() {
+  const [msgs, setMsgs] = cUseState(() => getChatMessages().slice());
+  cUseEffect(() => {
+    // Re-sync on mount in case another tab changed messages while this was unmounted
+    const current = getChatMessages();
+    setMsgs(current.slice());
+    _chatListeners.add(setMsgs);
+    return () => _chatListeners.delete(setMsgs);
+  }, []);
+  return msgs;
+}
 
-    // Initial load
-    DB.getMessages(editionId).then((msgs) => {
-      if (!mounted) return;
-      setMessages(msgs.length > 0 ? msgs : CHAT_SEED);
-      setLoading(false);
-    }).catch(() => { if (mounted) { setMessages(CHAT_SEED); setLoading(false); } });
-
-    // Realtime subscription — handles INSERT and DELETE
-    const ch = sb.channel(`msgs:${editionId}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `edition_id=eq.${editionId}` },
-        async (payload) => {
-          if (!mounted) return;
-          const { data } = await sb.from('messages')
-            .select('*, by_profile:profiles!by_user(id, name, initials, color, photo_url, is_admin)')
-            .eq('id', payload.new.id).single();
-          if (data && mounted) {
-            // Remove any optimistic placeholder for this message
-            pendingRef.current.delete(data.id);
-            setMessages((prev) => {
-              // avoid duplicate if already added optimistically
-              if (prev.some((m) => m.id === data.id)) return prev;
-              // remove optimistic placeholder (same text+user within 5s)
-              const filtered = prev.filter((m) => {
-                if (!m._optimistic) return true;
-                if (m.by_profile?.id === data.by_profile?.id && m.text === data.text) return false;
-                return true;
-              });
-              return [...filtered, data];
-            });
-          }
-        })
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages', filter: `edition_id=eq.${editionId}` },
-        (payload) => {
-          if (!mounted) return;
-          const deletedId = payload.old?.id;
-          if (deletedId) setMessages((prev) => prev.filter((m) => m.id !== deletedId));
-        })
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED' && mounted) setRealtimeOk(true);
-      });
-
-    chanRef.current = ch;
-
-    // Polling fallback: every 8s do a full refresh
-    // This catches cases where the realtime sub misses events
-    pollRef.current = setInterval(() => {
-      if (mounted) loadMessages.current();
-    }, 8000);
-
-    return () => {
-      mounted = false;
-      try { sb.removeChannel(ch); } catch {}
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
-  }, [editionId]);
+// ─────────────────────────────────────────────────────────────
+// ChatPanel — message list + composer. Fills its container.
+// ─────────────────────────────────────────────────────────────
+function ChatPanel({ me, compact = false }) {
+  const messages = useChat();
+  const [text, setText] = cUseState('');
+  const [hoveredId, setHoveredId] = cUseState(null);
+  const scrollRef = cUseRef(null);
 
   cUseEffect(() => {
     if (scrollRef.current) {
@@ -3224,108 +2947,112 @@ function ChatPanel({ me, editionId, compact = false }) {
     }
   }, [messages.length]);
 
-  const send = async () => {
+  const send = () => {
     const t = text.trim();
-    if (!t || !editionId || !me) return;
-    setText('');
-
-    // Optimistic: show immediately
-    const optimisticId = 'opt-' + Date.now();
-    const optimisticMsg = {
-      id: optimisticId,
-      _optimistic: true,
-      by_profile: { id: me.id, name: me.name, initials: me.initials, color: me.color, is_admin: me.isAdmin },
+    if (!t) return;
+    pushChatMessage({
+      id: Date.now(),
+      who: me.id,
       text: t,
-      created_at: new Date().toISOString(),
-    };
-    setMessages((prev) => [...prev, optimisticMsg]);
-
-    try {
-      await DB.sendMessage(editionId, me.id, t);
-      // Realtime sub will replace the optimistic entry when INSERT fires.
-      // If realtime is slow, keep the optimistic one visible.
-    } catch (e) {
-      // Mark it as failed
-      setMessages((prev) => prev.map((m) =>
-        m.id === optimisticId ? { ...m, _failed: true, text: m.text + ' ⚠' } : m
-      ));
-    }
+      when: 'agora',
+    });
+    setText('');
   };
 
-  const onKey = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } };
+  const onKey = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      {/* Connection status */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: 4, paddingBottom: 4, borderBottom: '1px solid var(--pa-line)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontFamily: 'var(--pa-mono)', fontSize: 9, letterSpacing: 0.8, color: realtimeOk ? '#3d5e44' : 'var(--pa-muted)', textTransform: 'uppercase' }}>
-          <div style={{ width: 5, height: 5, borderRadius: 5, background: realtimeOk ? '#3d5e44' : 'var(--pa-muted)' }} />
-          {realtimeOk ? 'em direto' : 'a ligar...'}
-        </div>
-      </div>
       <div ref={scrollRef} style={{
-        flex: 1, overflow: 'auto', padding: compact ? '6px 12px' : '8px 2px',
-        display: 'flex', flexDirection: 'column', gap: 10,
+        flex: 1, overflow: 'auto', padding: compact ? '6px 14px' : '8px 4px',
+        display: 'flex', flexDirection: 'column', gap: 12,
       }}>
-        {loading && (
-          <div style={{ textAlign: 'center', padding: 20, fontFamily: 'var(--pa-mono)', fontSize: 11, color: 'var(--pa-muted)', letterSpacing: 1 }}>
-            A carregar...
-          </div>
-        )}
-        {!loading && messages.map((m) => {
-          const author = m.by_profile || { name: '?', initials: '?', color: 'var(--pa-muted)' };
-          const mine = me && (m.by_profile?.id === me.id || m.by_profile?.name === me.name);
-          const isOptimistic = !!m._optimistic;
-          const isFailed = !!m._failed;
+        {messages.map((m) => {
+          const author = memberById(m.who) || { name: m.who, color: 'var(--pa-muted)', initials: '?' };
+          const mine = m.who === me.id;
+          const isHovered = hoveredId === m.id;
           return (
-            <div key={m.id} style={{ display: 'flex', gap: 8, flexDirection: mine ? 'row-reverse' : 'row', opacity: isOptimistic ? 0.65 : 1 }}>
+            <div key={m.id}
+              onMouseEnter={() => setHoveredId(m.id)}
+              onMouseLeave={() => setHoveredId(null)}
+              style={{
+                display: 'flex', gap: 8,
+                flexDirection: mine ? 'row-reverse' : 'row',
+                position: 'relative',
+              }}>
               <Avatar member={author} size={compact ? 22 : 26} />
               <div style={{ maxWidth: '78%', display: 'flex', flexDirection: 'column', alignItems: mine ? 'flex-end' : 'flex-start' }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 3, flexDirection: mine ? 'row-reverse' : 'row' }}>
-                  <span style={{ fontFamily: 'var(--pa-body)', fontSize: 11, fontWeight: 600, color: 'var(--pa-ink)' }}>
-                    {mine ? 'tu' : author.name}
-                    {author.is_admin && <span style={{ color: 'var(--pa-accent)', marginLeft: 3 }}>★</span>}
-                  </span>
-                  <span style={{ fontFamily: 'var(--pa-mono)', fontSize: 9.5, color: isFailed ? '#c44' : 'var(--pa-muted)' }}>
-                    {isOptimistic ? (isFailed ? '⚠ falhou' : '…') : new Date(m.created_at).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}
-                  </span>
-                </div>
                 <div style={{
-                  padding: '8px 12px',
-                  background: mine ? (isFailed ? 'rgba(200,60,60,0.15)' : 'var(--pa-ink)') : '#fff',
-                  color: mine ? (isFailed ? '#c44' : '#fff') : 'var(--pa-ink)',
-                  borderRadius: 12,
-                  borderTopLeftRadius: mine ? 12 : 4,
-                  borderTopRightRadius: mine ? 4 : 12,
-                  border: (mine && !isFailed) ? 'none' : '1px solid var(--pa-line)',
-                  fontFamily: 'var(--pa-body)', fontSize: compact ? 12.5 : 13.5,
-                  lineHeight: 1.4, wordWrap: 'break-word', whiteSpace: 'pre-wrap',
-                }}>{m.text}</div>
+                  display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 3,
+                  flexDirection: mine ? 'row-reverse' : 'row',
+                }}>
+                  <span style={{ fontFamily: 'var(--pa-body)', fontSize: 11.5, fontWeight: 600, color: 'var(--pa-ink)' }}>
+                    {mine ? 'tu' : author.name}
+                    {author.isAdmin && <span style={{ color: 'var(--pa-accent)', marginLeft: 4 }}>★</span>}
+                  </span>
+                  <span style={{ fontFamily: 'var(--pa-mono)', fontSize: 9.5, color: 'var(--pa-muted)' }}>{m.when}</span>
+                </div>
+                <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6, flexDirection: mine ? 'row' : 'row-reverse' }}>
+                  {/* Admin delete button */}
+                  {me.isAdmin && isHovered && (
+                    <button
+                      onClick={() => deleteChatMessage(m.id)}
+                      title="Apagar mensagem"
+                      style={{
+                        width: 20, height: 20, borderRadius: 999, border: 'none',
+                        background: 'rgba(138,66,32,0.15)', color: '#8a4220',
+                        cursor: 'pointer', display: 'flex', alignItems: 'center',
+                        justifyContent: 'center', flexShrink: 0, padding: 0,
+                        fontSize: 11, fontWeight: 700, lineHeight: 1,
+                      }}>×</button>
+                  )}
+                  <div style={{
+                    padding: '8px 12px',
+                    background: mine ? 'var(--pa-ink)' : '#fff',
+                    color: mine ? '#fff' : 'var(--pa-ink)',
+                    borderRadius: 12,
+                    borderTopLeftRadius: mine ? 12 : 4,
+                    borderTopRightRadius: mine ? 4 : 12,
+                    border: mine ? 'none' : '1px solid var(--pa-line)',
+                    fontFamily: 'var(--pa-body)', fontSize: 13, lineHeight: 1.4,
+                    wordWrap: 'break-word', whiteSpace: 'pre-wrap',
+                  }}>{m.text}</div>
+                </div>
               </div>
             </div>
           );
         })}
       </div>
 
-      {/* Composer */}
+      {/* composer */}
       <div style={{
-        padding: compact ? '10px 12px 12px' : '10px 2px 4px',
+        padding: compact ? '10px 14px 14px' : '10px 4px 4px',
         borderTop: '1px solid var(--pa-line)',
         display: 'flex', alignItems: 'flex-end', gap: 8, flexShrink: 0,
       }}>
-        <textarea value={text} onChange={(e) => setText(e.target.value)} onKeyDown={onKey}
-          placeholder="Escreve algo..." rows={1}
-          style={{
-            flex: 1, padding: '10px 14px', borderRadius: 18,
-            background: '#fff', border: '1px solid var(--pa-line)',
-            fontFamily: 'var(--pa-body)', fontSize: 13.5, color: 'var(--pa-ink)',
-            outline: 'none', resize: 'none', boxSizing: 'border-box', maxHeight: 80, lineHeight: 1.4,
-          }} />
+        <div style={{ flex: 1, position: 'relative' }}>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={onKey}
+            placeholder="Escreve algo..."
+            rows={1}
+            style={{
+              width: '100%', padding: '10px 14px', borderRadius: 18,
+              background: '#fff', border: '1px solid var(--pa-line)',
+              fontFamily: 'var(--pa-body)', fontSize: 13.5, color: 'var(--pa-ink)',
+              outline: 'none', resize: 'none', boxSizing: 'border-box',
+              maxHeight: 80, lineHeight: 1.4,
+            }}
+          />
+        </div>
         <button onClick={send} disabled={!text.trim()} style={{
-          width: 38, height: 38, borderRadius: 999, border: 'none', flexShrink: 0,
+          width: 38, height: 38, borderRadius: 999, border: 'none',
           background: text.trim() ? 'var(--pa-accent)' : 'rgba(31,26,20,0.06)',
           color: text.trim() ? '#fff' : 'var(--pa-muted)',
-          cursor: text.trim() ? 'pointer' : 'default',
+          cursor: text.trim() ? 'pointer' : 'default', flexShrink: 0,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
           <svg width="14" height="14" viewBox="0 0 14 14"><path d="M2 7L13 2.5 9 13l-2-5z" fill="currentColor"/></svg>
@@ -3335,37 +3062,57 @@ function ChatPanel({ me, editionId, compact = false }) {
   );
 }
 
-// ── Mobile sheet ───────────────────────────────────────────────
-function MobileChatSheet({ me, editionId, open, onClose }) {
+// ─────────────────────────────────────────────────────────────
+// Mobile chat sheet — slides up from bottom on tap
+// ─────────────────────────────────────────────────────────────
+function MobileChatSheet({ me, open, onClose }) {
   if (!open) return null;
   return (
-    <div style={{ position: 'absolute', inset: 0, zIndex: 100, background: 'rgba(0,0,0,0.4)' }} onClick={onClose}>
+    <div style={{
+      position: 'absolute', inset: 0, zIndex: 100,
+      background: 'rgba(0,0,0,0.4)',
+    }} onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} style={{
-        position: 'absolute', left: 0, right: 0, bottom: 0, height: '85%',
-        background: 'var(--pa-bg)', borderTopLeftRadius: 28, borderTopRightRadius: 28,
+        position: 'absolute', left: 0, right: 0, bottom: 0,
+        height: '85%',
+        background: 'var(--pa-bg)',
+        borderTopLeftRadius: 28, borderTopRightRadius: 28,
         display: 'flex', flexDirection: 'column', overflow: 'hidden',
         boxShadow: '0 -8px 32px rgba(0,0,0,0.2)',
       }}>
-        <div style={{ padding: '14px 22px 12px', borderBottom: '1px solid var(--pa-line)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{
+          padding: '14px 22px 12px',
+          borderBottom: '1px solid var(--pa-line)',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        }}>
           <div>
-            <div style={{ fontFamily: 'var(--pa-display)', fontSize: 18, fontWeight: 600, letterSpacing: -0.3 }}>Chat do grupo</div>
-            <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 10, letterSpacing: 1, color: 'var(--pa-muted)' }}>em tempo real</div>
+            <div style={{ fontFamily: 'var(--pa-display)', fontSize: 18, fontWeight: 600, letterSpacing: -0.3 }}>
+              Chat do grupo
+            </div>
+            <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 10, letterSpacing: 1, color: 'var(--pa-muted)' }}>
+              14ª · Tropa Mediterrânica
+            </div>
           </div>
-          <button onClick={onClose} style={{ width: 32, height: 32, borderRadius: 999, border: 'none', background: 'rgba(31,26,20,0.06)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <button onClick={onClose} style={{
+            width: 32, height: 32, borderRadius: 999, border: 'none',
+            background: 'rgba(31,26,20,0.06)', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
             <svg width="12" height="12" viewBox="0 0 12 12"><path d="M3 3l6 6M9 3l-6 6" stroke="var(--pa-ink)" strokeWidth="1.5" strokeLinecap="round"/></svg>
           </button>
         </div>
-        <ChatPanel me={me} editionId={editionId} compact />
+        <ChatPanel me={me} compact />
       </div>
     </div>
   );
 }
 
-Object.assign(window, { ChatPanel, MobileChatSheet });
-
+Object.assign(window, {
+  ChatStore, ChatPanel, MobileChatSheet,
+  useChat, getChatMessages, pushChatMessage, deleteChatMessage,
+});
 </script>
-<script type="text/babel">
-// Perdidos Algures — Tie-break methods (v2: 7 methods).
+<script type="text/babel">// Perdidos Algures — Tie-break methods (v2: 7 methods).
 // Admin picks the method; some involve only admin, others re-engage the group.
 
 const { useState: tbUseState, useEffect: tbUseEffect, useRef: tbUseRef } = React;
@@ -4271,10 +4018,8 @@ Object.assign(window, {
   TieMethodPicker, TieMethodAdmin, TieMethodBorda, TieMethodScore,
   TieMethodElim, TieMethodRunoff, TieMethodPublic, TieMethodRandom,
 });
-
 </script>
-<script type="text/babel">
-// Perdidos Algures — Desktop shell + 6 phase views.
+<script type="text/babel">// Perdidos Algures — Desktop shell + 6 phase views.
 // 1440 × 900 frame. Three columns: phase stepper · main · activity rail.
 
 const { useState: dUseState, useMemo: dUseMemo, useContext: dUseContext, createContext: dCreateContext } = React;
@@ -4405,20 +4150,6 @@ function DTopBar({ me, edition, onLogout }) {
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
         {me.isAdmin && <AdminPhaseNav />}
-        {me.isAdmin && (
-          <button onClick={() => window.__openAdminPanel && window.__openAdminPanel()} title="Painel Admin" style={{
-            height: 36, padding: '0 14px', borderRadius: 999,
-            background: 'var(--pa-accent)', color: '#fff', border: 'none',
-            cursor: 'pointer', fontFamily: 'var(--pa-body)', fontSize: 12, fontWeight: 600,
-            display: 'flex', alignItems: 'center', gap: 6,
-          }}>
-            <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-              <circle cx="6.5" cy="4" r="2.5" stroke="#fff" strokeWidth="1.3"/>
-              <path d="M1 12c0-3 2.5-5 5.5-5s5.5 2 5.5 5" stroke="#fff" strokeWidth="1.3" strokeLinecap="round"/>
-            </svg>
-            Admin
-          </button>
-        )}
         {onLogout && (
           <button onClick={onLogout} title="Sair" style={{
             width: 36, height: 36, borderRadius: 999, background: '#fff',
@@ -4449,9 +4180,6 @@ function DTopBar({ me, edition, onLogout }) {
 // Left rail — phase stepper
 // ─────────────────────────────────────────────────────────────
 function DLeftRail({ phase, me }) {
-  const appCtx = React.useContext(window.AppCtx);
-  const liveMembers = appCtx?.members;
-  const members = liveMembers?.length ? liveMembers : D.members;
   return (
     <div style={{
       width: 240, padding: '24px 18px', flexShrink: 0,
@@ -4505,13 +4233,13 @@ function DLeftRail({ phase, me }) {
           A tripulação
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Stack members={members.slice(0, 8)} max={5} size={28} />
+          <Stack members={D.members.filter((m) => D.phase1.state[m.id] === 'in')} max={5} size={28} />
           <div>
             <div style={{ fontFamily: 'var(--pa-body)', fontSize: 13, fontWeight: 600 }}>
-              {members.length} a bordo
+              {Object.values(D.phase1.state).filter((s) => s === 'in').length} a bordo
             </div>
             <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 10, color: 'var(--pa-muted)' }}>
-              tripulantes
+              de {D.members.length}
             </div>
           </div>
         </div>
@@ -4519,32 +4247,30 @@ function DLeftRail({ phase, me }) {
 
       <div style={{ marginTop: 'auto', paddingTop: 20, borderTop: '1px solid var(--pa-line)' }}>
         <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 10, letterSpacing: 1.3, color: 'var(--pa-muted)', textTransform: 'uppercase', marginBottom: 8 }}>
-          Edição activa
+          Edições anteriores
         </div>
-        <div style={{ padding: '10px 12px', borderRadius: 10, background: '#fff', border: '1px solid var(--pa-line)' }}>
-          <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 9.5, letterSpacing: 1.1, color: 'var(--pa-muted)', textTransform: 'uppercase', marginBottom: 4 }}>
-            Nº {D.edition.number}
+        {D.history.slice(0, 2).map((h) => (
+          <div key={h.n} style={{ display: 'flex', gap: 10, padding: '8px 0', alignItems: 'center' }}>
+            <div style={{
+              width: 28, height: 28, borderRadius: 6, flexShrink: 0,
+              background: `repeating-linear-gradient(135deg, ${h.cover}44 0 6px, ${h.cover}22 6px 12px)`,
+            }} />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--pa-ink)' }}>{h.n}ª · {h.title}</div>
+              <div style={{ fontSize: 10.5, color: 'var(--pa-muted)' }}>{h.winner} · {h.dates}</div>
+            </div>
           </div>
-          <div style={{ fontFamily: 'var(--pa-display)', fontSize: 14, fontWeight: 600, letterSpacing: -0.3, color: 'var(--pa-ink)' }}>
-            {D.edition.title}
-          </div>
-          <div style={{ fontSize: 11.5, color: 'var(--pa-muted)', marginTop: 3, lineHeight: 1.3 }}>
-            {D.edition.subtitle}
-          </div>
-        </div>
+        ))}
       </div>
     </div>
   );
 }
 
 // ─────────────────────────────────────────────────────────────
-// Right rail — Atividade / Chat tabs (with real chat)
+// Right rail — Atividade / Chat tabs
 // ─────────────────────────────────────────────────────────────
 function DRightRail({ phase, me }) {
   const [tab, setTab] = dUseState('chat');
-  const appCtx = React.useContext(window.AppCtx);
-  const edition = appCtx?.edition;
-
   return (
     <div style={{
       width: 320, flexShrink: 0,
@@ -4552,7 +4278,10 @@ function DRightRail({ phase, me }) {
       display: 'flex', flexDirection: 'column', overflow: 'hidden',
     }}>
       <div style={{ padding: '16px 16px 0', display: 'flex', gap: 4 }}>
-        {[{ id: 'activity', label: 'Atividade' }, { id: 'chat', label: 'Chat' }].map((t) => (
+        {[
+          { id: 'activity', label: 'Atividade' },
+          { id: 'chat',     label: 'Chat' },
+        ].map((t) => (
           <button key={t.id} onClick={() => setTab(t.id)} style={{
             flex: 1, padding: '8px 12px', borderRadius: 8, border: 'none', cursor: 'pointer',
             background: tab === t.id ? 'var(--pa-ink)' : 'transparent',
@@ -4561,8 +4290,9 @@ function DRightRail({ phase, me }) {
           }}>{t.label}</button>
         ))}
       </div>
+
       <div style={{ flex: 1, minHeight: 0, padding: '12px 16px 16px', display: 'flex', flexDirection: 'column' }}>
-        {tab === 'activity' ? <DActivityList phase={phase} /> : <ChatPanel me={me} editionId={edition?.id} />}
+        {tab === 'activity' ? <DActivityList phase={phase} /> : <ChatPanel me={me} />}
       </div>
     </div>
   );
@@ -4718,62 +4448,36 @@ function DAdminBar({ children, hint, showNext = true }) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────
-// PHASE 1 — RSVP (live Supabase when AppCtx available, mock otherwise)
+// PHASE 1 — RSVP
 // ─────────────────────────────────────────────────────────────
 function DPhase1({ me }) {
-  const appCtx  = React.useContext(window.AppCtx);
-  const edition = appCtx?.edition;
-  const liveMembers = appCtx?.members;
-
-  const [rsvpMap, setRsvpMap] = dUseState({});
-  const [loading, setLoading] = dUseState(!!edition);
-
-  React.useEffect(() => {
-    if (!edition) return;
-    let mounted = true;
-    DB.getRsvp(edition.id).then((rows) => {
-      if (!mounted) return;
-      const m = {}; rows.forEach((r) => { m[r.user_id] = r.state; });
-      setRsvpMap(m); setLoading(false);
-    }).catch(() => { if (mounted) setLoading(false); });
-    const ch = DB.subscribeRsvp(edition.id, (rows) => {
-      const m = {}; rows.forEach((r) => { m[r.user_id] = r.state; });
-      setRsvpMap(m);
+  const counts = dUseMemo(() => {
+    const c = { in: 0, out: 0, maybe: 0, pending: 0 };
+    D.members.forEach((m) => {
+      const s = D.phase1.state[m.id] || 'pending';
+      c[s]++;
     });
-    return () => { mounted = false; try { sb.removeChannel(ch); } catch {} };
-  }, [edition?.id]);
-
-  const members  = (liveMembers?.length ? liveMembers : D.members);
-  const getState = (m) => edition ? (rsvpMap[m.id] || null) : (D.phase1.state[m.id] || 'pending');
-  const setMyRsvp = async (state) => {
-    if (!edition || !me) return;
-    setRsvpMap((p) => ({ ...p, [me.id]: state }));
-    await DB.upsertRsvp(edition.id, me.id, state).catch(console.error);
-  };
-
-  const counts = { in: 0, out: 0, maybe: 0, pending: 0 };
-  members.forEach((m) => { const s = getState(m) || 'pending'; if (s in counts) counts[s]++; });
-  const edTitle  = edition?.title  || D.edition.title;
-  const edNumber = edition?.number || D.edition.number;
+    return c;
+  }, []);
 
   return (
     <div style={{ flex: 1, padding: '32px 36px', display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
-      <DPhaseHeader phase={1}
-        status={edition ? 'Em curso' : 'Encerrada'} statusTone={edition ? 'accent' : 'success'}
-        title={<>Quem entra na <span style={{ color: 'var(--pa-accent)' }}>{edNumber}ª</span>?</>}
-        sub={<>O Miguel iniciou esta edição e baptizou-a de <em style={{ color: 'var(--pa-ink)' }}>"{edTitle}"</em>. Cada um diz se está dentro.</>} />
+      <DPhaseHeader phase={1} status="Encerrada" statusTone="success"
+        title={<>Quem entra na <span style={{ color: 'var(--pa-accent)' }}>14ª</span>?</>}
+        sub={<>O Miguel iniciou esta edição e baptizou-a de <em style={{ color: 'var(--pa-ink)' }}>“Tropa Mediterrânica”</em>. Cada um diz se está dentro — sem rodeios.</>} />
 
+      {/* counters */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 24 }}>
         {[
-          { l: 'Dentro',   n: counts.in,      tone: '#3d5e44',         bg: 'rgba(107,142,111,0.16)' },
-          { l: 'Fora',     n: counts.out,     tone: '#8a4220',         bg: 'rgba(217,119,87,0.18)'  },
-          { l: 'A pensar', n: counts.maybe,   tone: 'var(--pa-muted)', bg: 'rgba(31,26,20,0.05)'    },
-          { l: 'Pendente', n: counts.pending, tone: 'var(--pa-muted)', bg: 'rgba(31,26,20,0.03)'    },
+          { l: 'Dentro', n: counts.in, tone: '#3d5e44', bg: 'rgba(107,142,111,0.16)' },
+          { l: 'Fora', n: counts.out, tone: '#8a4220', bg: 'rgba(217,119,87,0.18)' },
+          { l: 'A pensar', n: counts.maybe, tone: 'var(--pa-muted)', bg: 'rgba(31,26,20,0.05)' },
         ].map((c) => (
-          <div key={c.l} style={{ background: c.bg, borderRadius: 14, padding: '14px 18px', flex: 1 }}>
+          <div key={c.l} style={{
+            background: c.bg, borderRadius: 14, padding: '14px 18px', flex: 1,
+          }}>
             <div style={{ fontFamily: 'var(--pa-display)', fontSize: 32, fontWeight: 600, color: c.tone, letterSpacing: -0.6 }}>
-              {loading ? '—' : c.n}
+              {c.n}
             </div>
             <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 10, color: c.tone, letterSpacing: 1, textTransform: 'uppercase', marginTop: 2 }}>
               {c.l}
@@ -4782,57 +4486,35 @@ function DPhase1({ me }) {
         ))}
       </div>
 
-      {edition && me && !rsvpMap[me.id] && (
-        <div style={{ background: '#fff', borderRadius: 16, border: '2px solid var(--pa-accent)', padding: '18px 20px', marginBottom: 18 }}>
-          <div style={{ fontFamily: 'var(--pa-body)', fontSize: 14, fontWeight: 600, marginBottom: 12 }}>Ainda não respondeste. Estás dentro?</div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Btn variant="accent" size="sm" onClick={() => setMyRsvp('in')}>Dentro 🙋</Btn>
-            <Btn variant="soft"   size="sm" onClick={() => setMyRsvp('maybe')}>A pensar 🤔</Btn>
-            <Btn variant="ghost"  size="sm" onClick={() => setMyRsvp('out')}>Fora 😩</Btn>
-          </div>
-        </div>
-      )}
-
+      {/* members */}
       <div style={{ background: '#fff', borderRadius: 18, border: '1px solid var(--pa-line)', overflow: 'hidden' }}>
-        {loading && edition ? (
-          <div style={{ padding: 28, textAlign: 'center', fontFamily: 'var(--pa-mono)', fontSize: 11, letterSpacing: 1, color: 'var(--pa-muted)', textTransform: 'uppercase' }}>
-            A carregar...
-          </div>
-        ) : members.map((m, i) => {
-          const s = getState(m) || 'pending';
-          const isMe = me && m.id === me.id;
-          const labels = { in: 'Dentro', out: 'Fora', maybe: 'A pensar', pending: 'Sem resposta' };
-          const tones  = { in: 'success', out: 'warn', maybe: 'default', pending: 'muted' };
+        {D.members.map((m, i) => {
+          const s = D.phase1.state[m.id] || 'pending';
+          const labels = { in: 'Dentro', out: 'Fora', maybe: 'A pensar', pending: 'Sem responder' };
+          const tones = { in: 'success', out: 'warn', maybe: 'default', pending: 'muted' };
           return (
             <div key={m.id} style={{
-              display: 'flex', alignItems: 'center', gap: 14, padding: '14px 20px',
+              display: 'flex', alignItems: 'center', gap: 14,
+              padding: '14px 20px',
               borderTop: i === 0 ? 'none' : '1px solid var(--pa-line)',
             }}>
               <Avatar member={m} size={36} />
               <div style={{ flex: 1 }}>
-                <div style={{ fontFamily: 'var(--pa-body)', fontSize: 15, fontWeight: 600 }}>
-                  {m.name}
-                  {m.isAdmin && <span style={{ color: 'var(--pa-accent)', fontSize: 12, fontWeight: 400, marginLeft: 6 }}>admin</span>}
-                  {isMe && <span style={{ color: 'var(--pa-muted)', fontSize: 12, fontWeight: 400, marginLeft: 6 }}>· tu</span>}
+                <div style={{ fontFamily: 'var(--pa-body)', fontSize: 15, fontWeight: 600, color: 'var(--pa-ink)' }}>
+                  {m.name} {m.isAdmin && <span style={{ color: 'var(--pa-accent)', fontSize: 12, fontWeight: 500 }}>· admin</span>}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--pa-muted)' }}>
+                  {s === 'in' ? 'respondeu há 11 dias' : s === 'out' ? '“desta vez não consigo, desculpem”' : 'a pensar'}
                 </div>
               </div>
-              {isMe && edition && s !== 'pending' ? (
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  {['in','maybe','out'].filter((x) => x !== s).map((x) => (
-                    <Btn key={x} variant="ghost" size="sm" onClick={() => setMyRsvp(x)}>
-                      {x === 'in' ? 'Dentro' : x === 'out' ? 'Fora' : 'A pensar'}
-                    </Btn>
-                  ))}
-                  <Pill tone={tones[s]}>{labels[s]}</Pill>
-                </div>
-              ) : <Pill tone={tones[s]}>{labels[s]}</Pill>}
+              <Pill tone={tones[s]}>{labels[s]}</Pill>
             </div>
           );
         })}
       </div>
 
-      {me?.isAdmin && (
-        <DAdminBar hint={`${counts.in} confirmados · ${counts.pending} sem resposta.`}>
+      {me.isAdmin && (
+        <DAdminBar hint="A fase fechou há 6 dias com 7 confirmações.">
           <Btn variant="ghost" size="sm">Reabrir</Btn>
         </DAdminBar>
       )}
@@ -4937,7 +4619,15 @@ function DPhase2({ me }) {
 // PHASE 3 — Voting (secret until close)
 // ─────────────────────────────────────────────────────────────
 function DPhase3({ me }) {
-  const [vote, setVote] = dUseState(D.phase3.myVote);
+  const [vote, setVote] = dUseState(() => VoteStore.getVote(me.id, 'loc'));
+  const [saved, setSaved] = dUseState(false);
+
+  const handleVote = (id) => {
+    setVote(id);
+    VoteStore.setVote(me.id, 'loc', id);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
 
   return (
     <div style={{ flex: 1, padding: '32px 36px', display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
@@ -4984,7 +4674,7 @@ function DPhase3({ me }) {
           const by = memberById(s.by);
           const sel = vote === s.id;
           return (
-            <button key={s.id} onClick={() => !me.isAdmin || me.id === 'miguel' ? setVote(s.id) : null} style={{
+            <button key={s.id} onClick={() => handleVote(s.id)} style={{
               background: '#fff', borderRadius: 14, overflow: 'hidden', textAlign: 'left',
               border: sel ? '2px solid var(--pa-accent)' : '1px solid var(--pa-line)',
               cursor: 'pointer', padding: 0, position: 'relative',
@@ -5020,7 +4710,13 @@ function DPhase3({ me }) {
       <div style={{ marginTop: 18, padding: 14, borderRadius: 12, background: 'rgba(31,26,20,0.04)', display: 'flex', alignItems: 'center', gap: 12 }}>
         <svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" stroke="var(--pa-muted)" strokeWidth="1.2" fill="none"/><path d="M8 5v3.5M8 11v.5" stroke="var(--pa-muted)" strokeWidth="1.5" strokeLinecap="round"/></svg>
         <div style={{ fontSize: 12.5, color: 'var(--pa-muted)' }}>
-          Cada um vota numa só opção. {vote ? <span style={{ color: 'var(--pa-ink)', fontWeight: 600 }}>Voto guardado em {D.phase2.suggestions.find(s => s.id === vote)?.name}.</span> : 'Ainda não votaste.'}
+          Cada um vota numa só opção.{' '}
+          {saved
+            ? <span style={{ color: '#3d5e44', fontWeight: 600 }}>✓ Voto guardado!</span>
+            : vote
+              ? <span style={{ color: 'var(--pa-ink)', fontWeight: 600 }}>Voto em {D.phase2.suggestions.find(s => s.id === vote)?.name}.</span>
+              : 'Ainda não votaste.'
+          }
         </div>
       </div>
 
@@ -5038,10 +4734,8 @@ Object.assign(window, {
   DTopBar, DLeftRail, DRightRail, DPhaseHeader, DAdminBar,
   DPhase1, DPhase2, DPhase3,
 });
-
 </script>
-<script type="text/babel">
-// Perdidos Algures — Desktop phases 4–8 + the DesktopShell that routes them.
+<script type="text/babel">// Perdidos Algures — Desktop phases 4–8 + the DesktopShell that routes them.
 // Phase numbering (v2):
 //   4 = accommodation suggestions  (was: availability)
 //   5 = accommodation vote          (was: lock dates)
@@ -5247,9 +4941,18 @@ function AccommodationForm({ onCancel, onSubmit }) {
 // PHASE 5 — Vote on accommodation. Includes TIE scenario + admin tiebreak.
 // ─────────────────────────────────────────────────────────────
 function DPhase5({ me }) {
-  const [vote, setVote] = dUseState2(D.phase5.myVote);
+  const [vote, setVote] = dUseState2(() => VoteStore.getVote(me.id, 'acc'));
+  const [saved, setSaved] = dUseState2(false);
   // pickedTiebreak: { id, method } | null
   const [resolved, setResolved] = dUseState2(null);
+
+  const handleVote = (id) => {
+    if (closed) return;
+    setVote(id);
+    VoteStore.setVote(me.id, 'acc', id);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
 
   const closed = D.phase5.pendingBy.length === 0 || resolved;
   const counts = D.phase4.suggestions.map((s) => ({
@@ -5333,7 +5036,7 @@ function DPhase5({ me }) {
           const sel = vote === s.id;
           const isWinner = winner && winner.id === s.id;
           return (
-            <button key={s.id} onClick={() => !closed && setVote(s.id)} style={{
+            <button key={s.id} onClick={() => handleVote(s.id)} style={{
               background: '#fff', borderRadius: 14, padding: 16, textAlign: 'left',
               border: isWinner ? '2px solid var(--pa-accent)' : sel ? '2px solid var(--pa-accent)' : '1px solid var(--pa-line)',
               cursor: closed ? 'default' : 'pointer', position: 'relative',
@@ -5355,7 +5058,7 @@ function DPhase5({ me }) {
               </div>
               <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ fontFamily: 'var(--pa-mono)', fontSize: 12, fontWeight: 600 }}>{s.price}€/n</span>
-                {sel && !closed && <Pill tone="accent" size="sm">✓ Voto teu</Pill>}
+                {sel && !closed && <Pill tone={saved ? 'success' : 'accent'} size="sm">{saved ? '✓ Guardado' : '✓ Voto teu'}</Pill>}
               </div>
             </button>
           );
@@ -5904,13 +5607,11 @@ const PHASE_STORAGE_KEY = 'pa-current-phase';
 
 function DesktopShell({ viewAs = 'admin', phase: initialPhase, liveUser, onLogout }) {
   const me = liveUser || (viewAs === 'admin' ? memberById(D.adminId) : memberById('rita'));
-  const appCtx = React.useContext(window.AppCtx);
-  const edition = appCtx?.edition;
 
-  // For live mode, sync local phase with edition.current_phase from Supabase
+  // For canvas mode, phase is fixed by the artboard. For live mode, the
+  // phase comes from session storage so admin nav decisions persist.
   const [livePhase, setLivePhase] = dUseState2(() => {
     if (initialPhase !== undefined) return initialPhase;
-    if (edition?.current_phase) return edition.current_phase;
     try {
       const saved = parseInt(safeStore.get(PHASE_STORAGE_KEY) || '', 10);
       if (saved >= 1 && saved <= D.phases.length) return saved;
@@ -5918,24 +5619,13 @@ function DesktopShell({ viewAs = 'admin', phase: initialPhase, liveUser, onLogou
     return D.edition.currentPhase;
   });
 
-  // When edition.current_phase changes (realtime), update local phase
-  React.useEffect(() => {
-    if (initialPhase !== undefined) return; // canvas mode
-    if (edition?.current_phase && edition.current_phase !== livePhase) {
-      setLivePhase(edition.current_phase);
-    }
-  }, [edition?.current_phase]);
-
   const phase = initialPhase !== undefined ? initialPhase : livePhase;
+
   const setPhase = (n) => {
     if (initialPhase !== undefined) return; // canvas mode is frozen
     const clamped = Math.max(1, Math.min(D.phases.length, n));
     setLivePhase(clamped);
     safeStore.set(PHASE_STORAGE_KEY, String(clamped));
-    // Persist to Supabase so all users see the change
-    if (edition?.id && me?.isAdmin) {
-      DB.updatePhase(edition.id, clamped).catch(console.error);
-    }
   };
   const reset = () => setPhase(1);
 
@@ -5971,10 +5661,8 @@ Object.assign(window, {
   PlanEstadia, PlanCustos, PlanItinerario, PlanAtividades, PlanCompras,
   DesktopShell, PHASE_STORAGE_KEY,
 });
-
 </script>
-<script type="text/babel">
-// Perdidos Algures — Mobile companion screens (one per phase, 8 phases).
+<script type="text/babel">// Perdidos Algures — Mobile companion screens (one per phase, 8 phases).
 
 const { useState: mUseState } = React;
 
@@ -6131,7 +5819,15 @@ function MPhase2({ me, onLogout, onOpenChat }) {
 
 // PHASE 3 — Vote local
 function MPhase3({ me, onLogout, onOpenChat }) {
-  const [vote, setVote] = mUseState(D.phase3.myVote);
+  const [vote, setVote] = mUseState(() => VoteStore.getVote(me.id, 'loc'));
+  const [saved, setSaved] = mUseState(false);
+
+  const handleVote = (id) => {
+    setVote(id);
+    VoteStore.setVote(me.id, 'loc', id);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
   return (
     <MShell>
       <MHeader phase={3} onLogout={onLogout} onOpenChat={onOpenChat} />
@@ -6141,7 +5837,7 @@ function MPhase3({ me, onLogout, onOpenChat }) {
           const sel = vote === s.id;
           const by = memberById(s.by);
           return (
-            <button key={s.id} onClick={() => setVote(s.id)} style={{
+            <button key={s.id} onClick={() => handleVote(s.id)} style={{
               background: '#fff', borderRadius: 14, textAlign: 'left', padding: '14px 16px',
               border: sel ? '2px solid var(--pa-accent)' : '1px solid var(--pa-line)',
               cursor: 'pointer', position: 'relative',
@@ -6235,10 +5931,23 @@ function MPhase4({ me, onLogout, onOpenChat }) {
 
 // PHASE 5 — Votar alojamento (with tie banner for admin)
 function MPhase5({ me, onLogout, onOpenChat }) {
+  const [vote, setVote] = mUseState(() => VoteStore.getVote(me.id, 'acc'));
+  const [saved, setSaved] = mUseState(false);
+
+  const votingClosed = D.phase5.pendingBy.length === 0;
   const counts = D.phase4.suggestions.map((s) => ({ s, n: D.phase5.results[s.id]?.count || 0 }));
   const max = Math.max(...counts.map((c) => c.n));
   const tied = counts.filter((c) => c.n === max && c.n > 0).map((c) => c.s);
-  const isTie = tied.length > 1;
+  // Só mostra empate se a votação já fechou (todos votaram)
+  const isTie = votingClosed && tied.length > 1;
+
+  const handleVote = (id) => {
+    if (votingClosed) return;
+    setVote(id);
+    VoteStore.setVote(me.id, 'acc', id);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
 
   return (
     <MShell>
@@ -6276,17 +5985,35 @@ function MPhase5({ me, onLogout, onOpenChat }) {
             )}
           </div>
         ))}
-        {!isTie && D.phase4.suggestions.slice(0, 5).map((s) => (
-          <div key={s.id} style={{ background: '#fff', borderRadius: 12, padding: '12px 14px', border: '1px solid var(--pa-line)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Pill tone="dark" size="sm">{s.type}</Pill>
-                <span style={{ fontSize: 11.5 }}>{s.area}</span>
+        {!isTie && D.phase4.suggestions.slice(0, 5).map((s) => {
+          const sel = vote === s.id;
+          return (
+            <button key={s.id} onClick={() => handleVote(s.id)} style={{
+              background: '#fff', borderRadius: 12, padding: '12px 14px',
+              border: sel ? '2px solid var(--pa-accent)' : '1px solid var(--pa-line)',
+              cursor: votingClosed ? 'default' : 'pointer', textAlign: 'left',
+              position: 'relative', width: '100%',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Pill tone="dark" size="sm">{s.type}</Pill>
+                  <span style={{ fontSize: 11.5 }}>{s.area}</span>
+                </div>
+                <span style={{ fontFamily: 'var(--pa-mono)', fontSize: 13, fontWeight: 700 }}>{s.price}€</span>
               </div>
-              <span style={{ fontFamily: 'var(--pa-mono)', fontSize: 13, fontWeight: 700 }}>{s.price}€</span>
-            </div>
-          </div>
-        ))}
+              {sel && (
+                <div style={{
+                  position: 'absolute', top: 10, right: 10,
+                  width: 22, height: 22, borderRadius: 22,
+                  background: saved ? '#3d5e44' : 'var(--pa-accent)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <svg width="11" height="11" viewBox="0 0 11 11"><path d="M2.5 5.5l2 2 4-4" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                </div>
+              )}
+            </button>
+          );
+        })}
       </div>
     </MShell>
   );
@@ -6508,9 +6235,17 @@ function MPlanItin() {
 }
 
 // Top-level mobile router
-function MobileApp({ viewAs = 'member', phase = D.edition.currentPhase, liveUser, onLogout }) {
+function MobileApp({ viewAs = 'member', liveUser, onLogout }) {
   const me = liveUser || (viewAs === 'admin' ? memberById(D.adminId) : memberById('rita'));
   const [chatOpen, setChatOpen] = mUseState(false);
+  // Read phase from localStorage (set by admin on desktop); falls back to current phase
+  const phase = (() => {
+    try {
+      const saved = parseInt(safeStore.get('pa-current-phase') || '', 10);
+      if (saved >= 1 && saved <= D.phases.length) return saved;
+    } catch {}
+    return D.edition.currentPhase;
+  })();
   const phases = { 1: MPhase1, 2: MPhase2, 3: MPhase3, 4: MPhase4, 5: MPhase5, 6: MPhase6, 7: MPhase7, 8: MPhase8 };
   const View = phases[phase] || MPhase3;
   return (
@@ -6525,43 +6260,13 @@ Object.assign(window, {
   MPhase1, MPhase2, MPhase3, MPhase4, MPhase5, MPhase6, MPhase7, MPhase8,
   MobileApp,
 });
-
 </script>
-<script type="text/babel">
-// Perdidos Algures — LiveApp: root entry point.
-// Manages Supabase session, loads edition, provides AppCtx to shells.
+<script type="text/babel">// Perdidos Algures — Live app entry. Boots the auth gate and routes the
+// authenticated user into the desktop or mobile shell based on viewport.
+// This is the default landing UI when there is no ?canvas=1 query param.
 
-const { useState: lUseState, useEffect: lUseEffect, useContext: lUseContext,
-        createContext: lCreateContext, useCallback: lUseCallback } = React;
+const { useState: lUseState, useEffect: lUseEffect } = React;
 
-// ── AppCtx: shared app state ───────────────────────────────────
-const AppCtx = lCreateContext({
-  me: null,
-  edition: null,
-  members: [],
-  setEdition: () => {},
-  refreshEdition: async () => {},
-  logout: async () => {},
-});
-window.AppCtx = AppCtx;
-function useApp() { return lUseContext(AppCtx); }
-window.useApp = useApp;
-
-// profile row → member-shaped object the rest of the app uses
-function profileToMember(profile) {
-  if (!profile) return null;
-  return {
-    id:          profile.id,
-    name:        profile.name,
-    initials:    profile.initials || initialsFromName(profile.name),
-    color:       profile.color   || colorFromName(profile.name),
-    photo_url:   profile.photo_url || null,
-    photoDataUrl:profile.photo_url || null, // compat
-    isAdmin:     profile.is_admin === true,
-  };
-}
-
-// ── useViewport ───────────────────────────────────────────────
 function useViewport() {
   const [w, setW] = lUseState(typeof window !== 'undefined' ? window.innerWidth : 1440);
   lUseEffect(() => {
@@ -6572,551 +6277,60 @@ function useViewport() {
   return w;
 }
 
-// ── CreateEditionScreen ───────────────────────────────────────
-// Admin-only: shown when no edition exists yet.
-function CreateEditionScreen({ me, onCreate }) {
-  const [number, setNumber] = lUseState('1');
-  const [title, setTitle]   = lUseState('');
-  const [sub, setSub]       = lUseState('');
-  const [busy, setBusy]     = lUseState(false);
-  const [err, setErr]       = lUseState(null);
-
-  const submit = async (e) => {
-    e.preventDefault();
-    if (!title.trim()) { setErr('Dá um nome à edição.'); return; }
-    setBusy(true); setErr(null);
-    try {
-      const ed = await DB.createEdition({ number: parseInt(number, 10) || 1, title: title.trim(), subtitle: sub.trim(), adminId: me.id });
-      onCreate(ed);
-    } catch (ex) { setErr(ex.message); setBusy(false); }
+// Convert an auth session into a member-shaped object the rest of the app
+// expects. Admin login maps onto the "miguel" mock member so all the
+// hard-coded references (D.adminId, D.phase1.state.miguel, etc) keep working.
+function sessionToMember(session) {
+  if (!session) return null;
+  if (session.isAdmin) {
+    return { id: 'miguel', name: session.name, initials: 'M', color: '#1f1a14', isAdmin: true, photoDataUrl: session.photoDataUrl };
+  }
+  return {
+    id: session.id,
+    name: session.name,
+    initials: session.initials,
+    color: session.color,
+    photoDataUrl: session.photoDataUrl,
+    isAdmin: false,
   };
-
-  return (
-    <div style={{
-      width: '100vw', height: '100vh', background: 'var(--pa-bg)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      fontFamily: 'var(--pa-body)',
-    }}>
-      <div style={{ maxWidth: 460, width: '100%', padding: '0 28px' }}>
-        <Logo size={18} />
-        <div style={{ marginTop: 32, fontFamily: 'var(--pa-display)', fontSize: 36, fontWeight: 600, letterSpacing: -1.2, lineHeight: 1.02 }}>
-          Lança a primeira<br/><span style={{ color: 'var(--pa-accent)' }}>edição.</span>
-        </div>
-        <div style={{ marginTop: 10, fontSize: 14, color: 'var(--pa-muted)', lineHeight: 1.5 }}>
-          Olá {me.name}. Não há nenhuma edição activa. Cria a primeira e dá-lhe um nome.
-        </div>
-
-        <form onSubmit={submit} style={{ marginTop: 28, display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <Field label="Número da edição" placeholder="1" value={number} onChange={setNumber} />
-          <Field label="Nome" placeholder="Tropa Mediterrânica" value={title} onChange={setTitle} />
-          <Field label="Subtítulo (opcional)" placeholder="Algures entre o sol e o vinho." value={sub} onChange={setSub} />
-          {err && (
-            <div style={{ padding: '10px 14px', borderRadius: 10, background: 'rgba(217,119,87,0.14)', color: '#8a4220', fontSize: 13 }}>{err}</div>
-          )}
-          <button type="submit" disabled={busy || !title.trim()} style={{
-            marginTop: 8, height: 52, borderRadius: 999, border: 'none',
-            background: 'var(--pa-accent)', color: '#fff', cursor: busy ? 'default' : 'pointer',
-            fontFamily: 'var(--pa-body)', fontSize: 15, fontWeight: 600,
-            opacity: (busy || !title.trim()) ? 0.5 : 1,
-          }}>{busy ? 'A criar...' : 'Criar edição 🚀'}</button>
-        </form>
-      </div>
-    </div>
-  );
 }
 
-// ── Spinner ───────────────────────────────────────────────────
-function AppSpinner() {
-  return (
-    <div style={{ width: '100vw', height: '100vh', background: 'var(--pa-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div>
-        <Logo size={18} />
-        <div style={{ marginTop: 16, fontFamily: 'var(--pa-mono)', fontSize: 10, letterSpacing: 1.5, color: 'var(--pa-muted)', textTransform: 'uppercase', textAlign: 'center' }}>
-          A carregar...
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── AdminPanel ────────────────────────────────────────────────
-// Full-screen overlay for admin management: messages, user actions, editions
-function AdminPanel({ me, edition, members, onClose }) {
-  const [tab, setTab] = lUseState('messages');
-  const [messages, setMessages] = lUseState([]);
-  const [rsvpData, setRsvpData] = lUseState([]);
-  const [votes3, setVotes3] = lUseState([]);
-  const [votes5, setVotes5] = lUseState([]);
-  const [locSugs, setLocSugs] = lUseState([]);
-  const [accSugs, setAccSugs] = lUseState([]);
-  const [avail, setAvail] = lUseState([]);
-  const [editions, setEditions] = lUseState([]);
-  const [loading, setLoading] = lUseState(true);
-  const [confirm, setConfirm] = lUseState(null); // { type, id, label }
-  const [busy, setBusy] = lUseState(false);
-  const [toast, setToast] = lUseState(null);
-
-  const showToast = (msg, ok = true) => {
-    setToast({ msg, ok });
-    setTimeout(() => setToast(null), 2500);
-  };
-
-  lUseEffect(() => {
-    if (!edition) { setLoading(false); return; }
-    setLoading(true);
-    Promise.all([
-      DB.getMessages(edition.id).catch(() => []),
-      DB.getRsvp(edition.id).catch(() => []),
-      DB.getVotes(edition.id, 3).catch(() => []),
-      DB.getVotes(edition.id, 5).catch(() => []),
-      DB.getLocationSuggestions(edition.id).catch(() => []),
-      DB.getAccommodations(edition.id).catch(() => []),
-      DB.getAvailability(edition.id).catch(() => []),
-      DB.getAllEditions().catch(() => []),
-    ]).then(([msgs, rsvp, v3, v5, locs, accs, av, eds]) => {
-      setMessages(msgs);
-      setRsvpData(rsvp);
-      setVotes3(v3);
-      setVotes5(v5);
-      setLocSugs(locs);
-      setAccSugs(accs);
-      setAvail(av);
-      setEditions(eds);
-      setLoading(false);
-    });
-  }, [edition?.id, tab]);
-
-  const doDelete = async () => {
-    if (!confirm) return;
-    setBusy(true);
-    try {
-      const { type, id, userId } = confirm;
-      if (type === 'message')      { await DB.deleteMessage(id); setMessages((p) => p.filter((m) => m.id !== id)); }
-      if (type === 'rsvp')         { await DB.deleteRsvp(edition.id, userId); setRsvpData((p) => p.filter((r) => r.user_id !== userId)); }
-      if (type === 'vote3')        { await DB.deleteVote(edition.id, userId, 3); setVotes3((p) => p.filter((v) => v.user_id !== userId)); }
-      if (type === 'vote5')        { await DB.deleteVote(edition.id, userId, 5); setVotes5((p) => p.filter((v) => v.user_id !== userId)); }
-      if (type === 'locSug')       { await DB.deleteLocationSuggestion(id); setLocSugs((p) => p.filter((s) => s.id !== id)); }
-      if (type === 'accSug')       { await DB.deleteAccommodation(id); setAccSugs((p) => p.filter((s) => s.id !== id)); }
-      if (type === 'avail')        { await DB.deleteAvailability(edition.id, userId); setAvail((p) => p.filter((a) => a.user_id !== userId)); }
-      if (type === 'edition-del')  {
-        await DB.deleteEdition(id);
-        setEditions((p) => p.filter((e) => e.id !== id));
-      }
-      if (type === 'edition-reset') {
-        await DB.resetEdition(id);
-        showToast('Edição resetada para a Fase 1.');
-        setBusy(false);
-        setConfirm(null);
-        // Reload the page so all state refreshes
-        setTimeout(() => window.location.reload(), 800);
-        return;
-      }
-      showToast('Eliminado com sucesso.');
-    } catch (ex) { showToast('Erro: ' + ex.message, false); }
-    setBusy(false);
-    setConfirm(null);
-  };
-
-  const tabs = [
-    { id: 'messages', label: 'Mensagens' },
-    { id: 'rsvp', label: 'RSVPs' },
-    { id: 'votes', label: 'Votos' },
-    { id: 'suggestions', label: 'Sugestões' },
-    { id: 'availability', label: 'Disponibilidade' },
-    { id: 'editions', label: 'Edições' },
-  ];
-
-  const btnDel = (label, type, id, userId, phase) => (
-    <button onClick={() => setConfirm({ type, id, userId, phase, label })} style={{
-      padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(217,119,87,0.4)',
-      background: 'transparent', color: '#c44', cursor: 'pointer',
-      fontFamily: 'var(--pa-mono)', fontSize: 10, fontWeight: 600,
-    }}>✕ apagar</button>
-  );
-
-  const Row = ({ left, right }) => (
-    <div style={{
-      display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
-      padding: '10px 0', borderBottom: '1px solid var(--pa-line)', gap: 12,
-    }}>
-      <div style={{ flex: 1, minWidth: 0, fontSize: 13, color: 'var(--pa-ink)', lineHeight: 1.4 }}>{left}</div>
-      <div style={{ flexShrink: 0 }}>{right}</div>
-    </div>
-  );
-
-  const memberName = (uid) => members.find((m) => m.id === uid)?.name || uid;
-
-  return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 9999,
-      background: 'rgba(31,26,20,0.55)', backdropFilter: 'blur(4px)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-    }}>
-      <div style={{
-        width: '92vw', maxWidth: 860, height: '88vh',
-        background: 'var(--pa-bg)', borderRadius: 20,
-        display: 'flex', flexDirection: 'column',
-        boxShadow: '0 32px 80px rgba(0,0,0,0.3)',
-        overflow: 'hidden',
-      }}>
-        {/* Header */}
-        <div style={{
-          padding: '18px 24px', borderBottom: '1px solid var(--pa-line)',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0,
-        }}>
-          <div>
-            <div style={{ fontFamily: 'var(--pa-display)', fontSize: 20, fontWeight: 700, letterSpacing: -0.5 }}>
-              Painel Admin
-            </div>
-            <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 10, letterSpacing: 1, color: 'var(--pa-muted)', textTransform: 'uppercase', marginTop: 2 }}>
-              Gerir dados · edição activa
-            </div>
-          </div>
-          <button onClick={onClose} style={{
-            width: 36, height: 36, borderRadius: 999, border: '1px solid var(--pa-line)',
-            background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <svg width="14" height="14" viewBox="0 0 14 14"><path d="M2 2l10 10M12 2L2 12" stroke="var(--pa-ink)" strokeWidth="1.8" strokeLinecap="round"/></svg>
-          </button>
-        </div>
-
-        {/* Tabs */}
-        <div style={{ padding: '10px 24px 0', display: 'flex', gap: 4, flexWrap: 'wrap', flexShrink: 0, borderBottom: '1px solid var(--pa-line)' }}>
-          {tabs.map((t) => (
-            <button key={t.id} onClick={() => setTab(t.id)} style={{
-              padding: '7px 14px', borderRadius: '8px 8px 0 0', border: 'none', cursor: 'pointer',
-              background: tab === t.id ? '#fff' : 'transparent',
-              borderTop: tab === t.id ? '2px solid var(--pa-accent)' : '2px solid transparent',
-              color: tab === t.id ? 'var(--pa-ink)' : 'var(--pa-muted)',
-              fontFamily: 'var(--pa-body)', fontSize: 12.5, fontWeight: tab === t.id ? 600 : 500,
-            }}>{t.label}</button>
-          ))}
-        </div>
-
-        {/* Content */}
-        <div style={{ flex: 1, overflow: 'auto', padding: '16px 24px' }}>
-          {loading && <div style={{ textAlign: 'center', padding: 40, color: 'var(--pa-muted)', fontSize: 13 }}>A carregar...</div>}
-
-          {!loading && tab === 'messages' && (
-            <div>
-              <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 10, letterSpacing: 1.2, color: 'var(--pa-muted)', textTransform: 'uppercase', marginBottom: 12 }}>
-                {messages.length} mensagens
-              </div>
-              {messages.length === 0 && <div style={{ color: 'var(--pa-muted)', fontSize: 13 }}>Sem mensagens.</div>}
-              {messages.map((msg) => (
-                <Row key={msg.id}
-                  left={<><span style={{ fontWeight: 600 }}>{msg.by_profile?.name || '?'}</span>: {msg.text}<span style={{ fontSize: 10.5, color: 'var(--pa-muted)', marginLeft: 8 }}>{new Date(msg.created_at).toLocaleString('pt-PT')}</span></>}
-                  right={btnDel(msg.text.slice(0, 30), 'message', msg.id)}
-                />
-              ))}
-            </div>
-          )}
-
-          {!loading && tab === 'rsvp' && (
-            <div>
-              <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 10, letterSpacing: 1.2, color: 'var(--pa-muted)', textTransform: 'uppercase', marginBottom: 12 }}>
-                {rsvpData.length} respostas RSVP
-              </div>
-              {rsvpData.length === 0 && <div style={{ color: 'var(--pa-muted)', fontSize: 13 }}>Sem RSVPs.</div>}
-              {rsvpData.map((r) => (
-                <Row key={r.user_id}
-                  left={<><span style={{ fontWeight: 600 }}>{r.profiles?.name || memberName(r.user_id)}</span> → <span style={{ color: r.state === 'in' ? '#3d5e44' : r.state === 'out' ? '#c44' : 'var(--pa-muted)' }}>{r.state === 'in' ? '✓ Dentro' : r.state === 'out' ? '✕ Fora' : '? A pensar'}</span></>}
-                  right={btnDel(r.profiles?.name || r.user_id, 'rsvp', null, r.user_id)}
-                />
-              ))}
-            </div>
-          )}
-
-          {!loading && tab === 'votes' && (
-            <div>
-              <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 10, letterSpacing: 1.2, color: 'var(--pa-muted)', textTransform: 'uppercase', marginBottom: 8 }}>
-                Votos Fase 3 (locais) — {votes3.length} votos
-              </div>
-              {votes3.map((v) => (
-                <Row key={v.user_id + '3'}
-                  left={<><span style={{ fontWeight: 600 }}>{memberName(v.user_id)}</span> → <span style={{ fontFamily: 'var(--pa-mono)', fontSize: 11.5 }}>{v.suggestion_id}</span></>}
-                  right={btnDel(memberName(v.user_id), 'vote3', null, v.user_id, 3)}
-                />
-              ))}
-              <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 10, letterSpacing: 1.2, color: 'var(--pa-muted)', textTransform: 'uppercase', margin: '20px 0 8px' }}>
-                Votos Fase 5 (alojamentos) — {votes5.length} votos
-              </div>
-              {votes5.map((v) => (
-                <Row key={v.user_id + '5'}
-                  left={<><span style={{ fontWeight: 600 }}>{memberName(v.user_id)}</span> → <span style={{ fontFamily: 'var(--pa-mono)', fontSize: 11.5 }}>{v.suggestion_id}</span></>}
-                  right={btnDel(memberName(v.user_id), 'vote5', null, v.user_id, 5)}
-                />
-              ))}
-            </div>
-          )}
-
-          {!loading && tab === 'suggestions' && (
-            <div>
-              <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 10, letterSpacing: 1.2, color: 'var(--pa-muted)', textTransform: 'uppercase', marginBottom: 8 }}>
-                Sugestões de locais — {locSugs.length}
-              </div>
-              {locSugs.map((s) => (
-                <Row key={s.id}
-                  left={<><span style={{ fontWeight: 600 }}>{s.name}</span> · {s.city} <span style={{ fontSize: 11.5, color: 'var(--pa-muted)' }}>por {s.by_profile?.name || s.by_user}</span></>}
-                  right={btnDel(s.name, 'locSug', s.id)}
-                />
-              ))}
-              <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 10, letterSpacing: 1.2, color: 'var(--pa-muted)', textTransform: 'uppercase', margin: '20px 0 8px' }}>
-                Sugestões de alojamento — {accSugs.length}
-              </div>
-              {accSugs.map((s) => (
-                <Row key={s.id}
-                  left={<><span style={{ fontWeight: 600 }}>{s.type}</span> · {s.area} · {s.price}€/n <span style={{ fontSize: 11.5, color: 'var(--pa-muted)' }}>por {s.by_profile?.name || s.by_user}</span></>}
-                  right={btnDel(s.area, 'accSug', s.id)}
-                />
-              ))}
-            </div>
-          )}
-
-          {!loading && tab === 'availability' && (
-            <div>
-              <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 10, letterSpacing: 1.2, color: 'var(--pa-muted)', textTransform: 'uppercase', marginBottom: 12 }}>
-                Disponibilidades submetidas — {avail.length}
-              </div>
-              {avail.length === 0 && <div style={{ color: 'var(--pa-muted)', fontSize: 13 }}>Nenhuma disponibilidade submetida.</div>}
-              {avail.map((a) => (
-                <Row key={a.user_id}
-                  left={<><span style={{ fontWeight: 600 }}>{a.profiles?.name || memberName(a.user_id)}</span>: <span style={{ fontFamily: 'var(--pa-mono)', fontSize: 11.5 }}>{(a.days || []).join(', ')}</span></>}
-                  right={btnDel(a.profiles?.name || a.user_id, 'avail', null, a.user_id)}
-                />
-              ))}
-            </div>
-          )}
-
-          {!loading && tab === 'editions' && (
-            <div>
-              <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 10, letterSpacing: 1.2, color: 'var(--pa-muted)', textTransform: 'uppercase', marginBottom: 12 }}>
-                {editions.length} edições na base de dados
-              </div>
-              {editions.map((ed) => {
-                const isActive = ed.id === edition?.id;
-                return (
-                  <Row key={ed.id}
-                    left={
-                      <div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{ fontWeight: 600 }}>Nº{ed.number}</span> · {ed.title}
-                          {isActive && <span style={{ fontFamily: 'var(--pa-mono)', fontSize: 9, letterSpacing: 1, color: 'var(--pa-accent)', fontWeight: 700, textTransform: 'uppercase', padding: '2px 6px', borderRadius: 4, background: 'rgba(217,119,87,0.12)' }}>ACTIVA</span>}
-                        </div>
-                        <div style={{ fontSize: 11.5, color: 'var(--pa-muted)', marginTop: 2 }}>
-                          Fase {ed.current_phase} · criada {new Date(ed.created_at).toLocaleDateString('pt-PT')}
-                        </div>
-                      </div>
-                    }
-                    right={
-                      <div style={{ display: 'flex', gap: 6 }}>
-                        <button onClick={() => setConfirm({ type: 'edition-reset', id: ed.id, label: `Resetar "${ed.title}" → Fase 1 (apaga todos os dados da edição)` })} style={{
-                          padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(31,26,20,0.2)',
-                          background: 'transparent', color: 'var(--pa-ink)', cursor: 'pointer',
-                          fontFamily: 'var(--pa-mono)', fontSize: 10, fontWeight: 600,
-                        }}>↺ reset</button>
-                        {!isActive && (
-                          <button onClick={() => setConfirm({ type: 'edition-del', id: ed.id, label: `Apagar edição "${ed.title}" e todos os seus dados` })} style={{
-                            padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(217,119,87,0.4)',
-                            background: 'transparent', color: '#c44', cursor: 'pointer',
-                            fontFamily: 'var(--pa-mono)', fontSize: 10, fontWeight: 600,
-                          }}>✕ apagar</button>
-                        )}
-                      </div>
-                    }
-                  />
-                );
-              })}
-              {editions.length === 0 && <div style={{ color: 'var(--pa-muted)', fontSize: 13 }}>Sem edições.</div>}
-            </div>
-          )}
-        </div>
-
-        {/* Confirm dialog */}
-        {confirm && (
-          <div style={{
-            position: 'absolute', inset: 0, background: 'rgba(31,26,20,0.4)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10,
-          }}>
-            <div style={{
-              background: '#fff', borderRadius: 16, padding: 28, maxWidth: 380, width: '90%',
-              boxShadow: '0 16px 48px rgba(0,0,0,0.2)',
-            }}>
-              <div style={{ fontFamily: 'var(--pa-display)', fontSize: 18, fontWeight: 700, marginBottom: 10 }}>
-                {confirm.type === 'edition-reset' ? '↺ Confirmar reset' : 'Confirmar eliminação'}
-              </div>
-              <div style={{ fontSize: 13.5, color: 'var(--pa-muted)', marginBottom: 20, lineHeight: 1.5 }}>
-                {confirm.label}
-              </div>
-              <div style={{ display: 'flex', gap: 10 }}>
-                <button onClick={() => setConfirm(null)} style={{
-                  flex: 1, height: 42, borderRadius: 999, border: '1px solid var(--pa-line)',
-                  background: '#fff', cursor: 'pointer', fontFamily: 'var(--pa-body)', fontSize: 14, fontWeight: 600,
-                }}>Cancelar</button>
-                <button onClick={doDelete} disabled={busy} style={{
-                  flex: 1, height: 42, borderRadius: 999, border: 'none',
-                  background: confirm.type === 'edition-reset' ? 'var(--pa-ink)' : '#c44',
-                  color: '#fff', cursor: busy ? 'default' : 'pointer',
-                  fontFamily: 'var(--pa-body)', fontSize: 14, fontWeight: 600,
-                  opacity: busy ? 0.6 : 1,
-                }}>{busy ? 'A processar...' : (confirm.type === 'edition-reset' ? 'Resetar' : 'Eliminar')}</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Toast */}
-        {toast && (
-          <div style={{
-            position: 'absolute', bottom: 24, left: '50%', transform: 'translateX(-50%)',
-            padding: '10px 20px', borderRadius: 999,
-            background: toast.ok ? '#3d5e44' : '#c44', color: '#fff',
-            fontFamily: 'var(--pa-body)', fontSize: 13, fontWeight: 600,
-            boxShadow: '0 8px 24px rgba(0,0,0,0.2)', zIndex: 20,
-          }}>{toast.msg}</div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── LiveApp ───────────────────────────────────────────────────
 function LiveApp() {
   const auth = useAuth();
   const w = useViewport();
   const isDesktop = w >= 1100;
 
-  const [edition,  setEdition]  = lUseState(null);
-  const [members,  setMembers]  = lUseState([]);
-  const [edLoaded, setEdLoaded] = lUseState(false);
-  const [adminPanelOpen, setAdminPanelOpen] = lUseState(false);
-
-  // Expose admin panel opener to DTopBar button
-  lUseEffect(() => {
-    window.__openAdminPanel = () => setAdminPanelOpen(true);
-    return () => { delete window.__openAdminPanel; };
-  }, []);
-
-  // When profile is ready, load edition + members
-  lUseEffect(() => {
-    if (!auth.profile) { setEdLoaded(false); return; }
-    let mounted = true;
-    Promise.all([
-      DB.getEdition().catch(() => null),
-      DB.getAllProfiles().catch(() => []),
-    ]).then(([ed, profs]) => {
-      if (!mounted) return;
-      setEdition(ed);
-      setMembers(profs.map(profileToMember));
-      setEdLoaded(true);
-    });
-    return () => { mounted = false; };
-  }, [auth.profile?.id]);
-
-  // Realtime: edition updates (phase changes from admin)
-  lUseEffect(() => {
-    if (!edition?.id) return;
-    const ch = DB.subscribeEdition(edition.id, (updated) => {
-      setEdition((prev) => ({ ...prev, ...updated }));
-    });
-    return () => { sb.removeChannel(ch); };
-  }, [edition?.id]);
-
-  const refreshEdition = lUseCallback(async () => {
-    const ed = await DB.getEdition().catch(() => null);
-    setEdition(ed);
-  }, []);
-
-  // ── Loading spinner
-  if (auth.loading || (auth.user && !edLoaded)) return <AppSpinner />;
-
-  // ── Not logged in
-  if (!auth.user || !auth.profile) {
+  if (!auth.user) {
     return (
       <div style={{ width: '100vw', height: '100vh' }}>
-        <AuthGate auth={{ login: auth.login, register: auth.register, user: auth.user }} narrow={!isDesktop} />
+        <AuthGate auth={auth} narrow={!isDesktop} />
       </div>
     );
   }
 
-  const me = profileToMember(auth.profile);
-
-  // ── Admin: no edition yet → create it
-  if (!edition && me.isAdmin) {
-    return <CreateEditionScreen me={me} onCreate={(ed) => { setEdition(ed); setEdLoaded(true); }} />;
-  }
-
-  // ── Member: no edition yet
-  if (!edition) {
-    return (
-      <div style={{ width: '100vw', height: '100vh', background: 'var(--pa-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ textAlign: 'center', padding: 40, maxWidth: 400 }}>
-          <Logo size={20} />
-          <div style={{ marginTop: 20, fontFamily: 'var(--pa-display)', fontSize: 24, fontWeight: 600, letterSpacing: -0.5 }}>
-            Ainda não há edição activa.
-          </div>
-          <div style={{ marginTop: 8, fontSize: 14, color: 'var(--pa-muted)', lineHeight: 1.5 }}>
-            Aguarda que o Miguel inicie uma nova edição. Podes tentar recarregar a página ou voltar mais tarde.
-          </div>
-          <div style={{ marginTop: 24, display: 'flex', gap: 10, justifyContent: 'center' }}>
-            <button onClick={() => window.location.reload()} style={{
-              height: 42, padding: '0 20px', borderRadius: 999,
-              background: 'var(--pa-ink)', color: '#fff', border: 'none',
-              fontFamily: 'var(--pa-body)', fontSize: 14, fontWeight: 600, cursor: 'pointer',
-            }}>Recarregar</button>
-            <button onClick={auth.logout} style={{
-              height: 42, padding: '0 20px', borderRadius: 999,
-              background: '#fff', color: 'var(--pa-ink)', border: '1px solid var(--pa-line)',
-              fontFamily: 'var(--pa-body)', fontSize: 14, fontWeight: 600, cursor: 'pointer',
-            }}>Sair</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ── App context value
-  const ctx = { me, edition, members, setEdition, refreshEdition, logout: auth.logout };
+  const me = sessionToMember(auth.user);
+  const viewAs = auth.user.isAdmin ? 'admin' : 'member';
+  // Do NOT pass phase — let DesktopShell/MobileApp manage phase via localStorage
+  // so admin navigation persists and isn't frozen.
 
   if (isDesktop) {
     return (
-      <AppCtx.Provider value={ctx}>
-        <div style={{ width: '100vw', height: '100vh' }}>
-          <DesktopShell
-            viewAs={me.isAdmin ? 'admin' : 'member'}
-            phase={edition.current_phase}
-            liveUser={me}
-            onLogout={auth.logout}
-          />
-        </div>
-        {adminPanelOpen && me.isAdmin && (
-          <AdminPanel me={me} edition={edition} members={members} onClose={() => setAdminPanelOpen(false)} />
-        )}
-      </AppCtx.Provider>
+      <div style={{ width: '100vw', height: '100vh' }}>
+        <DesktopShell viewAs={viewAs} liveUser={me} onLogout={auth.logout} />
+      </div>
     );
   }
 
   return (
-    <AppCtx.Provider value={ctx}>
-      <div style={{ width: '100vw', height: '100vh', background: '#000', display: 'flex', alignItems: 'stretch', justifyContent: 'center' }}>
-        <div style={{ width: '100%', maxWidth: 480, background: 'var(--pa-bg)', display: 'flex', flexDirection: 'column' }}>
-          <MobileApp
-            viewAs={me.isAdmin ? 'admin' : 'member'}
-            phase={edition.current_phase}
-            liveUser={me}
-            onLogout={auth.logout}
-          />
-        </div>
+    <div style={{ width: '100vw', height: '100vh', background: '#000', display: 'flex', alignItems: 'stretch', justifyContent: 'center' }}>
+      <div style={{ width: '100%', maxWidth: 480, background: 'var(--pa-bg)', display: 'flex', flexDirection: 'column' }}>
+        <MobileApp viewAs={viewAs} liveUser={me} onLogout={auth.logout} />
       </div>
-      {adminPanelOpen && me.isAdmin && (
-        <AdminPanel me={me} edition={edition} members={members} onClose={() => setAdminPanelOpen(false)} />
-      )}
-    </AppCtx.Provider>
+    </div>
   );
 }
 
-Object.assign(window, { LiveApp, AppCtx, useApp, profileToMember, CreateEditionScreen, AppSpinner, useViewport });
-
+Object.assign(window, { LiveApp, useViewport, sessionToMember });
 </script>
 
 <script type="text/babel" data-presets="env,react">

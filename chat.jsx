@@ -33,18 +33,42 @@ const ChatStore = {
 // mobile sheet) stay in sync within a single page lifetime.
 const _chatListeners = new Set();
 let _chatCache = null;
+
 function getChatMessages() {
   if (!_chatCache) _chatCache = ChatStore.load();
   return _chatCache;
 }
+
 function pushChatMessage(msg) {
   _chatCache = [...getChatMessages(), msg];
   ChatStore.save(_chatCache);
-  _chatListeners.forEach((fn) => fn(_chatCache));
+  _chatListeners.forEach((fn) => fn(_chatCache.slice()));
 }
+
+function deleteChatMessage(id) {
+  _chatCache = getChatMessages().filter((m) => m.id !== id);
+  ChatStore.save(_chatCache);
+  _chatListeners.forEach((fn) => fn(_chatCache.slice()));
+}
+
+// Cross-tab / cross-window sync via storage event
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key === CHAT_KEY) {
+      try {
+        _chatCache = e.newValue ? JSON.parse(e.newValue) : CHAT_SEED.slice();
+        _chatListeners.forEach((fn) => fn(_chatCache.slice()));
+      } catch {}
+    }
+  });
+}
+
 function useChat() {
-  const [msgs, setMsgs] = cUseState(getChatMessages);
+  const [msgs, setMsgs] = cUseState(() => getChatMessages().slice());
   cUseEffect(() => {
+    // Re-sync on mount in case another tab changed messages while this was unmounted
+    const current = getChatMessages();
+    setMsgs(current.slice());
     _chatListeners.add(setMsgs);
     return () => _chatListeners.delete(setMsgs);
   }, []);
@@ -57,6 +81,7 @@ function useChat() {
 function ChatPanel({ me, compact = false }) {
   const messages = useChat();
   const [text, setText] = cUseState('');
+  const [hoveredId, setHoveredId] = cUseState(null);
   const scrollRef = cUseRef(null);
 
   cUseEffect(() => {
@@ -90,11 +115,16 @@ function ChatPanel({ me, compact = false }) {
         {messages.map((m) => {
           const author = memberById(m.who) || { name: m.who, color: 'var(--pa-muted)', initials: '?' };
           const mine = m.who === me.id;
+          const isHovered = hoveredId === m.id;
           return (
-            <div key={m.id} style={{
-              display: 'flex', gap: 8,
-              flexDirection: mine ? 'row-reverse' : 'row',
-            }}>
+            <div key={m.id}
+              onMouseEnter={() => setHoveredId(m.id)}
+              onMouseLeave={() => setHoveredId(null)}
+              style={{
+                display: 'flex', gap: 8,
+                flexDirection: mine ? 'row-reverse' : 'row',
+                position: 'relative',
+              }}>
               <Avatar member={author} size={compact ? 22 : 26} />
               <div style={{ maxWidth: '78%', display: 'flex', flexDirection: 'column', alignItems: mine ? 'flex-end' : 'flex-start' }}>
                 <div style={{
@@ -107,17 +137,32 @@ function ChatPanel({ me, compact = false }) {
                   </span>
                   <span style={{ fontFamily: 'var(--pa-mono)', fontSize: 9.5, color: 'var(--pa-muted)' }}>{m.when}</span>
                 </div>
-                <div style={{
-                  padding: '8px 12px',
-                  background: mine ? 'var(--pa-ink)' : '#fff',
-                  color: mine ? '#fff' : 'var(--pa-ink)',
-                  borderRadius: 12,
-                  borderTopLeftRadius: mine ? 12 : 4,
-                  borderTopRightRadius: mine ? 4 : 12,
-                  border: mine ? 'none' : '1px solid var(--pa-line)',
-                  fontFamily: 'var(--pa-body)', fontSize: 13, lineHeight: 1.4,
-                  wordWrap: 'break-word', whiteSpace: 'pre-wrap',
-                }}>{m.text}</div>
+                <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6, flexDirection: mine ? 'row' : 'row-reverse' }}>
+                  {/* Admin delete button */}
+                  {me.isAdmin && isHovered && (
+                    <button
+                      onClick={() => deleteChatMessage(m.id)}
+                      title="Apagar mensagem"
+                      style={{
+                        width: 20, height: 20, borderRadius: 999, border: 'none',
+                        background: 'rgba(138,66,32,0.15)', color: '#8a4220',
+                        cursor: 'pointer', display: 'flex', alignItems: 'center',
+                        justifyContent: 'center', flexShrink: 0, padding: 0,
+                        fontSize: 11, fontWeight: 700, lineHeight: 1,
+                      }}>×</button>
+                  )}
+                  <div style={{
+                    padding: '8px 12px',
+                    background: mine ? 'var(--pa-ink)' : '#fff',
+                    color: mine ? '#fff' : 'var(--pa-ink)',
+                    borderRadius: 12,
+                    borderTopLeftRadius: mine ? 12 : 4,
+                    borderTopRightRadius: mine ? 4 : 12,
+                    border: mine ? 'none' : '1px solid var(--pa-line)',
+                    fontFamily: 'var(--pa-body)', fontSize: 13, lineHeight: 1.4,
+                    wordWrap: 'break-word', whiteSpace: 'pre-wrap',
+                  }}>{m.text}</div>
+                </div>
               </div>
             </div>
           );
@@ -207,5 +252,5 @@ function MobileChatSheet({ me, open, onClose }) {
 
 Object.assign(window, {
   ChatStore, ChatPanel, MobileChatSheet,
-  useChat, getChatMessages, pushChatMessage,
+  useChat, getChatMessages, pushChatMessage, deleteChatMessage,
 });

@@ -33,8 +33,7 @@
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 
-<script>
-// Perdidos Algures — data model (v2: 8 phases).
+<script>// Perdidos Algures — data model (v2: 8 phases).
 // Edition flow:
 //   1. RSVP — who's in
 //   2. Sugerir localizações (up to 3 each)
@@ -249,10 +248,8 @@ function buildMonth(year, monthIndex) {
   while (cells.length % 7 !== 0) cells.push(null);
   return cells;
 }
-
 </script>
 <script type="text/babel">
-
 // iOS.jsx — Simplified iOS 26 (Liquid Glass) device frame
 // Based on the iOS 26 UI Kit + Figma status bar spec. No assets, no deps.
 // Exports: IOSDevice, IOSStatusBar, IOSNavBar, IOSGlassPill, IOSList, IOSListRow, IOSKeyboard
@@ -590,10 +587,8 @@ function IOSKeyboard({ dark = false }) {
 Object.assign(window, {
   IOSDevice, IOSStatusBar, IOSNavBar, IOSGlassPill, IOSList, IOSListRow, IOSKeyboard,
 });
-
 </script>
 <script type="text/babel">
-
 // DesignCanvas.jsx — Figma-ish design canvas wrapper
 // Warm gray grid bg + Sections + Artboards + PostIt notes.
 // Artboards are reorderable (grip-drag), deletable, labels/titles are
@@ -1559,10 +1554,8 @@ function DCPostIt({ children, top, left, right, bottom, rotate = -2, width = 180
 
 Object.assign(window, { DesignCanvas, DCSection, DCArtboard, DCPostIt });
 
-
 </script>
 <script type="text/babel">
-
 // tweaks-panel.jsx
 // Reusable Tweaks shell + form-control helpers.
 //
@@ -2130,13 +2123,21 @@ Object.assign(window, {
   TweakSlider, TweakToggle, TweakRadio, TweakSelect,
   TweakText, TweakNumber, TweakColor, TweakButton,
 });
-
 </script>
-<script type="text/babel">
-// Perdidos Algures — shared atoms (reused by desktop + mobile).
+<script type="text/babel">// Perdidos Algures — shared atoms (reused by desktop + mobile).
 
 const D = window.PA_DATA;
-const memberById = (id) => D.members.find((m) => m.id === id);
+// memberById: procura primeiro nos membros mock; depois nos utilizadores registados em AuthStore
+const memberById = (id) => {
+  const mock = D.members.find((m) => m.id === id);
+  if (mock) return mock;
+  try {
+    const users = window.AuthStore ? window.AuthStore.getUsers() : [];
+    const u = users.find((u) => u.id === id);
+    if (u) { const { passHash, ...clean } = u; return clean; }
+  } catch {}
+  return null;
+};
 const ADMIN = memberById(D.adminId);
 
 // ─────────────────────────────────────────────────────────────
@@ -2401,10 +2402,8 @@ Object.assign(window, {
   D, memberById, ADMIN,
   Avatar, Stack, Pill, Btn, Field, PhotoSlot, Logo, Calendar, MobileTopInset,
 });
-
 </script>
-<script type="text/babel">
-// Perdidos Algures — Authentication store + UI screens.
+<script type="text/babel">// Perdidos Algures — Authentication store + UI screens.
 // localStorage-backed for now. Designed to be swappable for Supabase later
 // (see README.md). Admin is reserved: name "Miguel" + a fixed password.
 
@@ -2526,6 +2525,29 @@ const AuthStore = {
     const { passHash: _, ...session } = user;
     this.setSession(session);
     return session;
+  },
+};
+
+// ─────────────────────────────────────────────────────────────
+// VoteStore — persiste votos por utilizador + fase em localStorage
+// ─────────────────────────────────────────────────────────────
+const VoteStore = {
+  _key: 'pa-votes-v2',
+  load() {
+    try { return JSON.parse(safeStore.get(this._key) || '{}'); } catch { return {}; }
+  },
+  getVote(userId, phaseKey) {
+    return this.load()[userId + '::' + phaseKey] || null;
+  },
+  setVote(userId, phaseKey, voteId) {
+    const d = this.load();
+    d[userId + '::' + phaseKey] = voteId;
+    safeStore.set(this._key, JSON.stringify(d));
+  },
+  clearVote(userId, phaseKey) {
+    const d = this.load();
+    delete d[userId + '::' + phaseKey];
+    safeStore.set(this._key, JSON.stringify(d));
   },
 };
 
@@ -2829,13 +2851,11 @@ function AuthGate({ auth, narrow }) {
 }
 
 Object.assign(window, {
-  AuthStore, useAuth, AuthLayout, LoginScreen, RegisterScreen, AuthGate,
+  safeStore, VoteStore, AuthStore, useAuth, AuthLayout, LoginScreen, RegisterScreen, AuthGate,
   AuthPasswordField, AuthError, readPhotoFile, ADMIN_NAME,
 });
-
 </script>
-<script type="text/babel">
-// Perdidos Algures — group chat: store + panel + mobile bubble.
+<script type="text/babel">// Perdidos Algures — group chat: store + panel + mobile bubble.
 // Messages live in safeStore (localStorage with in-memory fallback).
 // Seeded with a few in-character messages so the panel isn't empty on first run.
 
@@ -2870,18 +2890,42 @@ const ChatStore = {
 // mobile sheet) stay in sync within a single page lifetime.
 const _chatListeners = new Set();
 let _chatCache = null;
+
 function getChatMessages() {
   if (!_chatCache) _chatCache = ChatStore.load();
   return _chatCache;
 }
+
 function pushChatMessage(msg) {
   _chatCache = [...getChatMessages(), msg];
   ChatStore.save(_chatCache);
-  _chatListeners.forEach((fn) => fn(_chatCache));
+  _chatListeners.forEach((fn) => fn(_chatCache.slice()));
 }
+
+function deleteChatMessage(id) {
+  _chatCache = getChatMessages().filter((m) => m.id !== id);
+  ChatStore.save(_chatCache);
+  _chatListeners.forEach((fn) => fn(_chatCache.slice()));
+}
+
+// Cross-tab / cross-window sync via storage event
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key === CHAT_KEY) {
+      try {
+        _chatCache = e.newValue ? JSON.parse(e.newValue) : CHAT_SEED.slice();
+        _chatListeners.forEach((fn) => fn(_chatCache.slice()));
+      } catch {}
+    }
+  });
+}
+
 function useChat() {
-  const [msgs, setMsgs] = cUseState(getChatMessages);
+  const [msgs, setMsgs] = cUseState(() => getChatMessages().slice());
   cUseEffect(() => {
+    // Re-sync on mount in case another tab changed messages while this was unmounted
+    const current = getChatMessages();
+    setMsgs(current.slice());
     _chatListeners.add(setMsgs);
     return () => _chatListeners.delete(setMsgs);
   }, []);
@@ -2894,6 +2938,7 @@ function useChat() {
 function ChatPanel({ me, compact = false }) {
   const messages = useChat();
   const [text, setText] = cUseState('');
+  const [hoveredId, setHoveredId] = cUseState(null);
   const scrollRef = cUseRef(null);
 
   cUseEffect(() => {
@@ -2927,11 +2972,16 @@ function ChatPanel({ me, compact = false }) {
         {messages.map((m) => {
           const author = memberById(m.who) || { name: m.who, color: 'var(--pa-muted)', initials: '?' };
           const mine = m.who === me.id;
+          const isHovered = hoveredId === m.id;
           return (
-            <div key={m.id} style={{
-              display: 'flex', gap: 8,
-              flexDirection: mine ? 'row-reverse' : 'row',
-            }}>
+            <div key={m.id}
+              onMouseEnter={() => setHoveredId(m.id)}
+              onMouseLeave={() => setHoveredId(null)}
+              style={{
+                display: 'flex', gap: 8,
+                flexDirection: mine ? 'row-reverse' : 'row',
+                position: 'relative',
+              }}>
               <Avatar member={author} size={compact ? 22 : 26} />
               <div style={{ maxWidth: '78%', display: 'flex', flexDirection: 'column', alignItems: mine ? 'flex-end' : 'flex-start' }}>
                 <div style={{
@@ -2944,17 +2994,32 @@ function ChatPanel({ me, compact = false }) {
                   </span>
                   <span style={{ fontFamily: 'var(--pa-mono)', fontSize: 9.5, color: 'var(--pa-muted)' }}>{m.when}</span>
                 </div>
-                <div style={{
-                  padding: '8px 12px',
-                  background: mine ? 'var(--pa-ink)' : '#fff',
-                  color: mine ? '#fff' : 'var(--pa-ink)',
-                  borderRadius: 12,
-                  borderTopLeftRadius: mine ? 12 : 4,
-                  borderTopRightRadius: mine ? 4 : 12,
-                  border: mine ? 'none' : '1px solid var(--pa-line)',
-                  fontFamily: 'var(--pa-body)', fontSize: 13, lineHeight: 1.4,
-                  wordWrap: 'break-word', whiteSpace: 'pre-wrap',
-                }}>{m.text}</div>
+                <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 6, flexDirection: mine ? 'row' : 'row-reverse' }}>
+                  {/* Admin delete button */}
+                  {me.isAdmin && isHovered && (
+                    <button
+                      onClick={() => deleteChatMessage(m.id)}
+                      title="Apagar mensagem"
+                      style={{
+                        width: 20, height: 20, borderRadius: 999, border: 'none',
+                        background: 'rgba(138,66,32,0.15)', color: '#8a4220',
+                        cursor: 'pointer', display: 'flex', alignItems: 'center',
+                        justifyContent: 'center', flexShrink: 0, padding: 0,
+                        fontSize: 11, fontWeight: 700, lineHeight: 1,
+                      }}>×</button>
+                  )}
+                  <div style={{
+                    padding: '8px 12px',
+                    background: mine ? 'var(--pa-ink)' : '#fff',
+                    color: mine ? '#fff' : 'var(--pa-ink)',
+                    borderRadius: 12,
+                    borderTopLeftRadius: mine ? 12 : 4,
+                    borderTopRightRadius: mine ? 4 : 12,
+                    border: mine ? 'none' : '1px solid var(--pa-line)',
+                    fontFamily: 'var(--pa-body)', fontSize: 13, lineHeight: 1.4,
+                    wordWrap: 'break-word', whiteSpace: 'pre-wrap',
+                  }}>{m.text}</div>
+                </div>
               </div>
             </div>
           );
@@ -3044,12 +3109,10 @@ function MobileChatSheet({ me, open, onClose }) {
 
 Object.assign(window, {
   ChatStore, ChatPanel, MobileChatSheet,
-  useChat, getChatMessages, pushChatMessage,
+  useChat, getChatMessages, pushChatMessage, deleteChatMessage,
 });
-
 </script>
-<script type="text/babel">
-// Perdidos Algures — Tie-break methods (v2: 7 methods).
+<script type="text/babel">// Perdidos Algures — Tie-break methods (v2: 7 methods).
 // Admin picks the method; some involve only admin, others re-engage the group.
 
 const { useState: tbUseState, useEffect: tbUseEffect, useRef: tbUseRef } = React;
@@ -3955,10 +4018,8 @@ Object.assign(window, {
   TieMethodPicker, TieMethodAdmin, TieMethodBorda, TieMethodScore,
   TieMethodElim, TieMethodRunoff, TieMethodPublic, TieMethodRandom,
 });
-
 </script>
-<script type="text/babel">
-// Perdidos Algures — Desktop shell + 6 phase views.
+<script type="text/babel">// Perdidos Algures — Desktop shell + 6 phase views.
 // 1440 × 900 frame. Three columns: phase stepper · main · activity rail.
 
 const { useState: dUseState, useMemo: dUseMemo, useContext: dUseContext, createContext: dCreateContext } = React;
@@ -4558,7 +4619,15 @@ function DPhase2({ me }) {
 // PHASE 3 — Voting (secret until close)
 // ─────────────────────────────────────────────────────────────
 function DPhase3({ me }) {
-  const [vote, setVote] = dUseState(D.phase3.myVote);
+  const [vote, setVote] = dUseState(() => VoteStore.getVote(me.id, 'loc'));
+  const [saved, setSaved] = dUseState(false);
+
+  const handleVote = (id) => {
+    setVote(id);
+    VoteStore.setVote(me.id, 'loc', id);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
 
   return (
     <div style={{ flex: 1, padding: '32px 36px', display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
@@ -4605,7 +4674,7 @@ function DPhase3({ me }) {
           const by = memberById(s.by);
           const sel = vote === s.id;
           return (
-            <button key={s.id} onClick={() => !me.isAdmin || me.id === 'miguel' ? setVote(s.id) : null} style={{
+            <button key={s.id} onClick={() => handleVote(s.id)} style={{
               background: '#fff', borderRadius: 14, overflow: 'hidden', textAlign: 'left',
               border: sel ? '2px solid var(--pa-accent)' : '1px solid var(--pa-line)',
               cursor: 'pointer', padding: 0, position: 'relative',
@@ -4641,7 +4710,13 @@ function DPhase3({ me }) {
       <div style={{ marginTop: 18, padding: 14, borderRadius: 12, background: 'rgba(31,26,20,0.04)', display: 'flex', alignItems: 'center', gap: 12 }}>
         <svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" stroke="var(--pa-muted)" strokeWidth="1.2" fill="none"/><path d="M8 5v3.5M8 11v.5" stroke="var(--pa-muted)" strokeWidth="1.5" strokeLinecap="round"/></svg>
         <div style={{ fontSize: 12.5, color: 'var(--pa-muted)' }}>
-          Cada um vota numa só opção. {vote ? <span style={{ color: 'var(--pa-ink)', fontWeight: 600 }}>Voto guardado em {D.phase2.suggestions.find(s => s.id === vote)?.name}.</span> : 'Ainda não votaste.'}
+          Cada um vota numa só opção.{' '}
+          {saved
+            ? <span style={{ color: '#3d5e44', fontWeight: 600 }}>✓ Voto guardado!</span>
+            : vote
+              ? <span style={{ color: 'var(--pa-ink)', fontWeight: 600 }}>Voto em {D.phase2.suggestions.find(s => s.id === vote)?.name}.</span>
+              : 'Ainda não votaste.'
+          }
         </div>
       </div>
 
@@ -4659,10 +4734,8 @@ Object.assign(window, {
   DTopBar, DLeftRail, DRightRail, DPhaseHeader, DAdminBar,
   DPhase1, DPhase2, DPhase3,
 });
-
 </script>
-<script type="text/babel">
-// Perdidos Algures — Desktop phases 4–8 + the DesktopShell that routes them.
+<script type="text/babel">// Perdidos Algures — Desktop phases 4–8 + the DesktopShell that routes them.
 // Phase numbering (v2):
 //   4 = accommodation suggestions  (was: availability)
 //   5 = accommodation vote          (was: lock dates)
@@ -4868,9 +4941,18 @@ function AccommodationForm({ onCancel, onSubmit }) {
 // PHASE 5 — Vote on accommodation. Includes TIE scenario + admin tiebreak.
 // ─────────────────────────────────────────────────────────────
 function DPhase5({ me }) {
-  const [vote, setVote] = dUseState2(D.phase5.myVote);
+  const [vote, setVote] = dUseState2(() => VoteStore.getVote(me.id, 'acc'));
+  const [saved, setSaved] = dUseState2(false);
   // pickedTiebreak: { id, method } | null
   const [resolved, setResolved] = dUseState2(null);
+
+  const handleVote = (id) => {
+    if (closed) return;
+    setVote(id);
+    VoteStore.setVote(me.id, 'acc', id);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
 
   const closed = D.phase5.pendingBy.length === 0 || resolved;
   const counts = D.phase4.suggestions.map((s) => ({
@@ -4954,7 +5036,7 @@ function DPhase5({ me }) {
           const sel = vote === s.id;
           const isWinner = winner && winner.id === s.id;
           return (
-            <button key={s.id} onClick={() => !closed && setVote(s.id)} style={{
+            <button key={s.id} onClick={() => handleVote(s.id)} style={{
               background: '#fff', borderRadius: 14, padding: 16, textAlign: 'left',
               border: isWinner ? '2px solid var(--pa-accent)' : sel ? '2px solid var(--pa-accent)' : '1px solid var(--pa-line)',
               cursor: closed ? 'default' : 'pointer', position: 'relative',
@@ -4976,7 +5058,7 @@ function DPhase5({ me }) {
               </div>
               <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ fontFamily: 'var(--pa-mono)', fontSize: 12, fontWeight: 600 }}>{s.price}€/n</span>
-                {sel && !closed && <Pill tone="accent" size="sm">✓ Voto teu</Pill>}
+                {sel && !closed && <Pill tone={saved ? 'success' : 'accent'} size="sm">{saved ? '✓ Guardado' : '✓ Voto teu'}</Pill>}
               </div>
             </button>
           );
@@ -5579,10 +5661,8 @@ Object.assign(window, {
   PlanEstadia, PlanCustos, PlanItinerario, PlanAtividades, PlanCompras,
   DesktopShell, PHASE_STORAGE_KEY,
 });
-
 </script>
-<script type="text/babel">
-// Perdidos Algures — Mobile companion screens (one per phase, 8 phases).
+<script type="text/babel">// Perdidos Algures — Mobile companion screens (one per phase, 8 phases).
 
 const { useState: mUseState } = React;
 
@@ -5739,7 +5819,15 @@ function MPhase2({ me, onLogout, onOpenChat }) {
 
 // PHASE 3 — Vote local
 function MPhase3({ me, onLogout, onOpenChat }) {
-  const [vote, setVote] = mUseState(D.phase3.myVote);
+  const [vote, setVote] = mUseState(() => VoteStore.getVote(me.id, 'loc'));
+  const [saved, setSaved] = mUseState(false);
+
+  const handleVote = (id) => {
+    setVote(id);
+    VoteStore.setVote(me.id, 'loc', id);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
   return (
     <MShell>
       <MHeader phase={3} onLogout={onLogout} onOpenChat={onOpenChat} />
@@ -5749,7 +5837,7 @@ function MPhase3({ me, onLogout, onOpenChat }) {
           const sel = vote === s.id;
           const by = memberById(s.by);
           return (
-            <button key={s.id} onClick={() => setVote(s.id)} style={{
+            <button key={s.id} onClick={() => handleVote(s.id)} style={{
               background: '#fff', borderRadius: 14, textAlign: 'left', padding: '14px 16px',
               border: sel ? '2px solid var(--pa-accent)' : '1px solid var(--pa-line)',
               cursor: 'pointer', position: 'relative',
@@ -5843,10 +5931,23 @@ function MPhase4({ me, onLogout, onOpenChat }) {
 
 // PHASE 5 — Votar alojamento (with tie banner for admin)
 function MPhase5({ me, onLogout, onOpenChat }) {
+  const [vote, setVote] = mUseState(() => VoteStore.getVote(me.id, 'acc'));
+  const [saved, setSaved] = mUseState(false);
+
+  const votingClosed = D.phase5.pendingBy.length === 0;
   const counts = D.phase4.suggestions.map((s) => ({ s, n: D.phase5.results[s.id]?.count || 0 }));
   const max = Math.max(...counts.map((c) => c.n));
   const tied = counts.filter((c) => c.n === max && c.n > 0).map((c) => c.s);
-  const isTie = tied.length > 1;
+  // Só mostra empate se a votação já fechou (todos votaram)
+  const isTie = votingClosed && tied.length > 1;
+
+  const handleVote = (id) => {
+    if (votingClosed) return;
+    setVote(id);
+    VoteStore.setVote(me.id, 'acc', id);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
 
   return (
     <MShell>
@@ -5884,17 +5985,35 @@ function MPhase5({ me, onLogout, onOpenChat }) {
             )}
           </div>
         ))}
-        {!isTie && D.phase4.suggestions.slice(0, 5).map((s) => (
-          <div key={s.id} style={{ background: '#fff', borderRadius: 12, padding: '12px 14px', border: '1px solid var(--pa-line)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Pill tone="dark" size="sm">{s.type}</Pill>
-                <span style={{ fontSize: 11.5 }}>{s.area}</span>
+        {!isTie && D.phase4.suggestions.slice(0, 5).map((s) => {
+          const sel = vote === s.id;
+          return (
+            <button key={s.id} onClick={() => handleVote(s.id)} style={{
+              background: '#fff', borderRadius: 12, padding: '12px 14px',
+              border: sel ? '2px solid var(--pa-accent)' : '1px solid var(--pa-line)',
+              cursor: votingClosed ? 'default' : 'pointer', textAlign: 'left',
+              position: 'relative', width: '100%',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Pill tone="dark" size="sm">{s.type}</Pill>
+                  <span style={{ fontSize: 11.5 }}>{s.area}</span>
+                </div>
+                <span style={{ fontFamily: 'var(--pa-mono)', fontSize: 13, fontWeight: 700 }}>{s.price}€</span>
               </div>
-              <span style={{ fontFamily: 'var(--pa-mono)', fontSize: 13, fontWeight: 700 }}>{s.price}€</span>
-            </div>
-          </div>
-        ))}
+              {sel && (
+                <div style={{
+                  position: 'absolute', top: 10, right: 10,
+                  width: 22, height: 22, borderRadius: 22,
+                  background: saved ? '#3d5e44' : 'var(--pa-accent)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <svg width="11" height="11" viewBox="0 0 11 11"><path d="M2.5 5.5l2 2 4-4" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                </div>
+              )}
+            </button>
+          );
+        })}
       </div>
     </MShell>
   );
@@ -6116,9 +6235,17 @@ function MPlanItin() {
 }
 
 // Top-level mobile router
-function MobileApp({ viewAs = 'member', phase = D.edition.currentPhase, liveUser, onLogout }) {
+function MobileApp({ viewAs = 'member', liveUser, onLogout }) {
   const me = liveUser || (viewAs === 'admin' ? memberById(D.adminId) : memberById('rita'));
   const [chatOpen, setChatOpen] = mUseState(false);
+  // Read phase from localStorage (set by admin on desktop); falls back to current phase
+  const phase = (() => {
+    try {
+      const saved = parseInt(safeStore.get('pa-current-phase') || '', 10);
+      if (saved >= 1 && saved <= D.phases.length) return saved;
+    } catch {}
+    return D.edition.currentPhase;
+  })();
   const phases = { 1: MPhase1, 2: MPhase2, 3: MPhase3, 4: MPhase4, 5: MPhase5, 6: MPhase6, 7: MPhase7, 8: MPhase8 };
   const View = phases[phase] || MPhase3;
   return (
@@ -6133,10 +6260,8 @@ Object.assign(window, {
   MPhase1, MPhase2, MPhase3, MPhase4, MPhase5, MPhase6, MPhase7, MPhase8,
   MobileApp,
 });
-
 </script>
-<script type="text/babel">
-// Perdidos Algures — Live app entry. Boots the auth gate and routes the
+<script type="text/babel">// Perdidos Algures — Live app entry. Boots the auth gate and routes the
 // authenticated user into the desktop or mobile shell based on viewport.
 // This is the default landing UI when there is no ?canvas=1 query param.
 
@@ -6185,12 +6310,13 @@ function LiveApp() {
 
   const me = sessionToMember(auth.user);
   const viewAs = auth.user.isAdmin ? 'admin' : 'member';
-  const phase = D.edition.currentPhase;
+  // Do NOT pass phase — let DesktopShell/MobileApp manage phase via localStorage
+  // so admin navigation persists and isn't frozen.
 
   if (isDesktop) {
     return (
       <div style={{ width: '100vw', height: '100vh' }}>
-        <DesktopShell viewAs={viewAs} phase={phase} liveUser={me} onLogout={auth.logout} />
+        <DesktopShell viewAs={viewAs} liveUser={me} onLogout={auth.logout} />
       </div>
     );
   }
@@ -6198,14 +6324,13 @@ function LiveApp() {
   return (
     <div style={{ width: '100vw', height: '100vh', background: '#000', display: 'flex', alignItems: 'stretch', justifyContent: 'center' }}>
       <div style={{ width: '100%', maxWidth: 480, background: 'var(--pa-bg)', display: 'flex', flexDirection: 'column' }}>
-        <MobileApp viewAs={viewAs} phase={phase} liveUser={me} onLogout={auth.logout} />
+        <MobileApp viewAs={viewAs} liveUser={me} onLogout={auth.logout} />
       </div>
     </div>
   );
 }
 
 Object.assign(window, { LiveApp, useViewport, sessionToMember });
-
 </script>
 
 <script type="text/babel" data-presets="env,react">

@@ -598,7 +598,15 @@ function DPhase2({ me }) {
 // PHASE 3 — Voting (secret until close)
 // ─────────────────────────────────────────────────────────────
 function DPhase3({ me }) {
-  const [vote, setVote] = dUseState(D.phase3.myVote);
+  const [vote, setVote] = dUseState(() => VoteStore.getVote(me.id, 'loc'));
+  const [saved, setSaved] = dUseState(false);
+
+  const handleVote = (id) => {
+    setVote(id);
+    VoteStore.setVote(me.id, 'loc', id);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
 
   return (
     <div style={{ flex: 1, padding: '32px 36px', display: 'flex', flexDirection: 'column', overflow: 'auto' }}>
@@ -645,7 +653,7 @@ function DPhase3({ me }) {
           const by = memberById(s.by);
           const sel = vote === s.id;
           return (
-            <button key={s.id} onClick={() => !me.isAdmin || me.id === 'miguel' ? setVote(s.id) : null} style={{
+            <button key={s.id} onClick={() => handleVote(s.id)} style={{
               background: '#fff', borderRadius: 14, overflow: 'hidden', textAlign: 'left',
               border: sel ? '2px solid var(--pa-accent)' : '1px solid var(--pa-line)',
               cursor: 'pointer', padding: 0, position: 'relative',
@@ -681,7 +689,13 @@ function DPhase3({ me }) {
       <div style={{ marginTop: 18, padding: 14, borderRadius: 12, background: 'rgba(31,26,20,0.04)', display: 'flex', alignItems: 'center', gap: 12 }}>
         <svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" stroke="var(--pa-muted)" strokeWidth="1.2" fill="none"/><path d="M8 5v3.5M8 11v.5" stroke="var(--pa-muted)" strokeWidth="1.5" strokeLinecap="round"/></svg>
         <div style={{ fontSize: 12.5, color: 'var(--pa-muted)' }}>
-          Cada um vota numa só opção. {vote ? <span style={{ color: 'var(--pa-ink)', fontWeight: 600 }}>Voto guardado em {D.phase2.suggestions.find(s => s.id === vote)?.name}.</span> : 'Ainda não votaste.'}
+          Cada um vota numa só opção.{' '}
+          {saved
+            ? <span style={{ color: '#3d5e44', fontWeight: 600 }}>✓ Voto guardado!</span>
+            : vote
+              ? <span style={{ color: 'var(--pa-ink)', fontWeight: 600 }}>Voto em {D.phase2.suggestions.find(s => s.id === vote)?.name}.</span>
+              : 'Ainda não votaste.'
+          }
         </div>
       </div>
 

@@ -204,9 +204,18 @@ function AccommodationForm({ onCancel, onSubmit }) {
 // PHASE 5 — Vote on accommodation. Includes TIE scenario + admin tiebreak.
 // ─────────────────────────────────────────────────────────────
 function DPhase5({ me }) {
-  const [vote, setVote] = dUseState2(D.phase5.myVote);
+  const [vote, setVote] = dUseState2(() => VoteStore.getVote(me.id, 'acc'));
+  const [saved, setSaved] = dUseState2(false);
   // pickedTiebreak: { id, method } | null
   const [resolved, setResolved] = dUseState2(null);
+
+  const handleVote = (id) => {
+    if (closed) return;
+    setVote(id);
+    VoteStore.setVote(me.id, 'acc', id);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
 
   const closed = D.phase5.pendingBy.length === 0 || resolved;
   const counts = D.phase4.suggestions.map((s) => ({
@@ -290,7 +299,7 @@ function DPhase5({ me }) {
           const sel = vote === s.id;
           const isWinner = winner && winner.id === s.id;
           return (
-            <button key={s.id} onClick={() => !closed && setVote(s.id)} style={{
+            <button key={s.id} onClick={() => handleVote(s.id)} style={{
               background: '#fff', borderRadius: 14, padding: 16, textAlign: 'left',
               border: isWinner ? '2px solid var(--pa-accent)' : sel ? '2px solid var(--pa-accent)' : '1px solid var(--pa-line)',
               cursor: closed ? 'default' : 'pointer', position: 'relative',
@@ -312,7 +321,7 @@ function DPhase5({ me }) {
               </div>
               <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ fontFamily: 'var(--pa-mono)', fontSize: 12, fontWeight: 600 }}>{s.price}€/n</span>
-                {sel && !closed && <Pill tone="accent" size="sm">✓ Voto teu</Pill>}
+                {sel && !closed && <Pill tone={saved ? 'success' : 'accent'} size="sm">{saved ? '✓ Guardado' : '✓ Voto teu'}</Pill>}
               </div>
             </button>
           );

@@ -155,7 +155,15 @@ function MPhase2({ me, onLogout, onOpenChat }) {
 
 // PHASE 3 — Vote local
 function MPhase3({ me, onLogout, onOpenChat }) {
-  const [vote, setVote] = mUseState(D.phase3.myVote);
+  const [vote, setVote] = mUseState(() => VoteStore.getVote(me.id, 'loc'));
+  const [saved, setSaved] = mUseState(false);
+
+  const handleVote = (id) => {
+    setVote(id);
+    VoteStore.setVote(me.id, 'loc', id);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
   return (
     <MShell>
       <MHeader phase={3} onLogout={onLogout} onOpenChat={onOpenChat} />
@@ -165,7 +173,7 @@ function MPhase3({ me, onLogout, onOpenChat }) {
           const sel = vote === s.id;
           const by = memberById(s.by);
           return (
-            <button key={s.id} onClick={() => setVote(s.id)} style={{
+            <button key={s.id} onClick={() => handleVote(s.id)} style={{
               background: '#fff', borderRadius: 14, textAlign: 'left', padding: '14px 16px',
               border: sel ? '2px solid var(--pa-accent)' : '1px solid var(--pa-line)',
               cursor: 'pointer', position: 'relative',
@@ -259,10 +267,23 @@ function MPhase4({ me, onLogout, onOpenChat }) {
 
 // PHASE 5 — Votar alojamento (with tie banner for admin)
 function MPhase5({ me, onLogout, onOpenChat }) {
+  const [vote, setVote] = mUseState(() => VoteStore.getVote(me.id, 'acc'));
+  const [saved, setSaved] = mUseState(false);
+
+  const votingClosed = D.phase5.pendingBy.length === 0;
   const counts = D.phase4.suggestions.map((s) => ({ s, n: D.phase5.results[s.id]?.count || 0 }));
   const max = Math.max(...counts.map((c) => c.n));
   const tied = counts.filter((c) => c.n === max && c.n > 0).map((c) => c.s);
-  const isTie = tied.length > 1;
+  // Só mostra empate se a votação já fechou (todos votaram)
+  const isTie = votingClosed && tied.length > 1;
+
+  const handleVote = (id) => {
+    if (votingClosed) return;
+    setVote(id);
+    VoteStore.setVote(me.id, 'acc', id);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
 
   return (
     <MShell>
@@ -300,17 +321,35 @@ function MPhase5({ me, onLogout, onOpenChat }) {
             )}
           </div>
         ))}
-        {!isTie && D.phase4.suggestions.slice(0, 5).map((s) => (
-          <div key={s.id} style={{ background: '#fff', borderRadius: 12, padding: '12px 14px', border: '1px solid var(--pa-line)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Pill tone="dark" size="sm">{s.type}</Pill>
-                <span style={{ fontSize: 11.5 }}>{s.area}</span>
+        {!isTie && D.phase4.suggestions.slice(0, 5).map((s) => {
+          const sel = vote === s.id;
+          return (
+            <button key={s.id} onClick={() => handleVote(s.id)} style={{
+              background: '#fff', borderRadius: 12, padding: '12px 14px',
+              border: sel ? '2px solid var(--pa-accent)' : '1px solid var(--pa-line)',
+              cursor: votingClosed ? 'default' : 'pointer', textAlign: 'left',
+              position: 'relative', width: '100%',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <Pill tone="dark" size="sm">{s.type}</Pill>
+                  <span style={{ fontSize: 11.5 }}>{s.area}</span>
+                </div>
+                <span style={{ fontFamily: 'var(--pa-mono)', fontSize: 13, fontWeight: 700 }}>{s.price}€</span>
               </div>
-              <span style={{ fontFamily: 'var(--pa-mono)', fontSize: 13, fontWeight: 700 }}>{s.price}€</span>
-            </div>
-          </div>
-        ))}
+              {sel && (
+                <div style={{
+                  position: 'absolute', top: 10, right: 10,
+                  width: 22, height: 22, borderRadius: 22,
+                  background: saved ? '#3d5e44' : 'var(--pa-accent)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <svg width="11" height="11" viewBox="0 0 11 11"><path d="M2.5 5.5l2 2 4-4" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                </div>
+              )}
+            </button>
+          );
+        })}
       </div>
     </MShell>
   );
@@ -532,9 +571,17 @@ function MPlanItin() {
 }
 
 // Top-level mobile router
-function MobileApp({ viewAs = 'member', phase = D.edition.currentPhase, liveUser, onLogout }) {
+function MobileApp({ viewAs = 'member', liveUser, onLogout }) {
   const me = liveUser || (viewAs === 'admin' ? memberById(D.adminId) : memberById('rita'));
   const [chatOpen, setChatOpen] = mUseState(false);
+  // Read phase from localStorage (set by admin on desktop); falls back to current phase
+  const phase = (() => {
+    try {
+      const saved = parseInt(safeStore.get('pa-current-phase') || '', 10);
+      if (saved >= 1 && saved <= D.phases.length) return saved;
+    } catch {}
+    return D.edition.currentPhase;
+  })();
   const phases = { 1: MPhase1, 2: MPhase2, 3: MPhase3, 4: MPhase4, 5: MPhase5, 6: MPhase6, 7: MPhase7, 8: MPhase8 };
   const View = phases[phase] || MPhase3;
   return (

@@ -1,7 +1,17 @@
 // Perdidos Algures — shared atoms (reused by desktop + mobile).
 
 const D = window.PA_DATA;
-const memberById = (id) => D.members.find((m) => m.id === id);
+// memberById: procura primeiro nos membros mock; depois nos utilizadores registados em AuthStore
+const memberById = (id) => {
+  const mock = D.members.find((m) => m.id === id);
+  if (mock) return mock;
+  try {
+    const users = window.AuthStore ? window.AuthStore.getUsers() : [];
+    const u = users.find((u) => u.id === id);
+    if (u) { const { passHash, ...clean } = u; return clean; }
+  } catch {}
+  return null;
+};
 const ADMIN = memberById(D.adminId);
 
 // ─────────────────────────────────────────────────────────────
