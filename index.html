@@ -29,6 +29,9 @@
 </head>
 <body>
 <div id="root"></div>
+<!-- Supabase JS v2 -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+
 <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
@@ -2267,325 +2270,241 @@ Object.assign(window, {
   Avatar, Stack, Pill, Btn, Field, PhotoSlot, Logo, Calendar, MobileTopInset,
 });
 </script>
-<script type="text/babel">// Perdidos Algures — Authentication store + UI screens.
-// localStorage-backed for now. Designed to be swappable for Supabase later
-// (see README.md). Admin is reserved: name "Miguel" + a fixed password.
+<!-- ═══════════════════════════════════════════════════════════
+     SUPABASE INTEGRATION LAYER
+     Substitui safeStore/AuthStore/AppStore/ChatStore por Supabase.
+     Mantém a mesma API pública — os ficheiros abaixo não mudam.
+     ═══════════════════════════════════════════════════════════ -->
+<script>
+// ============================================================
+// Perdidos Algures — Supabase Integration Layer
+// ============================================================
+const { createClient } = supabase;
+const _sb = createClient(
+  'https://sinhsvdzajgfnyjitqbw.supabase.co',
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNpbmhzdmR6YWpnZm55aml0cWJ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDUyMzg1NjMsImV4cCI6MjA2MDgxNDU2M30.BkWf2y1B7gsLwaYESQWFzr3eY8CL4coQ8XmuRpSOg9U'
+);
 
-const { useState: aUseState, useRef: aUseRef } = React;
-
-// ─────────────────────────────────────────────────────────────
-// Constants — admin credentials and storage keys.
-// In production these should live in env vars + a real auth backend.
-// ─────────────────────────────────────────────────────────────
-const ADMIN_NAME = 'Miguel';
-const ADMIN_PASS = '7415963a';
-const STORE_USERS   = 'pa-users';
-const STORE_SESSION = 'pa-session';
+const _memStore = {};
+const safeStore = {
+  get(key)        { return _memStore[key] || null; },
+  set(key, value) { _memStore[key] = value; },
+  remove(key)     { delete _memStore[key]; },
+};
 
 async function sha256(str) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
-  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('');
+  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2,'0')).join('');
 }
 
-// localStorage with in-memory fallback. Some sandboxed iframes (preview
-// environments, embedded contexts) throw SecurityError on localStorage
-// access — we want the app to keep working there for testing, even though
-// the data won't persist across reloads.
-const _memStore = {};
-const safeStore = {
-  get(key) {
-    try { return localStorage.getItem(key); }
-    catch { return _memStore[key] || null; }
-  },
-  set(key, value) {
-    try { localStorage.setItem(key, value); }
-    catch { _memStore[key] = value; }
-  },
-  remove(key) {
-    try { localStorage.removeItem(key); }
-    catch { delete _memStore[key]; }
-  },
-};
+const ADMIN_NAME = 'Miguel';
 
-// ─────────────────────────────────────────────────────────────
-// Auth store — pure JS, no React
-// ─────────────────────────────────────────────────────────────
+let _session = (() => {
+  try { return JSON.parse(sessionStorage.getItem('pa-session') || 'null'); } catch { return null; }
+})();
+function _saveSession(u)  { _session = u; try { sessionStorage.setItem('pa-session', JSON.stringify(u)); } catch {} }
+function _clearSession()  { _session = null; try { sessionStorage.removeItem('pa-session'); } catch {} }
+function _profileToSession(r) {
+  return { id: r.id, name: r.name, initials: r.initials, color: r.color, photoDataUrl: r.photo_url || null, isAdmin: r.is_admin };
+}
+
 const AuthStore = {
-  getUsers() {
-    try { return JSON.parse(safeStore.get(STORE_USERS) || '[]'); }
-    catch { return []; }
+  async getUsers() {
+    const { data } = await _sb.from('profiles').select('id,name,initials,color,photo_url,is_admin');
+    return (data||[]).map(r => ({ id:r.id, name:r.name, initials:r.initials, color:r.color, photoDataUrl:r.photo_url||null, isAdmin:r.is_admin }));
   },
-  saveUsers(users) { safeStore.set(STORE_USERS, JSON.stringify(users)); },
-  getSession() {
-    try { return JSON.parse(safeStore.get(STORE_SESSION) || 'null'); }
-    catch { return null; }
-  },
-  setSession(user) { safeStore.set(STORE_SESSION, JSON.stringify(user)); },
-  clearSession() { safeStore.remove(STORE_SESSION); },
-
+  getSession()    { return _session; },
+  setSession(u)   { _saveSession(u); },
+  clearSession()  { _clearSession(); },
   initialsFromName(name) {
-    const parts = name.trim().split(/\s+/);
-    const head = parts[0]?.[0] || '';
-    const tail = parts.length > 1 ? parts[parts.length - 1][0] : '';
-    return (head + tail).toUpperCase() || '?';
+    const p = name.trim().split(/\s+/);
+    return ((p[0]?.[0]||'') + (p.length>1 ? p[p.length-1][0] : '')).toUpperCase() || '?';
   },
   colorFromName(name) {
-    const palette = ['#d97757','#6b8e6f','#b08968','#8b6f47','#c08552','#7a8c5a','#a47148','#5a8caa','#8a4220','#5e7a5a','#9a7b4f','#6b7d8a'];
-    let h = 0;
-    for (const c of name) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-    return palette[h % palette.length];
+    const pal = ['#d97757','#6b8e6f','#b08968','#8b6f47','#c08552','#7a8c5a','#a47148','#5a8caa','#8a4220','#5e7a5a','#9a7b4f','#6b7d8a'];
+    let h = 0; for (const c of name) h = (h*31 + c.charCodeAt(0)) >>> 0;
+    return pal[h % pal.length];
   },
-
   async login(name, password) {
-    const n = (name || '').trim();
+    const n = (name||'').trim();
     if (!n) throw new Error('Falta o nome.');
     if (!password) throw new Error('Falta a password.');
-
-    // Admin path
-    if (n.toLowerCase() === ADMIN_NAME.toLowerCase()) {
-      if (password !== ADMIN_PASS) throw new Error('Password do admin não bate certo.');
-      const session = {
-        id: 'miguel', name: ADMIN_NAME, initials: 'M',
-        color: '#1f1a14', photoDataUrl: null, isAdmin: true,
-      };
-      this.setSession(session);
-      return session;
-    }
-
-    // Regular user
-    const users = this.getUsers();
-    const u = users.find((x) => x.name.toLowerCase() === n.toLowerCase());
-    if (!u) throw new Error('Conta não encontrada. Regista-te primeiro.');
+    const { data: profiles, error } = await _sb.from('profiles').select('id,name,initials,color,photo_url,is_admin').ilike('name',n).limit(1);
+    if (error || !profiles?.length) throw new Error('Conta não encontrada. Regista-te primeiro.');
+    const profile = profiles[0];
     const hash = await sha256(password);
-    if (u.passHash !== hash) throw new Error('Password errada.');
-    const { passHash, ...session } = u;
-    this.setSession(session);
+    const { data: authRows } = await _sb.from('profiles_auth').select('pass_hash').eq('profile_id', profile.id).limit(1);
+    if (!authRows?.length || authRows[0].pass_hash !== hash) throw new Error('Password errada.');
+    const session = _profileToSession(profile);
+    _saveSession(session);
     return session;
   },
-
   async register({ name, password, passwordRepeat, photoDataUrl }) {
-    const n = (name || '').trim();
+    const n = (name||'').trim();
     if (!n) throw new Error('Falta o nome.');
     if (n.toLowerCase() === ADMIN_NAME.toLowerCase()) throw new Error('Esse nome é reservado. Escolhe outro.');
     if (!password || password.length < 4) throw new Error('Password tem de ter 4+ caracteres.');
     if (password !== passwordRepeat) throw new Error('As passwords não batem certo.');
-    const users = this.getUsers();
-    if (users.find((u) => u.name.toLowerCase() === n.toLowerCase())) {
-      throw new Error('Já existe alguém com esse nome.');
-    }
+    const { data: existing } = await _sb.from('profiles').select('id').ilike('name',n).limit(1);
+    if (existing?.length) throw new Error('Já existe alguém com esse nome.');
     const passHash = await sha256(password);
-    const user = {
-      id: 'u_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-      name: n,
-      initials: this.initialsFromName(n),
-      color: this.colorFromName(n),
-      photoDataUrl: photoDataUrl || null,
-      passHash,
-      isAdmin: false,
-      createdAt: Date.now(),
-    };
-    users.push(user);
-    this.saveUsers(users);
-    const { passHash: _, ...session } = user;
-    this.setSession(session);
+    const { data: inserted, error: insertErr } = await _sb.from('profiles')
+      .insert({ name:n, initials:this.initialsFromName(n), color:this.colorFromName(n), photo_url:photoDataUrl||null, is_admin:false })
+      .select().single();
+    if (insertErr) throw new Error('Erro ao criar conta: ' + insertErr.message);
+    await _sb.from('profiles_auth').insert({ profile_id: inserted.id, pass_hash: passHash });
+    const session = _profileToSession(inserted);
+    _saveSession(session);
     return session;
   },
 };
 
-// ─────────────────────────────────────────────────────────────
-// AppStore — dados dinâmicos da edição (RSVP, sugestões, disponibilidade, etc.)
-// Partilhado entre todos os utilizadores no mesmo browser via localStorage.
-// Sincroniza entre tabs via storage event.
-// ─────────────────────────────────────────────────────────────
-const APP_KEY = 'pa-appdata-v1';
+let _appCache = null;
 const _appListeners = new Set();
 
 const AppStore = {
-  load() {
-    try { return JSON.parse(safeStore.get(APP_KEY) || '{}'); }
-    catch { return {}; }
+  async _fetch() {
+    const { data } = await _sb.from('app_data').select('key,value');
+    _appCache = {};
+    for (const row of (data||[])) _appCache[row.key] = row.value;
+    return _appCache;
   },
-  _save(d) {
-    safeStore.set(APP_KEY, JSON.stringify(d));
-    _appListeners.forEach((fn) => fn(d));
+  _cache() { return _appCache || {}; },
+  async _set(key, value) {
+    _appCache = { ...(this._cache()), [key]: value };
+    _appListeners.forEach(fn => fn({..._appCache}));
+    await _sb.from('app_data').upsert({ key, value, updated_at: new Date().toISOString() });
   },
-
-  // Título da edição (admin define)
-  getEdition() {
-    const d = this.load();
-    return {
-      title: d.editionTitle || 'Nova Aventura',
-      subtitle: d.editionSubtitle || 'Algures no mundo.',
-      number: d.editionNumber || 1,
-    };
+  async init() {
+    await this._fetch();
+    _sb.channel('app_data_ch').on('postgres_changes', { event:'*', schema:'public', table:'app_data' }, payload => {
+      if (payload.new) { _appCache = {...(this._cache()), [payload.new.key]: payload.new.value}; _appListeners.forEach(fn => fn({..._appCache})); }
+    }).subscribe();
   },
-  setEdition(title, subtitle, number) {
-    const d = this.load();
-    d.editionTitle = title; d.editionSubtitle = subtitle; d.editionNumber = number || 1;
-    this._save(d);
-  },
-
-  // RSVP
-  setRsvp(userId, status) {
-    const d = this.load();
-    if (!d.rsvp) d.rsvp = {};
-    d.rsvp[userId] = status;
-    this._save(d);
-  },
-  getRsvp(userId) { return this.load().rsvp?.[userId] || null; },
-  getAllRsvp() { return this.load().rsvp || {}; },
-
-  // Sugestões de localização
-  getLocSuggestions() { return this.load().locSuggs || []; },
-  addLocSuggestion(s) {
-    const d = this.load();
-    if (!d.locSuggs) d.locSuggs = [];
-    d.locSuggs.push(s);
-    this._save(d);
-  },
-  removeLocSuggestion(id) {
-    const d = this.load();
-    d.locSuggs = (d.locSuggs || []).filter((s) => s.id !== id);
-    this._save(d);
-  },
-  getLocWinner() { return this.load().locWinner || null; },
-  setLocWinner(id) {
-    const d = this.load();
-    d.locWinner = id;
-    this._save(d);
-  },
-
-  // Sugestões de alojamento
-  getAccSuggestions() { return this.load().accSuggs || []; },
-  addAccSuggestion(s) {
-    const d = this.load();
-    if (!d.accSuggs) d.accSuggs = [];
-    d.accSuggs.push(s);
-    this._save(d);
-  },
-  removeAccSuggestion(id) {
-    const d = this.load();
-    d.accSuggs = (d.accSuggs || []).filter((s) => s.id !== id);
-    this._save(d);
-  },
-  getAccWinner() { return this.load().accWinner || null; },
-  setAccWinner(id) {
-    const d = this.load();
-    d.accWinner = id;
-    this._save(d);
-  },
-
-  // Disponibilidade
-  setAvailability(userId, days) {
-    const d = this.load();
-    if (!d.avail) d.avail = {};
-    d.avail[userId] = days;
-    this._save(d);
-  },
-  getAvailability(userId) { return this.load().avail?.[userId] || []; },
-  getAllAvailability() { return this.load().avail || {}; },
-
-  // Datas trancadas
-  setLockedDates(from, to, monthLabel) {
-    const d = this.load();
-    d.locked = { from, to, monthLabel };
-    this._save(d);
-  },
-  getLockedDates() { return this.load().locked || null; },
-
-  // Planeamento
-  getPlanning() { return this.load().planning || { costs: {perPerson:0,breakdown:[],paid:{}}, itinerary:[], activities:[], shopping:[] }; },
-  setPlanning(planning) {
-    const d = this.load();
-    d.planning = planning;
-    this._save(d);
-  },
+  load()      { return this._cache(); },
+  _save(d)    {},
+  getEdition() { const d=this._cache(); return { title:d.editionTitle||'Nova Aventura', subtitle:d.editionSubtitle||'Algures no mundo.', number:d.editionNumber||1 }; },
+  async setEdition(t,s,n) { await Promise.all([this._set('editionTitle',t),this._set('editionSubtitle',s),this._set('editionNumber',n||1)]); },
+  getPhase()              { return this._cache().currentPhase || 1; },
+  async setPhase(n)       { await this._set('currentPhase', n); },
+  setRsvp(uid,st)         { const rsvp={...(this._cache().rsvp||{}), [uid]:st}; return this._set('rsvp',rsvp); },
+  getRsvp(uid)            { return this._cache().rsvp?.[uid]||null; },
+  getAllRsvp()             { return this._cache().rsvp||{}; },
+  getLocSuggestions()     { return this._cache().locSuggs||[]; },
+  async addLocSuggestion(s)     { await this._set('locSuggs',[...this.getLocSuggestions(),s]); },
+  async removeLocSuggestion(id) { await this._set('locSuggs',this.getLocSuggestions().filter(x=>x.id!==id)); },
+  getLocWinner()          { return this._cache().locWinner||null; },
+  async setLocWinner(id)  { await this._set('locWinner',id); },
+  getLocVotes()           { return this._cache().locVotes||{}; },
+  async setLocVote(uid,id){ await this._set('locVotes',{...this.getLocVotes(),[uid]:id}); },
+  getAccSuggestions()     { return this._cache().accSuggs||[]; },
+  async addAccSuggestion(s)     { await this._set('accSuggs',[...this.getAccSuggestions(),s]); },
+  async removeAccSuggestion(id) { await this._set('accSuggs',this.getAccSuggestions().filter(x=>x.id!==id)); },
+  getAccWinner()          { return this._cache().accWinner||null; },
+  async setAccWinner(id)  { await this._set('accWinner',id); },
+  getAccVotes()           { return this._cache().accVotes||{}; },
+  async setAccVote(uid,id){ await this._set('accVotes',{...this.getAccVotes(),[uid]:id}); },
+  getAvailability()       { return this._cache().availability||{}; },
+  async setAvailability(uid,days){ await this._set('availability',{...this.getAvailability(),[uid]:days}); },
+  getAllAvailability()     { return this._cache().availability||{}; },
+  getLockedDates()        { return this._cache().lockedDates||null; },
+  async setLockedDates(dates){ await this._set('lockedDates',dates); },
+  async setLockedDatesFromTo(from,to,monthLabel){ await this._set('lockedDates',{from,to,monthLabel}); },
+  getPlanning()           { return this._cache().planData||{ costs:{perPerson:0,breakdown:[],paid:{}}, itinerary:[],activities:[],shopping:[] }; },
+  async setPlanning(p)    { await this._set('planData',p); },
+  subscribe(fn)           { _appListeners.add(fn); },
+  unsubscribe(fn)         { _appListeners.delete(fn); },
 };
 
-// Sincronização cross-tab
-if (typeof window !== 'undefined') {
-  window.addEventListener('storage', (e) => {
-    if (e.key === APP_KEY) {
-      try {
-        const parsed = e.newValue ? JSON.parse(e.newValue) : {};
-        _appListeners.forEach((fn) => fn(parsed));
-      } catch {}
-    }
-  });
-}
-
-// Hook para componentes subscreverem mudanças no AppStore
 function useAppStore() {
-  const { useState: _us, useEffect: _ue } = React;
-  const [data, setData] = _us(() => AppStore.load());
-  _ue(() => {
-    _appListeners.add(setData);
-    return () => _appListeners.delete(setData);
-  }, []);
+  const [data, setData] = React.useState(() => AppStore._cache());
+  React.useEffect(() => { AppStore.subscribe(setData); return () => AppStore.unsubscribe(setData); }, []);
   return data;
 }
 
-// ─────────────────────────────────────────────────────────────
-// VoteStore — persiste votos por utilizador + fase em localStorage
-// ─────────────────────────────────────────────────────────────
 const VoteStore = {
-  _key: 'pa-votes-v2',
-  load() {
-    try { return JSON.parse(safeStore.get(this._key) || '{}'); } catch { return {}; }
+  getLocVotes()          { return AppStore.getLocVotes(); },
+  setLocVote(uid,id)     { return AppStore.setLocVote(uid,id); },
+  getAccVotes()          { return AppStore.getAccVotes(); },
+  setAccVote(uid,id)     { return AppStore.setAccVote(uid,id); },
+  getVote(uid,phase)     { const v=this.getLocVotes(); return v[uid]||null; },
+  setVote(uid,phase,id)  { if(phase==='locVote') return this.setLocVote(uid,id); return this.setAccVote(uid,id); },
+};
+
+let _chatCache = null;
+const _chatListeners = new Set();
+
+const ChatStore = {
+  async load() {
+    const { data } = await _sb.from('chat_messages').select('id,profile_id,text,created_at').order('created_at',{ascending:true});
+    _chatCache = (data||[]).map(r => ({ id:r.id, who:r.profile_id, text:r.text, when:new Date(r.created_at).toLocaleTimeString('pt-PT',{hour:'2-digit',minute:'2-digit'}) }));
+    return _chatCache;
   },
-  getVote(userId, phaseKey) {
-    return this.load()[userId + '::' + phaseKey] || null;
-  },
-  setVote(userId, phaseKey, voteId) {
-    const d = this.load();
-    d[userId + '::' + phaseKey] = voteId;
-    safeStore.set(this._key, JSON.stringify(d));
-  },
-  clearVote(userId, phaseKey) {
-    const d = this.load();
-    delete d[userId + '::' + phaseKey];
-    safeStore.set(this._key, JSON.stringify(d));
+  async init() {
+    await this.load();
+    _sb.channel('chat_rt')
+      .on('postgres_changes',{event:'INSERT',schema:'public',table:'chat_messages'},payload=>{
+        const r=payload.new;
+        const msg={id:r.id,who:r.profile_id,text:r.text,when:new Date(r.created_at).toLocaleTimeString('pt-PT',{hour:'2-digit',minute:'2-digit'})};
+        _chatCache=[...(_chatCache||[]),msg];
+        _chatListeners.forEach(fn=>fn(_chatCache.slice()));
+      })
+      .on('postgres_changes',{event:'DELETE',schema:'public',table:'chat_messages'},payload=>{
+        _chatCache=(_chatCache||[]).filter(m=>m.id!==payload.old.id);
+        _chatListeners.forEach(fn=>fn(_chatCache.slice()));
+      })
+      .subscribe();
   },
 };
 
-function useAuth() {
-  const [user, setUser] = aUseState(() => AuthStore.getSession());
-  return {
-    user,
-    login: async (name, pw) => { const u = await AuthStore.login(name, pw); setUser(u); return u; },
-    register: async (data) => { const u = await AuthStore.register(data); setUser(u); return u; },
-    logout: () => { AuthStore.clearSession(); setUser(null); },
-  };
+function getChatMessages()   { return _chatCache || []; }
+async function pushChatMessage(msg)   { await _sb.from('chat_messages').insert({ profile_id:msg.who, text:msg.text }); }
+async function deleteChatMessage(id)  { await _sb.from('chat_messages').delete().eq('id',id); }
+
+function useChat() {
+  const [msgs, setMsgs] = React.useState(() => getChatMessages().slice());
+  React.useEffect(() => {
+    setMsgs(getChatMessages().slice());
+    _chatListeners.add(setMsgs);
+    return () => _chatListeners.delete(setMsgs);
+  }, []);
+  return msgs;
 }
 
-// File → data URL with downscale (keeps localStorage manageable)
-async function readPhotoFile(file) {
-  if (!file) return null;
-  const dataUrl = await new Promise((res, rej) => {
-    const fr = new FileReader();
-    fr.onload = () => res(fr.result);
-    fr.onerror = rej;
-    fr.readAsDataURL(file);
+function readPhotoFile(file) {
+  return new Promise((res,rej) => {
+    const reader = new FileReader();
+    reader.onload  = e => res(e.target.result);
+    reader.onerror = () => rej(new Error('Não consegui ler a foto.'));
+    reader.readAsDataURL(file);
   });
-  const img = await new Promise((res, rej) => {
-    const im = new Image();
-    im.onload = () => res(im);
-    im.onerror = rej;
-    im.src = dataUrl;
-  });
-  const max = 400;
-  const scale = Math.min(1, max / Math.max(img.width, img.height));
-  const w = Math.round(img.width * scale);
-  const h = Math.round(img.height * scale);
-  const canvas = document.createElement('canvas');
-  canvas.width = w; canvas.height = h;
-  canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-  return canvas.toDataURL('image/jpeg', 0.85);
 }
 
-// ─────────────────────────────────────────────────────────────
-// AuthLayout — split-screen brand + form
-// ─────────────────────────────────────────────────────────────
+async function initSupabase() {
+  await Promise.all([AppStore.init(), ChatStore.init()]);
+  console.log('[PA] Supabase iniciado ✓');
+}
+
+Object.assign(window, {
+  _sb, safeStore, AuthStore, AppStore, VoteStore, ChatStore,
+  useAuth: function() {
+    const [user, setUser] = React.useState(() => _session);
+    const login    = async (name,pw)  => { const s=await AuthStore.login(name,pw);    setUser(s); return s; };
+    const register = async (opts)     => { const s=await AuthStore.register(opts);    setUser(s); return s; };
+    const logout   = ()               => { AuthStore.clearSession(); setUser(null); };
+    return { user, login, register, logout };
+  },
+  useAppStore, useChat, getChatMessages, pushChatMessage, deleteChatMessage,
+  readPhotoFile, initSupabase, ADMIN_NAME,
+});
+</script>
+
+<script type="text/babel">// Perdidos Algures — Authentication UI screens.
+// Os stores (AuthStore, AppStore, VoteStore, safeStore, useAuth, readPhotoFile, ADMIN_NAME)
+// estão definidos no bloco Supabase. Aqui apenas os componentes visuais.
+
+const { useState: aUseState, useRef: aUseRef } = React;
+
 function AuthLayout({ children, narrow }) {
   return (
     <div style={{
@@ -2847,78 +2766,18 @@ function AuthGate({ auth, narrow }) {
   return <LoginScreen auth={auth} onSwitch={() => setMode('register')} narrow={narrow} />;
 }
 
+
 Object.assign(window, {
-  safeStore, AppStore, useAppStore, VoteStore, AuthStore, useAuth,
   AuthLayout, LoginScreen, RegisterScreen, AuthGate,
-  AuthPasswordField, AuthError, readPhotoFile, ADMIN_NAME,
+  AuthPasswordField, AuthError,
 });
 </script>
-<script type="text/babel">// Perdidos Algures — group chat: store + panel + mobile bubble.
-// Messages live in safeStore (localStorage with in-memory fallback).
-// Seeded with a few in-character messages so the panel isn't empty on first run.
+
+<script type="text/babel">// Perdidos Algures — group chat: panel + mobile bubble.
+// ChatStore, useChat, pushChatMessage, deleteChatMessage, getChatMessages
+// já estão definidos pelo bloco Supabase (chat em tempo real via Realtime).
 
 const { useState: cUseState, useEffect: cUseEffect, useRef: cUseRef } = React;
-
-const CHAT_KEY = 'pa-chat-14';
-
-const CHAT_SEED = [];
-
-const ChatStore = {
-  load() {
-    try {
-      const raw = safeStore.get(CHAT_KEY);
-      if (raw) return JSON.parse(raw);
-    } catch {}
-    return CHAT_SEED.slice();
-  },
-  save(messages) { safeStore.set(CHAT_KEY, JSON.stringify(messages)); },
-};
-
-// Hook: shared chat state. Lives on window so all panels (desktop rail +
-// mobile sheet) stay in sync within a single page lifetime.
-const _chatListeners = new Set();
-let _chatCache = null;
-
-function getChatMessages() {
-  if (!_chatCache) _chatCache = ChatStore.load();
-  return _chatCache;
-}
-
-function pushChatMessage(msg) {
-  _chatCache = [...getChatMessages(), msg];
-  ChatStore.save(_chatCache);
-  _chatListeners.forEach((fn) => fn(_chatCache.slice()));
-}
-
-function deleteChatMessage(id) {
-  _chatCache = getChatMessages().filter((m) => m.id !== id);
-  ChatStore.save(_chatCache);
-  _chatListeners.forEach((fn) => fn(_chatCache.slice()));
-}
-
-// Cross-tab / cross-window sync via storage event
-if (typeof window !== 'undefined') {
-  window.addEventListener('storage', (e) => {
-    if (e.key === CHAT_KEY) {
-      try {
-        _chatCache = e.newValue ? JSON.parse(e.newValue) : CHAT_SEED.slice();
-        _chatListeners.forEach((fn) => fn(_chatCache.slice()));
-      } catch {}
-    }
-  });
-}
-
-function useChat() {
-  const [msgs, setMsgs] = cUseState(() => getChatMessages().slice());
-  cUseEffect(() => {
-    // Re-sync on mount in case another tab changed messages while this was unmounted
-    const current = getChatMessages();
-    setMsgs(current.slice());
-    _chatListeners.add(setMsgs);
-    return () => _chatListeners.delete(setMsgs);
-  }, []);
-  return msgs;
-}
 
 // ─────────────────────────────────────────────────────────────
 // ChatPanel — message list + composer. Fills its container.
@@ -3096,8 +2955,7 @@ function MobileChatSheet({ me, open, onClose }) {
 }
 
 Object.assign(window, {
-  ChatStore, ChatPanel, MobileChatSheet,
-  useChat, getChatMessages, pushChatMessage, deleteChatMessage,
+  ChatPanel, MobileChatSheet,
 });
 </script>
 <script type="text/babel">// Perdidos Algures — Tie-break methods (v2: 7 methods).
@@ -6119,7 +5977,15 @@ Object.assign(window, { LiveApp, useViewport, sessionToMember });
   }
 
   const RootComp = isCanvasMode ? CanvasRoot : LiveRoot;
-  ReactDOM.createRoot(document.getElementById('root')).render(<RootComp />);
+
+  // Inicializa Supabase (AppStore + ChatStore) antes de renderizar
+  initSupabase().then(() => {
+    ReactDOM.createRoot(document.getElementById('root')).render(<RootComp />);
+  }).catch(err => {
+    console.error('[PA] Erro ao iniciar Supabase:', err);
+    // Renderiza mesmo assim para não bloquear a app
+    ReactDOM.createRoot(document.getElementById('root')).render(<RootComp />);
+  });
 </script>
 </body>
 </html>
