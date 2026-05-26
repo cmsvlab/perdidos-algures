@@ -501,15 +501,33 @@ const DB = {
   },
 
   subscribeMessages(editionId, cb) {
+    // cb receives { type: 'insert'|'delete', msg? } so caller can react
     return sb.channel(`msgs:${editionId}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `edition_id=eq.${editionId}` },
         async (payload) => {
           const { data } = await sb.from('messages')
             .select('*, by_profile:profiles!by_user(id, name, initials, color, photo_url, is_admin)')
             .eq('id', payload.new.id).single();
-          if (data) cb(data);
+          if (data) cb({ type: 'insert', msg: data });
+        })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages', filter: `edition_id=eq.${editionId}` },
+        (payload) => {
+          cb({ type: 'delete', id: payload.old.id });
         })
       .subscribe();
+  },
+
+  async resetEdition(editionId) {
+    // Wipe all phase data but keep the edition itself, reset to phase 1
+    await sb.from('messages').delete().eq('edition_id', editionId);
+    await sb.from('votes').delete().eq('edition_id', editionId);
+    await sb.from('rsvp').delete().eq('edition_id', editionId);
+    await sb.from('location_suggestions').delete().eq('edition_id', editionId);
+    await sb.from('accommodation_suggestions').delete().eq('edition_id', editionId);
+    await sb.from('availability').delete().eq('edition_id', editionId);
+    const { error } = await sb.from('editions')
+      .update({ current_phase: 1, locked_dates: null, tiebreak_state: null }).eq('id', editionId);
+    if (error) throw new Error(error.message);
   },
   // ── ADMIN MANAGEMENT ─────────────────────────────────────────
   async deleteMessage(messageId) {
@@ -3122,50 +3140,115 @@ function ChatPanel({ me, editionId, compact = false }) {
   const [messages, setMessages] = cUseState([]);
   const [text, setText]         = cUseState('');
   const [loading, setLoading]   = cUseState(true);
-  const scrollRef = cUseRef(null);
-  const chanRef   = cUseRef(null);
+  const [realtimeOk, setRealtimeOk] = cUseState(false);
+  const scrollRef  = cUseRef(null);
+  const chanRef    = cUseRef(null);
+  const pollRef    = cUseRef(null);
+  const pendingRef = cUseRef(new Set()); // track optimistic IDs
+
+  const loadMessages = cUseRef(null);
+  loadMessages.current = async () => {
+    if (!editionId) return;
+    const msgs = await DB.getMessages(editionId).catch(() => null);
+    if (msgs) setMessages(msgs.length > 0 ? msgs : CHAT_SEED);
+  };
 
   cUseEffect(() => {
     if (!editionId) {
-      // No edition yet — show seed messages
       setMessages(CHAT_SEED);
       setLoading(false);
       return;
     }
+
     let mounted = true;
+
+    // Initial load
     DB.getMessages(editionId).then((msgs) => {
       if (!mounted) return;
       setMessages(msgs.length > 0 ? msgs : CHAT_SEED);
       setLoading(false);
     }).catch(() => { if (mounted) { setMessages(CHAT_SEED); setLoading(false); } });
 
-    chanRef.current = DB.subscribeMessages(editionId, (newMsg) => {
-      if (mounted) setMessages((prev) => [...prev, newMsg]);
-    });
+    // Realtime subscription — handles INSERT and DELETE
+    const ch = sb.channel(`msgs:${editionId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `edition_id=eq.${editionId}` },
+        async (payload) => {
+          if (!mounted) return;
+          const { data } = await sb.from('messages')
+            .select('*, by_profile:profiles!by_user(id, name, initials, color, photo_url, is_admin)')
+            .eq('id', payload.new.id).single();
+          if (data && mounted) {
+            // Remove any optimistic placeholder for this message
+            pendingRef.current.delete(data.id);
+            setMessages((prev) => {
+              // avoid duplicate if already added optimistically
+              if (prev.some((m) => m.id === data.id)) return prev;
+              // remove optimistic placeholder (same text+user within 5s)
+              const filtered = prev.filter((m) => {
+                if (!m._optimistic) return true;
+                if (m.by_profile?.id === data.by_profile?.id && m.text === data.text) return false;
+                return true;
+              });
+              return [...filtered, data];
+            });
+          }
+        })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages', filter: `edition_id=eq.${editionId}` },
+        (payload) => {
+          if (!mounted) return;
+          const deletedId = payload.old?.id;
+          if (deletedId) setMessages((prev) => prev.filter((m) => m.id !== deletedId));
+        })
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED' && mounted) setRealtimeOk(true);
+      });
+
+    chanRef.current = ch;
+
+    // Polling fallback: every 8s do a full refresh
+    // This catches cases where the realtime sub misses events
+    pollRef.current = setInterval(() => {
+      if (mounted) loadMessages.current();
+    }, 8000);
 
     return () => {
       mounted = false;
-      if (chanRef.current) sb.removeChannel(chanRef.current);
+      try { sb.removeChannel(ch); } catch {}
+      if (pollRef.current) clearInterval(pollRef.current);
     };
   }, [editionId]);
 
   cUseEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
   }, [messages.length]);
 
   const send = async () => {
     const t = text.trim();
     if (!t || !editionId || !me) return;
     setText('');
-    try { await DB.sendMessage(editionId, me.id, t); }
-    catch (e) {
-      // Optimistic: if send fails, add locally with error indicator
-      setMessages((prev) => [...prev, {
-        id: 'err-' + Date.now(),
-        by_profile: { ...me },
-        text: t + ' ⚠',
-        created_at: new Date().toISOString(),
-      }]);
+
+    // Optimistic: show immediately
+    const optimisticId = 'opt-' + Date.now();
+    const optimisticMsg = {
+      id: optimisticId,
+      _optimistic: true,
+      by_profile: { id: me.id, name: me.name, initials: me.initials, color: me.color, is_admin: me.isAdmin },
+      text: t,
+      created_at: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, optimisticMsg]);
+
+    try {
+      await DB.sendMessage(editionId, me.id, t);
+      // Realtime sub will replace the optimistic entry when INSERT fires.
+      // If realtime is slow, keep the optimistic one visible.
+    } catch (e) {
+      // Mark it as failed
+      setMessages((prev) => prev.map((m) =>
+        m.id === optimisticId ? { ...m, _failed: true, text: m.text + ' ⚠' } : m
+      ));
     }
   };
 
@@ -3173,6 +3256,13 @@ function ChatPanel({ me, editionId, compact = false }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      {/* Connection status */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', marginBottom: 4, paddingBottom: 4, borderBottom: '1px solid var(--pa-line)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontFamily: 'var(--pa-mono)', fontSize: 9, letterSpacing: 0.8, color: realtimeOk ? '#3d5e44' : 'var(--pa-muted)', textTransform: 'uppercase' }}>
+          <div style={{ width: 5, height: 5, borderRadius: 5, background: realtimeOk ? '#3d5e44' : 'var(--pa-muted)' }} />
+          {realtimeOk ? 'em direto' : 'a ligar...'}
+        </div>
+      </div>
       <div ref={scrollRef} style={{
         flex: 1, overflow: 'auto', padding: compact ? '6px 12px' : '8px 2px',
         display: 'flex', flexDirection: 'column', gap: 10,
@@ -3185,8 +3275,10 @@ function ChatPanel({ me, editionId, compact = false }) {
         {!loading && messages.map((m) => {
           const author = m.by_profile || { name: '?', initials: '?', color: 'var(--pa-muted)' };
           const mine = me && (m.by_profile?.id === me.id || m.by_profile?.name === me.name);
+          const isOptimistic = !!m._optimistic;
+          const isFailed = !!m._failed;
           return (
-            <div key={m.id} style={{ display: 'flex', gap: 8, flexDirection: mine ? 'row-reverse' : 'row' }}>
+            <div key={m.id} style={{ display: 'flex', gap: 8, flexDirection: mine ? 'row-reverse' : 'row', opacity: isOptimistic ? 0.65 : 1 }}>
               <Avatar member={author} size={compact ? 22 : 26} />
               <div style={{ maxWidth: '78%', display: 'flex', flexDirection: 'column', alignItems: mine ? 'flex-end' : 'flex-start' }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 3, flexDirection: mine ? 'row-reverse' : 'row' }}>
@@ -3194,18 +3286,18 @@ function ChatPanel({ me, editionId, compact = false }) {
                     {mine ? 'tu' : author.name}
                     {author.is_admin && <span style={{ color: 'var(--pa-accent)', marginLeft: 3 }}>★</span>}
                   </span>
-                  <span style={{ fontFamily: 'var(--pa-mono)', fontSize: 9.5, color: 'var(--pa-muted)' }}>
-                    {new Date(m.created_at).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}
+                  <span style={{ fontFamily: 'var(--pa-mono)', fontSize: 9.5, color: isFailed ? '#c44' : 'var(--pa-muted)' }}>
+                    {isOptimistic ? (isFailed ? '⚠ falhou' : '…') : new Date(m.created_at).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}
                   </span>
                 </div>
                 <div style={{
                   padding: '8px 12px',
-                  background: mine ? 'var(--pa-ink)' : '#fff',
-                  color: mine ? '#fff' : 'var(--pa-ink)',
+                  background: mine ? (isFailed ? 'rgba(200,60,60,0.15)' : 'var(--pa-ink)') : '#fff',
+                  color: mine ? (isFailed ? '#c44' : '#fff') : 'var(--pa-ink)',
                   borderRadius: 12,
                   borderTopLeftRadius: mine ? 12 : 4,
                   borderTopRightRadius: mine ? 4 : 12,
-                  border: mine ? 'none' : '1px solid var(--pa-line)',
+                  border: (mine && !isFailed) ? 'none' : '1px solid var(--pa-line)',
                   fontFamily: 'var(--pa-body)', fontSize: compact ? 12.5 : 13.5,
                   lineHeight: 1.4, wordWrap: 'break-word', whiteSpace: 'pre-wrap',
                 }}>{m.text}</div>
@@ -6598,14 +6690,27 @@ function AdminPanel({ me, edition, members, onClose }) {
     if (!confirm) return;
     setBusy(true);
     try {
-      const { type, id, userId, phase } = confirm;
-      if (type === 'message') { await DB.deleteMessage(id); setMessages((p) => p.filter((m) => m.id !== id)); }
-      if (type === 'rsvp')    { await DB.deleteRsvp(edition.id, userId); setRsvpData((p) => p.filter((r) => r.user_id !== userId)); }
-      if (type === 'vote3')   { await DB.deleteVote(edition.id, userId, 3); setVotes3((p) => p.filter((v) => v.user_id !== userId)); }
-      if (type === 'vote5')   { await DB.deleteVote(edition.id, userId, 5); setVotes5((p) => p.filter((v) => v.user_id !== userId)); }
-      if (type === 'locSug')  { await DB.deleteLocationSuggestion(id); setLocSugs((p) => p.filter((s) => s.id !== id)); }
-      if (type === 'accSug')  { await DB.deleteAccommodation(id); setAccSugs((p) => p.filter((s) => s.id !== id)); }
-      if (type === 'avail')   { await DB.deleteAvailability(edition.id, userId); setAvail((p) => p.filter((a) => a.user_id !== userId)); }
+      const { type, id, userId } = confirm;
+      if (type === 'message')      { await DB.deleteMessage(id); setMessages((p) => p.filter((m) => m.id !== id)); }
+      if (type === 'rsvp')         { await DB.deleteRsvp(edition.id, userId); setRsvpData((p) => p.filter((r) => r.user_id !== userId)); }
+      if (type === 'vote3')        { await DB.deleteVote(edition.id, userId, 3); setVotes3((p) => p.filter((v) => v.user_id !== userId)); }
+      if (type === 'vote5')        { await DB.deleteVote(edition.id, userId, 5); setVotes5((p) => p.filter((v) => v.user_id !== userId)); }
+      if (type === 'locSug')       { await DB.deleteLocationSuggestion(id); setLocSugs((p) => p.filter((s) => s.id !== id)); }
+      if (type === 'accSug')       { await DB.deleteAccommodation(id); setAccSugs((p) => p.filter((s) => s.id !== id)); }
+      if (type === 'avail')        { await DB.deleteAvailability(edition.id, userId); setAvail((p) => p.filter((a) => a.user_id !== userId)); }
+      if (type === 'edition-del')  {
+        await DB.deleteEdition(id);
+        setEditions((p) => p.filter((e) => e.id !== id));
+      }
+      if (type === 'edition-reset') {
+        await DB.resetEdition(id);
+        showToast('Edição resetada para a Fase 1.');
+        setBusy(false);
+        setConfirm(null);
+        // Reload the page so all state refreshes
+        setTimeout(() => window.location.reload(), 800);
+        return;
+      }
       showToast('Eliminado com sucesso.');
     } catch (ex) { showToast('Erro: ' + ex.message, false); }
     setBusy(false);
@@ -6788,21 +6893,41 @@ function AdminPanel({ me, edition, members, onClose }) {
               <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 10, letterSpacing: 1.2, color: 'var(--pa-muted)', textTransform: 'uppercase', marginBottom: 12 }}>
                 {editions.length} edições na base de dados
               </div>
-              {editions.map((ed) => (
-                <Row key={ed.id}
-                  left={
-                    <div>
-                      <div><span style={{ fontWeight: 600 }}>Nº{ed.number}</span> · {ed.title}</div>
-                      <div style={{ fontSize: 11.5, color: 'var(--pa-muted)', marginTop: 2 }}>
-                        Fase {ed.current_phase} · criada {new Date(ed.created_at).toLocaleDateString('pt-PT')}
+              {editions.map((ed) => {
+                const isActive = ed.id === edition?.id;
+                return (
+                  <Row key={ed.id}
+                    left={
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontWeight: 600 }}>Nº{ed.number}</span> · {ed.title}
+                          {isActive && <span style={{ fontFamily: 'var(--pa-mono)', fontSize: 9, letterSpacing: 1, color: 'var(--pa-accent)', fontWeight: 700, textTransform: 'uppercase', padding: '2px 6px', borderRadius: 4, background: 'rgba(217,119,87,0.12)' }}>ACTIVA</span>}
+                        </div>
+                        <div style={{ fontSize: 11.5, color: 'var(--pa-muted)', marginTop: 2 }}>
+                          Fase {ed.current_phase} · criada {new Date(ed.created_at).toLocaleDateString('pt-PT')}
+                        </div>
                       </div>
-                    </div>
-                  }
-                  right={ed.id !== edition?.id ? btnDel(ed.title, 'edition-del', ed.id) : (
-                    <span style={{ fontFamily: 'var(--pa-mono)', fontSize: 10, color: 'var(--pa-accent)', fontWeight: 600 }}>ACTIVA</span>
-                  )}
-                />
-              ))}
+                    }
+                    right={
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button onClick={() => setConfirm({ type: 'edition-reset', id: ed.id, label: `Resetar "${ed.title}" → Fase 1 (apaga todos os dados da edição)` })} style={{
+                          padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(31,26,20,0.2)',
+                          background: 'transparent', color: 'var(--pa-ink)', cursor: 'pointer',
+                          fontFamily: 'var(--pa-mono)', fontSize: 10, fontWeight: 600,
+                        }}>↺ reset</button>
+                        {!isActive && (
+                          <button onClick={() => setConfirm({ type: 'edition-del', id: ed.id, label: `Apagar edição "${ed.title}" e todos os seus dados` })} style={{
+                            padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(217,119,87,0.4)',
+                            background: 'transparent', color: '#c44', cursor: 'pointer',
+                            fontFamily: 'var(--pa-mono)', fontSize: 10, fontWeight: 600,
+                          }}>✕ apagar</button>
+                        )}
+                      </div>
+                    }
+                  />
+                );
+              })}
+              {editions.length === 0 && <div style={{ color: 'var(--pa-muted)', fontSize: 13 }}>Sem edições.</div>}
             </div>
           )}
         </div>
@@ -6814,14 +6939,14 @@ function AdminPanel({ me, edition, members, onClose }) {
             display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10,
           }}>
             <div style={{
-              background: '#fff', borderRadius: 16, padding: 28, maxWidth: 360, width: '90%',
+              background: '#fff', borderRadius: 16, padding: 28, maxWidth: 380, width: '90%',
               boxShadow: '0 16px 48px rgba(0,0,0,0.2)',
             }}>
               <div style={{ fontFamily: 'var(--pa-display)', fontSize: 18, fontWeight: 700, marginBottom: 10 }}>
-                Confirmar eliminação
+                {confirm.type === 'edition-reset' ? '↺ Confirmar reset' : 'Confirmar eliminação'}
               </div>
               <div style={{ fontSize: 13.5, color: 'var(--pa-muted)', marginBottom: 20, lineHeight: 1.5 }}>
-                Tens a certeza que queres eliminar <strong style={{ color: 'var(--pa-ink)' }}>"{confirm.label}"</strong>? Esta acção é irreversível.
+                {confirm.label}
               </div>
               <div style={{ display: 'flex', gap: 10 }}>
                 <button onClick={() => setConfirm(null)} style={{
@@ -6830,10 +6955,11 @@ function AdminPanel({ me, edition, members, onClose }) {
                 }}>Cancelar</button>
                 <button onClick={doDelete} disabled={busy} style={{
                   flex: 1, height: 42, borderRadius: 999, border: 'none',
-                  background: '#c44', color: '#fff', cursor: busy ? 'default' : 'pointer',
+                  background: confirm.type === 'edition-reset' ? 'var(--pa-ink)' : '#c44',
+                  color: '#fff', cursor: busy ? 'default' : 'pointer',
                   fontFamily: 'var(--pa-body)', fontSize: 14, fontWeight: 600,
                   opacity: busy ? 0.6 : 1,
-                }}>{busy ? 'A eliminar...' : 'Eliminar'}</button>
+                }}>{busy ? 'A processar...' : (confirm.type === 'edition-reset' ? 'Resetar' : 'Eliminar')}</button>
               </div>
             </div>
           </div>
