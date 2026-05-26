@@ -2329,8 +2329,9 @@ const AuthStore = {
     const n = (name||'').trim();
     if (!n) throw new Error('Falta o nome.');
     if (!password) throw new Error('Falta a password.');
-    const { data: profiles, error } = await _sb.from('profiles').select('id,name,initials,color,photo_url,is_admin').ilike('name',n).limit(1);
-    if (error || !profiles?.length) throw new Error('Conta não encontrada. Regista-te primeiro.');
+    const { data: profiles, error } = await _sb.from('profiles').select('id,name,initials,color,photo_url,is_admin').ilike('name', n).limit(1);
+    if (error) throw new Error('Erro de base de dados: ' + error.message);
+    if (!profiles?.length) throw new Error('Conta não encontrada. Regista-te primeiro.');
     const profile = profiles[0];
     const hash = await sha256(password);
     const { data: authRows } = await _sb.from('profiles_auth').select('pass_hash').eq('profile_id', profile.id).limit(1);
@@ -2345,7 +2346,7 @@ const AuthStore = {
     if (n.toLowerCase() === ADMIN_NAME.toLowerCase()) throw new Error('Esse nome é reservado. Escolhe outro.');
     if (!password || password.length < 4) throw new Error('Password tem de ter 4+ caracteres.');
     if (password !== passwordRepeat) throw new Error('As passwords não batem certo.');
-    const { data: existing } = await _sb.from('profiles').select('id').ilike('name',n).limit(1);
+    const { data: existing } = await _sb.from('profiles').select('id').eq('name', n).limit(1);
     if (existing?.length) throw new Error('Já existe alguém com esse nome.');
     const passHash = await sha256(password);
     const { data: inserted, error: insertErr } = await _sb.from('profiles')
