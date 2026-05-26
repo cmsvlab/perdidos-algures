@@ -124,6 +124,139 @@ const AuthStore = {
 };
 
 // ─────────────────────────────────────────────────────────────
+// AppStore — dados dinâmicos da edição (RSVP, sugestões, disponibilidade, etc.)
+// Partilhado entre todos os utilizadores no mesmo browser via localStorage.
+// Sincroniza entre tabs via storage event.
+// ─────────────────────────────────────────────────────────────
+const APP_KEY = 'pa-appdata-v1';
+const _appListeners = new Set();
+
+const AppStore = {
+  load() {
+    try { return JSON.parse(safeStore.get(APP_KEY) || '{}'); }
+    catch { return {}; }
+  },
+  _save(d) {
+    safeStore.set(APP_KEY, JSON.stringify(d));
+    _appListeners.forEach((fn) => fn(d));
+  },
+
+  // Título da edição (admin define)
+  getEdition() {
+    const d = this.load();
+    return {
+      title: d.editionTitle || 'Nova Aventura',
+      subtitle: d.editionSubtitle || 'Algures no mundo.',
+      number: d.editionNumber || 1,
+    };
+  },
+  setEdition(title, subtitle, number) {
+    const d = this.load();
+    d.editionTitle = title; d.editionSubtitle = subtitle; d.editionNumber = number || 1;
+    this._save(d);
+  },
+
+  // RSVP
+  setRsvp(userId, status) {
+    const d = this.load();
+    if (!d.rsvp) d.rsvp = {};
+    d.rsvp[userId] = status;
+    this._save(d);
+  },
+  getRsvp(userId) { return this.load().rsvp?.[userId] || null; },
+  getAllRsvp() { return this.load().rsvp || {}; },
+
+  // Sugestões de localização
+  getLocSuggestions() { return this.load().locSuggs || []; },
+  addLocSuggestion(s) {
+    const d = this.load();
+    if (!d.locSuggs) d.locSuggs = [];
+    d.locSuggs.push(s);
+    this._save(d);
+  },
+  removeLocSuggestion(id) {
+    const d = this.load();
+    d.locSuggs = (d.locSuggs || []).filter((s) => s.id !== id);
+    this._save(d);
+  },
+  getLocWinner() { return this.load().locWinner || null; },
+  setLocWinner(id) {
+    const d = this.load();
+    d.locWinner = id;
+    this._save(d);
+  },
+
+  // Sugestões de alojamento
+  getAccSuggestions() { return this.load().accSuggs || []; },
+  addAccSuggestion(s) {
+    const d = this.load();
+    if (!d.accSuggs) d.accSuggs = [];
+    d.accSuggs.push(s);
+    this._save(d);
+  },
+  removeAccSuggestion(id) {
+    const d = this.load();
+    d.accSuggs = (d.accSuggs || []).filter((s) => s.id !== id);
+    this._save(d);
+  },
+  getAccWinner() { return this.load().accWinner || null; },
+  setAccWinner(id) {
+    const d = this.load();
+    d.accWinner = id;
+    this._save(d);
+  },
+
+  // Disponibilidade
+  setAvailability(userId, days) {
+    const d = this.load();
+    if (!d.avail) d.avail = {};
+    d.avail[userId] = days;
+    this._save(d);
+  },
+  getAvailability(userId) { return this.load().avail?.[userId] || []; },
+  getAllAvailability() { return this.load().avail || {}; },
+
+  // Datas trancadas
+  setLockedDates(from, to, monthLabel) {
+    const d = this.load();
+    d.locked = { from, to, monthLabel };
+    this._save(d);
+  },
+  getLockedDates() { return this.load().locked || null; },
+
+  // Planeamento
+  getPlanning() { return this.load().planning || { costs: {perPerson:0,breakdown:[],paid:{}}, itinerary:[], activities:[], shopping:[] }; },
+  setPlanning(planning) {
+    const d = this.load();
+    d.planning = planning;
+    this._save(d);
+  },
+};
+
+// Sincronização cross-tab
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key === APP_KEY) {
+      try {
+        const parsed = e.newValue ? JSON.parse(e.newValue) : {};
+        _appListeners.forEach((fn) => fn(parsed));
+      } catch {}
+    }
+  });
+}
+
+// Hook para componentes subscreverem mudanças no AppStore
+function useAppStore() {
+  const { useState: _us, useEffect: _ue } = React;
+  const [data, setData] = _us(() => AppStore.load());
+  _ue(() => {
+    _appListeners.add(setData);
+    return () => _appListeners.delete(setData);
+  }, []);
+  return data;
+}
+
+// ─────────────────────────────────────────────────────────────
 // VoteStore — persiste votos por utilizador + fase em localStorage
 // ─────────────────────────────────────────────────────────────
 const VoteStore = {
@@ -212,14 +345,14 @@ function AuthLayout({ children, narrow }) {
         </div>
         <div style={{ position: 'relative' }}>
           <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 11, letterSpacing: 1.4, color: 'rgba(255,255,255,0.55)', textTransform: 'uppercase' }}>
-            14ª edição · em curso
+            em curso
           </div>
           <div style={{
             marginTop: 10,
             fontFamily: 'var(--pa-display)', fontSize: narrow ? 32 : 52, fontWeight: 600,
             letterSpacing: -1.5, lineHeight: 0.98,
           }}>
-            Tropa<br/><span style={{ color: 'var(--pa-accent)' }}>Mediterrânica.</span>
+            Perdidos<br/><span style={{ color: 'var(--pa-accent)' }}>Algures.</span>
           </div>
           {!narrow && <div style={{
             marginTop: 16, fontSize: 15, color: 'rgba(255,255,255,0.7)', maxWidth: 340, lineHeight: 1.5,
@@ -446,6 +579,7 @@ function AuthGate({ auth, narrow }) {
 }
 
 Object.assign(window, {
-  safeStore, VoteStore, AuthStore, useAuth, AuthLayout, LoginScreen, RegisterScreen, AuthGate,
+  safeStore, AppStore, useAppStore, VoteStore, AuthStore, useAuth,
+  AuthLayout, LoginScreen, RegisterScreen, AuthGate,
   AuthPasswordField, AuthError, readPhotoFile, ADMIN_NAME,
 });

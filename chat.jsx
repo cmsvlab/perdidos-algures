@@ -6,17 +6,7 @@ const { useState: cUseState, useEffect: cUseEffect, useRef: cUseRef } = React;
 
 const CHAT_KEY = 'pa-chat-14';
 
-const CHAT_SEED = [
-  { id: 1, who: 'miguel',  text: 'Bora, malta. 14ª edição arrancou.',                          when: 'há 12 dias' },
-  { id: 2, who: 'matilde', text: 'Boa! Já sabia que era para sair daqui ✈️',                  when: 'há 12 dias' },
-  { id: 3, who: 'tiago',   text: 'Eu meto Samil. Casa partilhada bonita, a 200m da praia.',    when: 'há 5 dias' },
-  { id: 4, who: 'rita',    text: 'Cíes em junho deve ser brutal',                              when: 'há 4 dias' },
-  { id: 5, who: 'joao',    text: 'E se misturarmos? Dormir em Bouzas, dia nas ilhas',          when: 'há 3 dias' },
-  { id: 6, who: 'matilde', text: 'Sim please',                                                  when: 'há 3 dias' },
-  { id: 7, who: 'ines',    text: 'O preço por noite tem de ficar abaixo dos 70€ pls',          when: 'há 2 dias' },
-  { id: 8, who: 'tiago',   text: 'A Casa do Faro fica em 65, vejam o link 👀',                 when: 'há 2 dias' },
-  { id: 9, who: 'miguel',  text: 'Empate apertado entre Casa do Faro e Glamping. Vou decidir.', when: 'há 4h' },
-];
+const CHAT_SEED = [];
 
 const ChatStore = {
   load() {
@@ -233,7 +223,7 @@ function MobileChatSheet({ me, open, onClose }) {
               Chat do grupo
             </div>
             <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 10, letterSpacing: 1, color: 'var(--pa-muted)' }}>
-              14ª · Tropa Mediterrânica
+              Chat do grupo
             </div>
           </div>
           <button onClick={onClose} style={{
