@@ -511,6 +511,56 @@ const DB = {
         })
       .subscribe();
   },
+  // ── ADMIN MANAGEMENT ─────────────────────────────────────────
+  async deleteMessage(messageId) {
+    const { error } = await sb.from('messages').delete().eq('id', messageId);
+    if (error) throw new Error(error.message);
+  },
+
+  async deleteRsvp(editionId, userId) {
+    const { error } = await sb.from('rsvp').delete()
+      .eq('edition_id', editionId).eq('user_id', userId);
+    if (error) throw new Error(error.message);
+  },
+
+  async deleteVote(editionId, userId, phase) {
+    const { error } = await sb.from('votes').delete()
+      .eq('edition_id', editionId).eq('user_id', userId).eq('phase', phase);
+    if (error) throw new Error(error.message);
+  },
+
+  async deleteLocationSuggestion(id) {
+    const { error } = await sb.from('location_suggestions').delete().eq('id', id);
+    if (error) throw new Error(error.message);
+  },
+
+  async deleteAccommodation(id) {
+    const { error } = await sb.from('accommodation_suggestions').delete().eq('id', id);
+    if (error) throw new Error(error.message);
+  },
+
+  async deleteAvailability(editionId, userId) {
+    const { error } = await sb.from('availability').delete()
+      .eq('edition_id', editionId).eq('user_id', userId);
+    if (error) throw new Error(error.message);
+  },
+
+  async deleteEdition(editionId) {
+    // Delete all related data first, then the edition
+    await sb.from('messages').delete().eq('edition_id', editionId);
+    await sb.from('votes').delete().eq('edition_id', editionId);
+    await sb.from('rsvp').delete().eq('edition_id', editionId);
+    await sb.from('location_suggestions').delete().eq('edition_id', editionId);
+    await sb.from('accommodation_suggestions').delete().eq('edition_id', editionId);
+    await sb.from('availability').delete().eq('edition_id', editionId);
+    const { error } = await sb.from('editions').delete().eq('id', editionId);
+    if (error) throw new Error(error.message);
+  },
+
+  async getAllEditions() {
+    const { data } = await sb.from('editions').select('*').order('created_at', { ascending: false });
+    return data || [];
+  },
 };
 
 window.DB = DB;
@@ -2724,7 +2774,18 @@ function useAuth() {
       const u = session?.user ?? null;
       setUser(u);
       if (u) {
-        DB.getProfile(u.id).then((p) => { setProfile(p); setLoading(false); });
+        DB.getProfile(u.id).then((p) => {
+          // If profile doesn't exist yet (new user), wait a bit and retry
+          // (profile is created by a Supabase trigger after signUp)
+          if (!p) {
+            setTimeout(() => {
+              DB.getProfile(u.id).then((p2) => { setProfile(p2); setLoading(false); })
+                .catch(() => setLoading(false));
+            }, 1500);
+          } else {
+            setProfile(p); setLoading(false);
+          }
+        }).catch(() => setLoading(false));
       } else {
         setProfile(null);
         setLoading(false);
@@ -2749,7 +2810,11 @@ function useAuth() {
   const register = async (data) => {
     setLoading(true);
     try {
-      const u = await DB.signUp(data);
+      await DB.signUp(data);
+      // After signup, immediately sign in so the session is established
+      // (Supabase may not auto-confirm email, so we force signIn here)
+      const u = await DB.signIn({ name: data.name, password: data.password });
+      // onAuthStateChange will update state, but set loading false as safety
       return u;
     } catch (e) {
       setLoading(false);
@@ -2912,8 +2977,20 @@ function RegisterScreen({ auth, onSwitch, narrow }) {
     e.preventDefault();
     if (pw !== pw2) { setErr('As passwords não batem certo.'); return; }
     setBusy(true); setErr(null);
-    try { await auth.register({ name, password: pw, photoFile }); }
-    catch (ex) { setErr(ex.message); setBusy(false); }
+    try {
+      await auth.register({ name, password: pw, photoFile });
+      // auth.register now auto-signs in, so onAuthStateChange will redirect
+    }
+    catch (ex) {
+      // If signUp succeeded but signIn failed (e.g. email not confirmed),
+      // show a helpful message instead of the raw error
+      if (ex.message && ex.message.match(/confirm/i)) {
+        setErr('Conta criada! A tentar entrar automaticamente... Se ficar preso, tenta fazer login manualmente.');
+      } else {
+        setErr(ex.message);
+      }
+      setBusy(false);
+    }
   };
 
   const color = name ? colorFromName(name) : 'var(--pa-muted)';
@@ -4236,6 +4313,20 @@ function DTopBar({ me, edition, onLogout }) {
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
         {me.isAdmin && <AdminPhaseNav />}
+        {me.isAdmin && (
+          <button onClick={() => window.__openAdminPanel && window.__openAdminPanel()} title="Painel Admin" style={{
+            height: 36, padding: '0 14px', borderRadius: 999,
+            background: 'var(--pa-accent)', color: '#fff', border: 'none',
+            cursor: 'pointer', fontFamily: 'var(--pa-body)', fontSize: 12, fontWeight: 600,
+            display: 'flex', alignItems: 'center', gap: 6,
+          }}>
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+              <circle cx="6.5" cy="4" r="2.5" stroke="#fff" strokeWidth="1.3"/>
+              <path d="M1 12c0-3 2.5-5 5.5-5s5.5 2 5.5 5" stroke="#fff" strokeWidth="1.3" strokeLinecap="round"/>
+            </svg>
+            Admin
+          </button>
+        )}
         {onLogout && (
           <button onClick={onLogout} title="Sair" style={{
             width: 36, height: 36, borderRadius: 999, background: '#fff',
@@ -4266,6 +4357,9 @@ function DTopBar({ me, edition, onLogout }) {
 // Left rail — phase stepper
 // ─────────────────────────────────────────────────────────────
 function DLeftRail({ phase, me }) {
+  const appCtx = React.useContext(window.AppCtx);
+  const liveMembers = appCtx?.members;
+  const members = liveMembers?.length ? liveMembers : D.members;
   return (
     <div style={{
       width: 240, padding: '24px 18px', flexShrink: 0,
@@ -4319,13 +4413,13 @@ function DLeftRail({ phase, me }) {
           A tripulação
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <Stack members={D.members.filter((m) => D.phase1.state[m.id] === 'in')} max={5} size={28} />
+          <Stack members={members.slice(0, 8)} max={5} size={28} />
           <div>
             <div style={{ fontFamily: 'var(--pa-body)', fontSize: 13, fontWeight: 600 }}>
-              {Object.values(D.phase1.state).filter((s) => s === 'in').length} a bordo
+              {members.length} a bordo
             </div>
             <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 10, color: 'var(--pa-muted)' }}>
-              de {D.members.length}
+              tripulantes
             </div>
           </div>
         </div>
@@ -4333,20 +4427,19 @@ function DLeftRail({ phase, me }) {
 
       <div style={{ marginTop: 'auto', paddingTop: 20, borderTop: '1px solid var(--pa-line)' }}>
         <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 10, letterSpacing: 1.3, color: 'var(--pa-muted)', textTransform: 'uppercase', marginBottom: 8 }}>
-          Edições anteriores
+          Edição activa
         </div>
-        {D.history.slice(0, 2).map((h) => (
-          <div key={h.n} style={{ display: 'flex', gap: 10, padding: '8px 0', alignItems: 'center' }}>
-            <div style={{
-              width: 28, height: 28, borderRadius: 6, flexShrink: 0,
-              background: `repeating-linear-gradient(135deg, ${h.cover}44 0 6px, ${h.cover}22 6px 12px)`,
-            }} />
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--pa-ink)' }}>{h.n}ª · {h.title}</div>
-              <div style={{ fontSize: 10.5, color: 'var(--pa-muted)' }}>{h.winner} · {h.dates}</div>
-            </div>
+        <div style={{ padding: '10px 12px', borderRadius: 10, background: '#fff', border: '1px solid var(--pa-line)' }}>
+          <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 9.5, letterSpacing: 1.1, color: 'var(--pa-muted)', textTransform: 'uppercase', marginBottom: 4 }}>
+            Nº {D.edition.number}
           </div>
-        ))}
+          <div style={{ fontFamily: 'var(--pa-display)', fontSize: 14, fontWeight: 600, letterSpacing: -0.3, color: 'var(--pa-ink)' }}>
+            {D.edition.title}
+          </div>
+          <div style={{ fontSize: 11.5, color: 'var(--pa-muted)', marginTop: 3, lineHeight: 1.3 }}>
+            {D.edition.subtitle}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -6454,6 +6547,313 @@ function AppSpinner() {
   );
 }
 
+// ── AdminPanel ────────────────────────────────────────────────
+// Full-screen overlay for admin management: messages, user actions, editions
+function AdminPanel({ me, edition, members, onClose }) {
+  const [tab, setTab] = lUseState('messages');
+  const [messages, setMessages] = lUseState([]);
+  const [rsvpData, setRsvpData] = lUseState([]);
+  const [votes3, setVotes3] = lUseState([]);
+  const [votes5, setVotes5] = lUseState([]);
+  const [locSugs, setLocSugs] = lUseState([]);
+  const [accSugs, setAccSugs] = lUseState([]);
+  const [avail, setAvail] = lUseState([]);
+  const [editions, setEditions] = lUseState([]);
+  const [loading, setLoading] = lUseState(true);
+  const [confirm, setConfirm] = lUseState(null); // { type, id, label }
+  const [busy, setBusy] = lUseState(false);
+  const [toast, setToast] = lUseState(null);
+
+  const showToast = (msg, ok = true) => {
+    setToast({ msg, ok });
+    setTimeout(() => setToast(null), 2500);
+  };
+
+  lUseEffect(() => {
+    if (!edition) { setLoading(false); return; }
+    setLoading(true);
+    Promise.all([
+      DB.getMessages(edition.id).catch(() => []),
+      DB.getRsvp(edition.id).catch(() => []),
+      DB.getVotes(edition.id, 3).catch(() => []),
+      DB.getVotes(edition.id, 5).catch(() => []),
+      DB.getLocationSuggestions(edition.id).catch(() => []),
+      DB.getAccommodations(edition.id).catch(() => []),
+      DB.getAvailability(edition.id).catch(() => []),
+      DB.getAllEditions().catch(() => []),
+    ]).then(([msgs, rsvp, v3, v5, locs, accs, av, eds]) => {
+      setMessages(msgs);
+      setRsvpData(rsvp);
+      setVotes3(v3);
+      setVotes5(v5);
+      setLocSugs(locs);
+      setAccSugs(accs);
+      setAvail(av);
+      setEditions(eds);
+      setLoading(false);
+    });
+  }, [edition?.id, tab]);
+
+  const doDelete = async () => {
+    if (!confirm) return;
+    setBusy(true);
+    try {
+      const { type, id, userId, phase } = confirm;
+      if (type === 'message') { await DB.deleteMessage(id); setMessages((p) => p.filter((m) => m.id !== id)); }
+      if (type === 'rsvp')    { await DB.deleteRsvp(edition.id, userId); setRsvpData((p) => p.filter((r) => r.user_id !== userId)); }
+      if (type === 'vote3')   { await DB.deleteVote(edition.id, userId, 3); setVotes3((p) => p.filter((v) => v.user_id !== userId)); }
+      if (type === 'vote5')   { await DB.deleteVote(edition.id, userId, 5); setVotes5((p) => p.filter((v) => v.user_id !== userId)); }
+      if (type === 'locSug')  { await DB.deleteLocationSuggestion(id); setLocSugs((p) => p.filter((s) => s.id !== id)); }
+      if (type === 'accSug')  { await DB.deleteAccommodation(id); setAccSugs((p) => p.filter((s) => s.id !== id)); }
+      if (type === 'avail')   { await DB.deleteAvailability(edition.id, userId); setAvail((p) => p.filter((a) => a.user_id !== userId)); }
+      showToast('Eliminado com sucesso.');
+    } catch (ex) { showToast('Erro: ' + ex.message, false); }
+    setBusy(false);
+    setConfirm(null);
+  };
+
+  const tabs = [
+    { id: 'messages', label: 'Mensagens' },
+    { id: 'rsvp', label: 'RSVPs' },
+    { id: 'votes', label: 'Votos' },
+    { id: 'suggestions', label: 'Sugestões' },
+    { id: 'availability', label: 'Disponibilidade' },
+    { id: 'editions', label: 'Edições' },
+  ];
+
+  const btnDel = (label, type, id, userId, phase) => (
+    <button onClick={() => setConfirm({ type, id, userId, phase, label })} style={{
+      padding: '4px 10px', borderRadius: 6, border: '1px solid rgba(217,119,87,0.4)',
+      background: 'transparent', color: '#c44', cursor: 'pointer',
+      fontFamily: 'var(--pa-mono)', fontSize: 10, fontWeight: 600,
+    }}>✕ apagar</button>
+  );
+
+  const Row = ({ left, right }) => (
+    <div style={{
+      display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
+      padding: '10px 0', borderBottom: '1px solid var(--pa-line)', gap: 12,
+    }}>
+      <div style={{ flex: 1, minWidth: 0, fontSize: 13, color: 'var(--pa-ink)', lineHeight: 1.4 }}>{left}</div>
+      <div style={{ flexShrink: 0 }}>{right}</div>
+    </div>
+  );
+
+  const memberName = (uid) => members.find((m) => m.id === uid)?.name || uid;
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 9999,
+      background: 'rgba(31,26,20,0.55)', backdropFilter: 'blur(4px)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}>
+      <div style={{
+        width: '92vw', maxWidth: 860, height: '88vh',
+        background: 'var(--pa-bg)', borderRadius: 20,
+        display: 'flex', flexDirection: 'column',
+        boxShadow: '0 32px 80px rgba(0,0,0,0.3)',
+        overflow: 'hidden',
+      }}>
+        {/* Header */}
+        <div style={{
+          padding: '18px 24px', borderBottom: '1px solid var(--pa-line)',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0,
+        }}>
+          <div>
+            <div style={{ fontFamily: 'var(--pa-display)', fontSize: 20, fontWeight: 700, letterSpacing: -0.5 }}>
+              Painel Admin
+            </div>
+            <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 10, letterSpacing: 1, color: 'var(--pa-muted)', textTransform: 'uppercase', marginTop: 2 }}>
+              Gerir dados · edição activa
+            </div>
+          </div>
+          <button onClick={onClose} style={{
+            width: 36, height: 36, borderRadius: 999, border: '1px solid var(--pa-line)',
+            background: '#fff', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <svg width="14" height="14" viewBox="0 0 14 14"><path d="M2 2l10 10M12 2L2 12" stroke="var(--pa-ink)" strokeWidth="1.8" strokeLinecap="round"/></svg>
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div style={{ padding: '10px 24px 0', display: 'flex', gap: 4, flexWrap: 'wrap', flexShrink: 0, borderBottom: '1px solid var(--pa-line)' }}>
+          {tabs.map((t) => (
+            <button key={t.id} onClick={() => setTab(t.id)} style={{
+              padding: '7px 14px', borderRadius: '8px 8px 0 0', border: 'none', cursor: 'pointer',
+              background: tab === t.id ? '#fff' : 'transparent',
+              borderTop: tab === t.id ? '2px solid var(--pa-accent)' : '2px solid transparent',
+              color: tab === t.id ? 'var(--pa-ink)' : 'var(--pa-muted)',
+              fontFamily: 'var(--pa-body)', fontSize: 12.5, fontWeight: tab === t.id ? 600 : 500,
+            }}>{t.label}</button>
+          ))}
+        </div>
+
+        {/* Content */}
+        <div style={{ flex: 1, overflow: 'auto', padding: '16px 24px' }}>
+          {loading && <div style={{ textAlign: 'center', padding: 40, color: 'var(--pa-muted)', fontSize: 13 }}>A carregar...</div>}
+
+          {!loading && tab === 'messages' && (
+            <div>
+              <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 10, letterSpacing: 1.2, color: 'var(--pa-muted)', textTransform: 'uppercase', marginBottom: 12 }}>
+                {messages.length} mensagens
+              </div>
+              {messages.length === 0 && <div style={{ color: 'var(--pa-muted)', fontSize: 13 }}>Sem mensagens.</div>}
+              {messages.map((msg) => (
+                <Row key={msg.id}
+                  left={<><span style={{ fontWeight: 600 }}>{msg.by_profile?.name || '?'}</span>: {msg.text}<span style={{ fontSize: 10.5, color: 'var(--pa-muted)', marginLeft: 8 }}>{new Date(msg.created_at).toLocaleString('pt-PT')}</span></>}
+                  right={btnDel(msg.text.slice(0, 30), 'message', msg.id)}
+                />
+              ))}
+            </div>
+          )}
+
+          {!loading && tab === 'rsvp' && (
+            <div>
+              <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 10, letterSpacing: 1.2, color: 'var(--pa-muted)', textTransform: 'uppercase', marginBottom: 12 }}>
+                {rsvpData.length} respostas RSVP
+              </div>
+              {rsvpData.length === 0 && <div style={{ color: 'var(--pa-muted)', fontSize: 13 }}>Sem RSVPs.</div>}
+              {rsvpData.map((r) => (
+                <Row key={r.user_id}
+                  left={<><span style={{ fontWeight: 600 }}>{r.profiles?.name || memberName(r.user_id)}</span> → <span style={{ color: r.state === 'in' ? '#3d5e44' : r.state === 'out' ? '#c44' : 'var(--pa-muted)' }}>{r.state === 'in' ? '✓ Dentro' : r.state === 'out' ? '✕ Fora' : '? A pensar'}</span></>}
+                  right={btnDel(r.profiles?.name || r.user_id, 'rsvp', null, r.user_id)}
+                />
+              ))}
+            </div>
+          )}
+
+          {!loading && tab === 'votes' && (
+            <div>
+              <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 10, letterSpacing: 1.2, color: 'var(--pa-muted)', textTransform: 'uppercase', marginBottom: 8 }}>
+                Votos Fase 3 (locais) — {votes3.length} votos
+              </div>
+              {votes3.map((v) => (
+                <Row key={v.user_id + '3'}
+                  left={<><span style={{ fontWeight: 600 }}>{memberName(v.user_id)}</span> → <span style={{ fontFamily: 'var(--pa-mono)', fontSize: 11.5 }}>{v.suggestion_id}</span></>}
+                  right={btnDel(memberName(v.user_id), 'vote3', null, v.user_id, 3)}
+                />
+              ))}
+              <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 10, letterSpacing: 1.2, color: 'var(--pa-muted)', textTransform: 'uppercase', margin: '20px 0 8px' }}>
+                Votos Fase 5 (alojamentos) — {votes5.length} votos
+              </div>
+              {votes5.map((v) => (
+                <Row key={v.user_id + '5'}
+                  left={<><span style={{ fontWeight: 600 }}>{memberName(v.user_id)}</span> → <span style={{ fontFamily: 'var(--pa-mono)', fontSize: 11.5 }}>{v.suggestion_id}</span></>}
+                  right={btnDel(memberName(v.user_id), 'vote5', null, v.user_id, 5)}
+                />
+              ))}
+            </div>
+          )}
+
+          {!loading && tab === 'suggestions' && (
+            <div>
+              <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 10, letterSpacing: 1.2, color: 'var(--pa-muted)', textTransform: 'uppercase', marginBottom: 8 }}>
+                Sugestões de locais — {locSugs.length}
+              </div>
+              {locSugs.map((s) => (
+                <Row key={s.id}
+                  left={<><span style={{ fontWeight: 600 }}>{s.name}</span> · {s.city} <span style={{ fontSize: 11.5, color: 'var(--pa-muted)' }}>por {s.by_profile?.name || s.by_user}</span></>}
+                  right={btnDel(s.name, 'locSug', s.id)}
+                />
+              ))}
+              <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 10, letterSpacing: 1.2, color: 'var(--pa-muted)', textTransform: 'uppercase', margin: '20px 0 8px' }}>
+                Sugestões de alojamento — {accSugs.length}
+              </div>
+              {accSugs.map((s) => (
+                <Row key={s.id}
+                  left={<><span style={{ fontWeight: 600 }}>{s.type}</span> · {s.area} · {s.price}€/n <span style={{ fontSize: 11.5, color: 'var(--pa-muted)' }}>por {s.by_profile?.name || s.by_user}</span></>}
+                  right={btnDel(s.area, 'accSug', s.id)}
+                />
+              ))}
+            </div>
+          )}
+
+          {!loading && tab === 'availability' && (
+            <div>
+              <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 10, letterSpacing: 1.2, color: 'var(--pa-muted)', textTransform: 'uppercase', marginBottom: 12 }}>
+                Disponibilidades submetidas — {avail.length}
+              </div>
+              {avail.length === 0 && <div style={{ color: 'var(--pa-muted)', fontSize: 13 }}>Nenhuma disponibilidade submetida.</div>}
+              {avail.map((a) => (
+                <Row key={a.user_id}
+                  left={<><span style={{ fontWeight: 600 }}>{a.profiles?.name || memberName(a.user_id)}</span>: <span style={{ fontFamily: 'var(--pa-mono)', fontSize: 11.5 }}>{(a.days || []).join(', ')}</span></>}
+                  right={btnDel(a.profiles?.name || a.user_id, 'avail', null, a.user_id)}
+                />
+              ))}
+            </div>
+          )}
+
+          {!loading && tab === 'editions' && (
+            <div>
+              <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 10, letterSpacing: 1.2, color: 'var(--pa-muted)', textTransform: 'uppercase', marginBottom: 12 }}>
+                {editions.length} edições na base de dados
+              </div>
+              {editions.map((ed) => (
+                <Row key={ed.id}
+                  left={
+                    <div>
+                      <div><span style={{ fontWeight: 600 }}>Nº{ed.number}</span> · {ed.title}</div>
+                      <div style={{ fontSize: 11.5, color: 'var(--pa-muted)', marginTop: 2 }}>
+                        Fase {ed.current_phase} · criada {new Date(ed.created_at).toLocaleDateString('pt-PT')}
+                      </div>
+                    </div>
+                  }
+                  right={ed.id !== edition?.id ? btnDel(ed.title, 'edition-del', ed.id) : (
+                    <span style={{ fontFamily: 'var(--pa-mono)', fontSize: 10, color: 'var(--pa-accent)', fontWeight: 600 }}>ACTIVA</span>
+                  )}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Confirm dialog */}
+        {confirm && (
+          <div style={{
+            position: 'absolute', inset: 0, background: 'rgba(31,26,20,0.4)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10,
+          }}>
+            <div style={{
+              background: '#fff', borderRadius: 16, padding: 28, maxWidth: 360, width: '90%',
+              boxShadow: '0 16px 48px rgba(0,0,0,0.2)',
+            }}>
+              <div style={{ fontFamily: 'var(--pa-display)', fontSize: 18, fontWeight: 700, marginBottom: 10 }}>
+                Confirmar eliminação
+              </div>
+              <div style={{ fontSize: 13.5, color: 'var(--pa-muted)', marginBottom: 20, lineHeight: 1.5 }}>
+                Tens a certeza que queres eliminar <strong style={{ color: 'var(--pa-ink)' }}>"{confirm.label}"</strong>? Esta acção é irreversível.
+              </div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button onClick={() => setConfirm(null)} style={{
+                  flex: 1, height: 42, borderRadius: 999, border: '1px solid var(--pa-line)',
+                  background: '#fff', cursor: 'pointer', fontFamily: 'var(--pa-body)', fontSize: 14, fontWeight: 600,
+                }}>Cancelar</button>
+                <button onClick={doDelete} disabled={busy} style={{
+                  flex: 1, height: 42, borderRadius: 999, border: 'none',
+                  background: '#c44', color: '#fff', cursor: busy ? 'default' : 'pointer',
+                  fontFamily: 'var(--pa-body)', fontSize: 14, fontWeight: 600,
+                  opacity: busy ? 0.6 : 1,
+                }}>{busy ? 'A eliminar...' : 'Eliminar'}</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Toast */}
+        {toast && (
+          <div style={{
+            position: 'absolute', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+            padding: '10px 20px', borderRadius: 999,
+            background: toast.ok ? '#3d5e44' : '#c44', color: '#fff',
+            fontFamily: 'var(--pa-body)', fontSize: 13, fontWeight: 600,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.2)', zIndex: 20,
+          }}>{toast.msg}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── LiveApp ───────────────────────────────────────────────────
 function LiveApp() {
   const auth = useAuth();
@@ -6463,6 +6863,13 @@ function LiveApp() {
   const [edition,  setEdition]  = lUseState(null);
   const [members,  setMembers]  = lUseState([]);
   const [edLoaded, setEdLoaded] = lUseState(false);
+  const [adminPanelOpen, setAdminPanelOpen] = lUseState(false);
+
+  // Expose admin panel opener to DTopBar button
+  lUseEffect(() => {
+    window.__openAdminPanel = () => setAdminPanelOpen(true);
+    return () => { delete window.__openAdminPanel; };
+  }, []);
 
   // When profile is ready, load edition + members
   lUseEffect(() => {
@@ -6517,13 +6924,25 @@ function LiveApp() {
   if (!edition) {
     return (
       <div style={{ width: '100vw', height: '100vh', background: 'var(--pa-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ textAlign: 'center', padding: 40 }}>
+        <div style={{ textAlign: 'center', padding: 40, maxWidth: 400 }}>
           <Logo size={20} />
           <div style={{ marginTop: 20, fontFamily: 'var(--pa-display)', fontSize: 24, fontWeight: 600, letterSpacing: -0.5 }}>
             Ainda não há edição activa.
           </div>
-          <div style={{ marginTop: 8, fontSize: 14, color: 'var(--pa-muted)' }}>
-            Aguarda que o Miguel inicie uma nova edição.
+          <div style={{ marginTop: 8, fontSize: 14, color: 'var(--pa-muted)', lineHeight: 1.5 }}>
+            Aguarda que o Miguel inicie uma nova edição. Podes tentar recarregar a página ou voltar mais tarde.
+          </div>
+          <div style={{ marginTop: 24, display: 'flex', gap: 10, justifyContent: 'center' }}>
+            <button onClick={() => window.location.reload()} style={{
+              height: 42, padding: '0 20px', borderRadius: 999,
+              background: 'var(--pa-ink)', color: '#fff', border: 'none',
+              fontFamily: 'var(--pa-body)', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+            }}>Recarregar</button>
+            <button onClick={auth.logout} style={{
+              height: 42, padding: '0 20px', borderRadius: 999,
+              background: '#fff', color: 'var(--pa-ink)', border: '1px solid var(--pa-line)',
+              fontFamily: 'var(--pa-body)', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+            }}>Sair</button>
           </div>
         </div>
       </div>
@@ -6544,6 +6963,9 @@ function LiveApp() {
             onLogout={auth.logout}
           />
         </div>
+        {adminPanelOpen && me.isAdmin && (
+          <AdminPanel me={me} edition={edition} members={members} onClose={() => setAdminPanelOpen(false)} />
+        )}
       </AppCtx.Provider>
     );
   }
@@ -6560,6 +6982,9 @@ function LiveApp() {
           />
         </div>
       </div>
+      {adminPanelOpen && me.isAdmin && (
+        <AdminPanel me={me} edition={edition} members={members} onClose={() => setAdminPanelOpen(false)} />
+      )}
     </AppCtx.Provider>
   );
 }
