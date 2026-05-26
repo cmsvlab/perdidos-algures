@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8" />
+<title>Perdidos Algures</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" />
+
+<style>
+  :root {
+    --pa-bg: #f5f1ea;
+    --pa-card: #ffffff;
+    --pa-ink: #1f1a14;
+    --pa-muted: #8a7e6e;
+    --pa-line: #e8e0d2;
+    --pa-accent: #d97757;
+    --pa-display: 'Bricolage Grotesque', system-ui, sans-serif;
+    --pa-body: 'Geist', system-ui, sans-serif;
+    --pa-mono: 'Geist Mono', ui-monospace, monospace;
+  }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body { font-family: var(--pa-body); color: var(--pa-ink); background: var(--pa-bg); }
+  button, input, textarea { font-family: inherit; }
+  *::-webkit-scrollbar { width: 0; height: 0; }
+  *::-webkit-scrollbar-thumb { background: transparent; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script>/* {{DATA}} */</script>
+<script type="text/babel">/* {{IOS}} */</script>
+<script type="text/babel">/* {{CANVAS}} */</script>
+<script type="text/babel">/* {{TWEAKS}} */</script>
+<script type="text/babel">/* {{ATOMS}} */</script>
+<script type="text/babel">/* {{AUTH}} */</script>
+<script type="text/babel">/* {{CHAT}} */</script>
+<script type="text/babel">/* {{TIEBREAK}} */</script>
+<script type="text/babel">/* {{DESKTOP1}} */</script>
+<script type="text/babel">/* {{DESKTOP2}} */</script>
+<script type="text/babel">/* {{MOBILE}} */</script>
+<script type="text/babel">/* {{LIVE}} */</script>
+
+<script type="text/babel" data-presets="env,react">
+  const { useState, useEffect } = React;
+
+  // ── Route: ?canvas=1 → design canvas; default → live app ───
+  const isCanvasMode = new URLSearchParams(location.search).has('canvas');
+
+  // ── Theme defaults ────────────────────────────────────────
+  const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+    "palette": ["#f5f1ea", "#1f1a14", "#d97757"],
+    "viewAs": "admin",
+    "showMobile": true,
+    "showAuth": true
+  }/*EDITMODE-END*/;
+
+  const PALETTES = [
+    ['#f5f1ea', '#1f1a14', '#d97757'], // warm clay (default)
+    ['#fdf6e3', '#2d2410', '#c8804a'], // sun-bleached
+    ['#eef0e8', '#1c2418', '#5a8a5e'], // moss
+    ['#f0eae4', '#1a1714', '#3a5a7a'], // tide
+    ['#fafaf7', '#0f0f0e', '#ff5a36'], // editorial
+  ];
+
+  function applyPalette(p) {
+    const r = document.documentElement.style;
+    r.setProperty('--pa-bg', p[0]);
+    r.setProperty('--pa-ink', p[1]);
+    r.setProperty('--pa-accent', p[2]);
+    r.setProperty('--pa-muted', mix(p[0], p[1], 0.45));
+    r.setProperty('--pa-line', mix(p[0], p[1], 0.10));
+  }
+  function mix(a, b, t) {
+    const ah = parseInt(a.slice(1), 16), bh = parseInt(b.slice(1), 16);
+    const ar = (ah >> 16) & 0xff, ag = (ah >> 8) & 0xff, ab = ah & 0xff;
+    const br = (bh >> 16) & 0xff, bg = (bh >> 8) & 0xff, bb = bh & 0xff;
+    const r = Math.round(ar + (br - ar) * t);
+    const g = Math.round(ag + (bg - ag) * t);
+    const bl = Math.round(ab + (bb - ab) * t);
+    return '#' + ((1 << 24) | (r << 16) | (g << 8) | bl).toString(16).slice(1);
+  }
+
+  function PhoneFrame({ children }) { return <IOSDevice width={402} height={874}>{children}</IOSDevice>; }
+
+  // ── Static auth artboard previews (for the canvas only) ──
+  function StaticAuthPreview({ mode, narrow }) {
+    // Dummy auth object — never resolves, just shows the form chrome
+    const fakeAuth = { login: async () => {}, register: async () => {}, user: null, logout: () => {} };
+    if (mode === 'login') return <LoginScreen auth={fakeAuth} onSwitch={() => {}} narrow={narrow} />;
+    return <RegisterScreen auth={fakeAuth} onSwitch={() => {}} narrow={narrow} />;
+  }
+
+  // ── Live-app root (default landing) ───────────────────────
+  function LiveRoot() {
+    const [t] = useTweaks({ palette: TWEAK_DEFAULTS.palette });
+    useEffect(() => { applyPalette(TWEAK_DEFAULTS.palette); }, []);
+    return <LiveApp />;
+  }
+
+  // ── Canvas root (design review) ───────────────────────────
+  function CanvasRoot() {
+    const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+    useEffect(() => { applyPalette(t.palette); }, [t.palette]);
+    const v = t.viewAs;
+
+    const desktopArtboards = [
+      { id: 'd1', label: 'Fase 01 · RSVP',                phase: 1 },
+      { id: 'd2', label: 'Fase 02 · Sugerir locais',      phase: 2 },
+      { id: 'd3', label: 'Fase 03 · Votar local',         phase: 3 },
+      { id: 'd4', label: 'Fase 04 · Sugerir alojamento',  phase: 4 },
+      { id: 'd5', label: 'Fase 05 · Votar alojamento (empate)', phase: 5 },
+      { id: 'd6', label: 'Fase 06 · Disponibilidade',     phase: 6 },
+      { id: 'd7', label: 'Fase 07 · Trancar datas',       phase: 7 },
+      { id: 'd8', label: 'Fase 08 · Planeamento',         phase: 8 },
+    ];
+
+    const mobileArtboards = [
+      { id: 'm1', label: 'Fase 01 · RSVP',          phase: 1 },
+      { id: 'm2', label: 'Fase 02 · Locais',        phase: 2 },
+      { id: 'm3', label: 'Fase 03 · Votar local',   phase: 3 },
+      { id: 'm4', label: 'Fase 04 · Alojamentos',  phase: 4 },
+      { id: 'm5', label: 'Fase 05 · Empate',       phase: 5 },
+      { id: 'm6', label: 'Fase 06 · Datas',        phase: 6 },
+      { id: 'm8', label: 'Fase 08 · Planear',      phase: 8 },
+    ];
+
+    return (
+      <>
+        <DesignCanvas>
+          {t.showAuth && (
+            <DCSection id="auth" title="Contas & Acesso"
+              subtitle='Entrada do site: registo com nome + foto + password. Admin é "Miguel" com password fixa. (Detalhes técnicos no README.md)'>
+              <DCArtboard id="login-desktop" label="Login · desktop" width={1100} height={760}>
+                <StaticAuthPreview mode="login" narrow={false} />
+              </DCArtboard>
+              <DCArtboard id="register-desktop" label="Registo · desktop" width={1100} height={760}>
+                <StaticAuthPreview mode="register" narrow={false} />
+              </DCArtboard>
+              <DCArtboard id="login-mobile" label="Login · mobile" width={402} height={780}>
+                <StaticAuthPreview mode="login" narrow={true} />
+              </DCArtboard>
+              <DCArtboard id="register-mobile" label="Registo · mobile" width={402} height={780}>
+                <StaticAuthPreview mode="register" narrow={true} />
+              </DCArtboard>
+            </DCSection>
+          )}
+
+          <DCSection id="desktop" title="Perdidos Algures · Desktop"
+            subtitle="Seis fases. Miguel inicia, o grupo decide, Miguel tranca. Toggle 'Ver como' nos tweaks para alternar admin/membro.">
+            {desktopArtboards.map((a) => (
+              <DCArtboard key={a.id} id={a.id} label={a.label} width={1440} height={900}>
+                <DesktopShell viewAs={v} phase={a.phase} />
+              </DCArtboard>
+            ))}
+          </DCSection>
+
+          {t.showMobile && (
+            <DCSection id="mobile" title="Mobile · companion"
+              subtitle="Versão de telemóvel pensada para responder em segundos a meio do dia.">
+              {mobileArtboards.map((a) => (
+                <DCArtboard key={a.id} id={a.id} label={a.label} width={402} height={874}>
+                  <PhoneFrame><MobileApp viewAs={v} phase={a.phase} /></PhoneFrame>
+                </DCArtboard>
+              ))}
+            </DCSection>
+          )}
+        </DesignCanvas>
+
+        <TweaksPanel title="Tweaks">
+          <TweakSection label="Quem está a ver">
+            <TweakRadio label="Ver como" value={v}
+              options={[{ value: 'admin', label: '👑 Miguel' }, { value: 'member', label: '🥾 Rita' }]}
+              onChange={(value) => setTweak('viewAs', value)} />
+          </TweakSection>
+          <TweakSection label="Paleta">
+            <TweakColor label="Tema" value={t.palette} options={PALETTES}
+              onChange={(value) => setTweak('palette', value)} />
+          </TweakSection>
+          <TweakSection label="Secções no canvas">
+            <TweakToggle label="Contas & Acesso" value={t.showAuth} onChange={(v) => setTweak('showAuth', v)} />
+            <TweakToggle label="Mobile companion" value={t.showMobile} onChange={(v) => setTweak('showMobile', v)} />
+          </TweakSection>
+        </TweaksPanel>
+      </>
+    );
+  }
+
+  const RootComp = isCanvasMode ? CanvasRoot : LiveRoot;
+  ReactDOM.createRoot(document.getElementById('root')).render(<RootComp />);
+</script>
+</body>
+</html>
