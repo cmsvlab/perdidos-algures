@@ -2362,7 +2362,7 @@ const AuthStore = {
     if (!n) throw new Error('Falta o nome.');
     if (n.toLowerCase() === ADMIN_NAME.toLowerCase()) throw new Error('Esse nome é reservado. Escolhe outro.');
     if (!password || password.length < 4) throw new Error('Password tem de ter 4+ caracteres.');
-    if (password !== passwordRepeat) throw new Error('As passwords não batem certo.');
+    if (password !== passwordRepeat) throw new Error('As passwords não coincidem.');
     const { data: existing, error: exErr } = await _sb.from('profiles').select('id').ilike('name', n).limit(1);
     if (exErr) throw new Error('Erro de base de dados: ' + exErr.message);
     if (existing?.length) throw new Error('Já existe alguém com esse nome.');
@@ -2493,28 +2493,51 @@ const EditionStore = {
 
   async init() {
     await this.fetchAll();
+    this._setupVisibility();
     try {
       _sb.channel('editions_ch')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'editions' }, async () => {
+          if (document.hidden) return; // não processa em background
+          const before = JSON.stringify(_editionsCache);
           await this.fetchAll();
-          this._notify();
-          _appListeners.forEach(fn => fn(AppStore._cache()));
+          if (JSON.stringify(_editionsCache) !== before) {
+            this._notify();
+            _appListeners.forEach(fn => fn(AppStore._cache()));
+          }
         })
         .subscribe((status) => {
-          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') this._startPolling();
+          if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') this._startPolling();
         });
       setTimeout(() => { const ch = _sb.getChannels().find(c=>c.topic.includes('editions_ch')); if (!ch || ch.state !== 'joined') this._startPolling(); }, 5000);
     } catch(e) { this._startPolling(); }
   },
   _pollingInterval: null,
+  _visibilitySetup: false,
+  _setupVisibility() {
+    if (this._visibilitySetup) return;
+    this._visibilitySetup = true;
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) {
+        // Refresh imediato ao voltar ao tab
+        this._pollOnce();
+      }
+    });
+  },
+  async _pollOnce() {
+    const before = JSON.stringify(_editionsCache);
+    await this.fetchAll();
+    if (JSON.stringify(_editionsCache) !== before) {
+      this._notify();
+      _appListeners.forEach(fn => fn(AppStore._cache()));
+    }
+  },
   _startPolling() {
     if (this._pollingInterval) return;
-    console.log('[PA Editions] polling 4s');
+    console.log('[PA Editions] polling 5s (fallback)');
     this._pollingInterval = setInterval(async () => {
-      const before = JSON.stringify(_editionsCache);
-      await this.fetchAll();
-      if (JSON.stringify(_editionsCache) !== before) { this._notify(); _appListeners.forEach(fn => fn(AppStore._cache())); }
-    }, 4000);
+      if (document.hidden) return; // não polla em background — poupa bateria e evita refresh constante
+      await this._pollOnce();
+    }, 5000);
   },
 };
 
@@ -2716,8 +2739,9 @@ const ChatStore = {
   },
   _startPolling() {
     if (this._pollingInterval) return;
-    console.log('[PA Chat] polling 3s');
+    console.log('[PA Chat] polling 4s (fallback)');
     this._pollingInterval = setInterval(async () => {
+      if (document.hidden) return;
       const lastId = (_chatCache && _chatCache.length > 0) ? _chatCache[_chatCache.length-1].id : 0;
       const { data } = await _sb.from('chat_messages')
         .select('id,profile_id,text,created_at').gt('id', lastId).order('created_at',{ascending:true});
@@ -2729,7 +2753,7 @@ const ChatStore = {
           _chatListeners.forEach(fn=>fn(_chatCache.slice()));
         }
       }
-    }, 3000);
+    }, 4000);
   },
 };
 
@@ -2792,7 +2816,7 @@ async function initSupabase() {
   // EditionStore antes do AppStore (AppStore depende da edição ativa)
   await EditionStore.init();
   await Promise.all([AppStore.init(), ChatStore.init()]);
-  // Mantém cache de utilizadores actualizado (display_name incluído)
+  // Mantém cache de utilizadores atualizado (display_name incluído)
   try {
     _sb.channel('profiles_ch').on('postgres_changes', { event:'*', schema:'public', table:'profiles' }, async () => {
       await AuthStore.refreshUsers();
@@ -4764,6 +4788,7 @@ function DPhase3({ me }) {
   const [vote, setVote] = dUseState(() => VoteStore.getVote(me.id, 'loc'));
   dUseEffect(() => { setVote(VoteStore.getVote(me.id, 'loc')); }, [appData.locVotes, me.id]);
   const [saved, setSaved] = dUseState(false);
+  const [tieOpen, setTieOpen] = dUseState(false);
 
   const handleVote = (id) => {
     setVote(id);
@@ -4771,6 +4796,13 @@ function DPhase3({ me }) {
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
+
+  // Detetar empate
+  const inMembers = (typeof getInMembers === 'function') ? getInMembers(appData) : [];
+  const votes = appData.locVotes || {};
+  const allVoted = inMembers.length > 0 && inMembers.every(m => votes[m.id]);
+  const tie = allVoted ? detectTie(votes, suggestions) : null;
+  dUseEffect(() => { if (tie && !appData.locWinner) setTieOpen(true); }, [tie?.tiedIds?.join(','), appData.locWinner]);
 
   if (suggestions.length === 0) {
     return (
@@ -4837,6 +4869,14 @@ function DPhase3({ me }) {
           <Btn variant="ghost" size="sm">Reabrir votação</Btn>
         </DAdminBar>
       )}
+      <TiebreakModal
+        open={tieOpen && !!tie && !appData.locWinner}
+        onClose={()=>setTieOpen(false)}
+        tie={tie}
+        me={me}
+        voteKey="tieVotesLoc"
+        onResolve={(winnerId)=>AppStore.setLocWinner(winnerId)}
+      />
     </div>
   );
 }
@@ -5040,6 +5080,7 @@ function DPhase5({ me }) {
   dUseEffect2(() => { setVote(VoteStore.getVote(me.id, 'acc')); }, [appData.accVotes, me.id]);
   const [saved, setSaved] = dUseState2(false);
   const [resolved, setResolved] = dUseState2(null);
+  const [tieOpen, setTieOpen] = dUseState2(false);
 
   const handleVote = (id) => {
     if (closed) return;
@@ -5048,6 +5089,13 @@ function DPhase5({ me }) {
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
+
+  // Detetar empate
+  const inMembers = (typeof getInMembers === 'function') ? getInMembers(appData) : [];
+  const votes = appData.accVotes || {};
+  const allVoted = inMembers.length > 0 && inMembers.every(m => votes[m.id]);
+  const tie = allVoted ? detectTie(votes, suggestions) : null;
+  dUseEffect2(() => { if (tie && !appData.accWinner) setTieOpen(true); }, [tie?.tiedIds?.join(','), appData.accWinner]);
 
   if (suggestions.length === 0) {
     return (
@@ -5137,6 +5185,14 @@ function DPhase5({ me }) {
           <Btn variant="ghost" size="sm" onClick={() => setResolved(null)}>Anular</Btn>
         </DAdminBar>
       )}
+      <TiebreakModal
+        open={tieOpen && !!tie && !appData.accWinner}
+        onClose={()=>setTieOpen(false)}
+        tie={tie}
+        me={me}
+        voteKey="tieVotesAcc"
+        onResolve={(winnerId)=>AppStore.setAccWinner(winnerId)}
+      />
     </div>
   );
 }
@@ -5446,38 +5502,351 @@ function PlanEstadia({ appData }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────
+// PlanCustos — registo de despesas + divisão equitativa
+// ─────────────────────────────────────────────────────────────
 function PlanCustos({ me }) {
+  const appData = useAppStore();
+  const plan = appData.planData || { costs:{ breakdown:[], paid:{} } };
+  const breakdown = plan.costs?.breakdown || [];
+  const inMembers = (typeof getInMembers === 'function') ? getInMembers(appData) : [];
+  const peopleCount = Math.max(inMembers.length, 1);
+
+  const [desc, setDesc] = React.useState('');
+  const [amount, setAmount] = React.useState('');
+  const [payer, setPayer] = React.useState(me?.id || '');
+
+  React.useEffect(() => { if (!payer && me?.id) setPayer(me.id); }, [me?.id]);
+
+  const total = breakdown.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
+  const perPerson = total / peopleCount;
+
+  const addExpense = async () => {
+    const v = parseFloat(amount);
+    if (!desc.trim() || !v || v <= 0) return;
+    const newE = { id:'exp_'+Date.now().toString(36), desc:desc.trim(), amount:v, paidBy:payer || me.id, at:Date.now() };
+    const next = { ...plan, costs:{ ...(plan.costs||{}), breakdown:[...breakdown, newE] } };
+    await AppStore.setPlanning(next);
+    setDesc(''); setAmount('');
+  };
+
+  const remove = async (id) => {
+    if (!window.confirm('Apagar esta despesa?')) return;
+    const next = { ...plan, costs:{ ...(plan.costs||{}), breakdown: breakdown.filter(e=>e.id!==id) } };
+    await AppStore.setPlanning(next);
+  };
+
+  // Saldo por pessoa: pagou - quota
+  const paidByPerson = {};
+  inMembers.forEach(m => { paidByPerson[m.id] = 0; });
+  breakdown.forEach(e => { if (paidByPerson[e.paidBy] !== undefined) paidByPerson[e.paidBy] += parseFloat(e.amount)||0; });
+  const balances = inMembers.map(m => ({ member:m, paid:paidByPerson[m.id], owes: paidByPerson[m.id] - perPerson }));
+
   return (
-    <div style={{ padding:'48px 0', textAlign:'center', color:'var(--pa-muted)', fontSize:14 }}>
-      <div style={{ fontSize:32, marginBottom:16 }}>€</div>
-      Em breve — as contas ficam aqui quando as datas estiverem trancadas.
+    <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(140px, 1fr))', gap:10 }}>
+        <div style={{ background:'#fff', border:'1px solid var(--pa-line)', borderRadius:14, padding:'14px 16px' }}>
+          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>Total</div>
+          <div style={{ fontFamily:'var(--pa-display)', fontSize:24, fontWeight:600, marginTop:4 }}>{total.toFixed(2)}€</div>
+        </div>
+        <div style={{ background:'#fff', border:'1px solid var(--pa-line)', borderRadius:14, padding:'14px 16px' }}>
+          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>Por pessoa</div>
+          <div style={{ fontFamily:'var(--pa-display)', fontSize:24, fontWeight:600, marginTop:4 }}>{perPerson.toFixed(2)}€</div>
+        </div>
+        <div style={{ background:'#fff', border:'1px solid var(--pa-line)', borderRadius:14, padding:'14px 16px' }}>
+          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>Pessoas</div>
+          <div style={{ fontFamily:'var(--pa-display)', fontSize:24, fontWeight:600, marginTop:4 }}>{peopleCount}</div>
+        </div>
+      </div>
+
+      {/* Form */}
+      <div style={{ background:'#fff', border:'1px solid var(--pa-line)', borderRadius:14, padding:16, display:'flex', flexDirection:'column', gap:10 }}>
+        <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>Nova despesa</div>
+        <Field placeholder="Ex: Combustível, Supermercado..." value={desc} onChange={setDesc} />
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+          <Field placeholder="Valor (€)" value={amount} onChange={setAmount} prefix="€" />
+          <label style={{ display:'block' }}>
+            <div style={{ padding:'12px 14px', borderRadius:12, background:'#fff', border:'1px solid var(--pa-line)' }}>
+              <select value={payer} onChange={(e)=>setPayer(e.target.value)} style={{ width:'100%', border:'none', outline:'none', background:'transparent', fontFamily:'var(--pa-body)', fontSize:14 }}>
+                {inMembers.map(m => <option key={m.id} value={m.id}>{m.name} pagou</option>)}
+              </select>
+            </div>
+          </label>
+        </div>
+        <Btn variant="accent" onClick={addExpense} disabled={!desc.trim() || !(parseFloat(amount)>0)}>+ Adicionar</Btn>
+      </div>
+
+      {/* Lista de despesas */}
+      {breakdown.length > 0 && (
+        <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>Despesas ({breakdown.length})</div>
+          {breakdown.slice().reverse().map(e => {
+            const by = memberById(e.paidBy);
+            return (
+              <div key={e.id} style={{ background:'#fff', border:'1px solid var(--pa-line)', borderRadius:12, padding:'10px 14px', display:'flex', alignItems:'center', gap:12 }}>
+                <Avatar member={by || {initials:'?',color:'var(--pa-muted)'}} size={28} />
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontFamily:'var(--pa-body)', fontSize:13.5, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{e.desc}</div>
+                  <div style={{ fontFamily:'var(--pa-mono)', fontSize:10.5, color:'var(--pa-muted)' }}>{by?.name || '?'} pagou</div>
+                </div>
+                <div style={{ fontFamily:'var(--pa-display)', fontSize:16, fontWeight:600 }}>{parseFloat(e.amount).toFixed(2)}€</div>
+                {(me?.isAdmin || e.paidBy === me?.id) && (
+                  <button onClick={()=>remove(e.id)} style={{ width:24, height:24, border:'none', background:'transparent', cursor:'pointer', color:'var(--pa-muted)', fontSize:16, padding:0 }}>×</button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Saldos */}
+      {balances.length > 0 && total > 0 && (
+        <div style={{ background:'var(--pa-ink)', color:'#fff', borderRadius:14, padding:16 }}>
+          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, opacity:0.6, textTransform:'uppercase', marginBottom:10 }}>Saldos</div>
+          <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+            {balances.map(b => (
+              <div key={b.member.id} style={{ display:'flex', alignItems:'center', gap:10 }}>
+                <Avatar member={b.member} size={26} ringColor="var(--pa-ink)" />
+                <div style={{ flex:1, fontFamily:'var(--pa-body)', fontSize:13, fontWeight:600 }}>{b.member.name}</div>
+                <div style={{ fontFamily:'var(--pa-display)', fontSize:14, fontWeight:600, color: b.owes >= 0 ? '#a3d9a5' : '#ffa07a' }}>
+                  {b.owes >= 0 ? '+' : ''}{b.owes.toFixed(2)}€
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontSize:11, opacity:0.6, marginTop:10, lineHeight:1.4 }}>
+            Verde = recebe · Vermelho = deve
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
+// ─────────────────────────────────────────────────────────────
+// PlanItinerario — paragens/atividades organizadas por dia
+// ─────────────────────────────────────────────────────────────
 function PlanItinerario({ me }) {
+  const appData = useAppStore();
+  const plan = appData.planData || { itinerary:[] };
+  const items = plan.itinerary || [];
+  const locked = appData.locked;
+
+  const [day, setDay] = React.useState(1);
+  const [time, setTime] = React.useState('');
+  const [what, setWhat] = React.useState('');
+
+  // Calcular nº de dias da viagem
+  const dayCount = locked ? (Math.abs(locked.to - locked.from) + 1) : 1;
+  const days = Array.from({length: dayCount}, (_,i) => i+1);
+
+  const add = async () => {
+    if (!what.trim()) return;
+    const newI = { id:'it_'+Date.now().toString(36), day, time:time.trim(), what:what.trim() };
+    const next = { ...plan, itinerary:[...items, newI] };
+    await AppStore.setPlanning(next);
+    setTime(''); setWhat('');
+  };
+
+  const remove = async (id) => {
+    const next = { ...plan, itinerary: items.filter(i => i.id !== id) };
+    await AppStore.setPlanning(next);
+  };
+
   return (
-    <div style={{ padding:'48px 0', textAlign:'center', color:'var(--pa-muted)', fontSize:14 }}>
-      <div style={{ fontSize:32, marginBottom:16 }}>📍</div>
-      Em breve — o itinerário fica aqui quando a viagem estiver confirmada.
+    <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+      {/* Form */}
+      <div style={{ background:'#fff', border:'1px solid var(--pa-line)', borderRadius:14, padding:16, display:'flex', flexDirection:'column', gap:10 }}>
+        <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>Nova paragem</div>
+        <div style={{ display:'grid', gridTemplateColumns:'auto 1fr', gap:10 }}>
+          <label style={{ padding:'12px 14px', borderRadius:12, background:'#fff', border:'1px solid var(--pa-line)', minWidth:90 }}>
+            <select value={day} onChange={(e)=>setDay(parseInt(e.target.value))} style={{ width:'100%', border:'none', outline:'none', background:'transparent', fontFamily:'var(--pa-body)', fontSize:14 }}>
+              {days.map(d => <option key={d} value={d}>Dia {d}</option>)}
+            </select>
+          </label>
+          <Field placeholder="Hora (opcional)" value={time} onChange={setTime} prefix="🕐" />
+        </div>
+        <Field placeholder="O que fazer? (Ex: Miradouro da Senhora do Monte)" value={what} onChange={setWhat} />
+        <Btn variant="accent" onClick={add} disabled={!what.trim()}>+ Adicionar</Btn>
+      </div>
+
+      {/* Itinerário por dia */}
+      {days.map(d => {
+        const dayItems = items.filter(i => i.day === d).sort((a,b) => (a.time||'').localeCompare(b.time||''));
+        if (dayItems.length === 0) return null;
+        return (
+          <div key={d} style={{ display:'flex', flexDirection:'column', gap:8 }}>
+            <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>Dia {d}</div>
+            {dayItems.map(i => (
+              <div key={i.id} style={{ background:'#fff', border:'1px solid var(--pa-line)', borderRadius:12, padding:'10px 14px', display:'flex', alignItems:'center', gap:12 }}>
+                {i.time && <div style={{ fontFamily:'var(--pa-mono)', fontSize:11, fontWeight:600, color:'var(--pa-accent)', minWidth:42 }}>{i.time}</div>}
+                <div style={{ flex:1, fontFamily:'var(--pa-body)', fontSize:13.5 }}>{i.what}</div>
+                {me?.isAdmin && <button onClick={()=>remove(i.id)} style={{ border:'none', background:'transparent', cursor:'pointer', color:'var(--pa-muted)', fontSize:16, padding:0 }}>×</button>}
+              </div>
+            ))}
+          </div>
+        );
+      })}
+      {items.length === 0 && (
+        <div style={{ padding:'24px 0', textAlign:'center', color:'var(--pa-muted)', fontSize:13 }}>
+          Sem paragens ainda. Adiciona a primeira acima.
+        </div>
+      )}
     </div>
   );
 }
 
+// ─────────────────────────────────────────────────────────────
+// PlanAtividades — wishlist de coisas a fazer
+// ─────────────────────────────────────────────────────────────
 function PlanAtividades({ me }) {
+  const appData = useAppStore();
+  const plan = appData.planData || { activities:[] };
+  const items = plan.activities || [];
+  const [text, setText] = React.useState('');
+
+  const add = async () => {
+    if (!text.trim()) return;
+    const newA = { id:'act_'+Date.now().toString(36), text:text.trim(), by:me?.id, done:false, at:Date.now() };
+    await AppStore.setPlanning({ ...plan, activities:[...items, newA] });
+    setText('');
+  };
+
+  const toggle = async (id) => {
+    await AppStore.setPlanning({ ...plan, activities: items.map(a => a.id===id ? {...a, done:!a.done} : a) });
+  };
+
+  const remove = async (id) => {
+    await AppStore.setPlanning({ ...plan, activities: items.filter(a => a.id !== id) });
+  };
+
+  const pending = items.filter(a => !a.done);
+  const done = items.filter(a => a.done);
+
   return (
-    <div style={{ padding:'48px 0', textAlign:'center', color:'var(--pa-muted)', fontSize:14 }}>
-      <div style={{ fontSize:32, marginBottom:16 }}>🎯</div>
-      Em breve — as atividades ficam aqui.
+    <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+      <div style={{ background:'#fff', border:'1px solid var(--pa-line)', borderRadius:14, padding:16, display:'flex', gap:8 }}>
+        <input value={text} onChange={(e)=>setText(e.target.value)} onKeyDown={(e)=>{ if(e.key==='Enter'){ e.preventDefault(); add(); } }}
+          placeholder="Surf ao pôr do sol, restaurante X..." style={{ flex:1, padding:'10px 14px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:14, outline:'none' }} />
+        <Btn variant="accent" onClick={add} disabled={!text.trim()}>+</Btn>
+      </div>
+
+      {pending.length > 0 && (
+        <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>Por fazer ({pending.length})</div>
+          {pending.map(a => {
+            const by = memberById(a.by);
+            return (
+              <div key={a.id} style={{ background:'#fff', border:'1px solid var(--pa-line)', borderRadius:12, padding:'10px 14px', display:'flex', alignItems:'center', gap:10 }}>
+                <button onClick={()=>toggle(a.id)} style={{ width:22, height:22, borderRadius:6, border:'2px solid var(--pa-line)', background:'#fff', cursor:'pointer', flexShrink:0, padding:0 }} />
+                <div style={{ flex:1, fontFamily:'var(--pa-body)', fontSize:13.5 }}>{a.text}</div>
+                {by && <Avatar member={by} size={20} />}
+                {(me?.isAdmin || a.by === me?.id) && <button onClick={()=>remove(a.id)} style={{ border:'none', background:'transparent', cursor:'pointer', color:'var(--pa-muted)', fontSize:16, padding:0 }}>×</button>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {done.length > 0 && (
+        <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>Feito ({done.length})</div>
+          {done.map(a => (
+            <div key={a.id} style={{ background:'rgba(31,26,20,0.03)', borderRadius:12, padding:'10px 14px', display:'flex', alignItems:'center', gap:10 }}>
+              <button onClick={()=>toggle(a.id)} style={{ width:22, height:22, borderRadius:6, border:'none', background:'var(--pa-accent)', color:'#fff', cursor:'pointer', flexShrink:0, padding:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13 }}>✓</button>
+              <div style={{ flex:1, fontFamily:'var(--pa-body)', fontSize:13.5, color:'var(--pa-muted)', textDecoration:'line-through' }}>{a.text}</div>
+              {(me?.isAdmin || a.by === me?.id) && <button onClick={()=>remove(a.id)} style={{ border:'none', background:'transparent', cursor:'pointer', color:'var(--pa-muted)', fontSize:16, padding:0 }}>×</button>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {items.length === 0 && (
+        <div style={{ padding:'24px 0', textAlign:'center', color:'var(--pa-muted)', fontSize:13 }}>
+          Lista vazia. Adiciona ideias aqui.
+        </div>
+      )}
     </div>
   );
 }
 
+// ─────────────────────────────────────────────────────────────
+// PlanCompras — lista de compras partilhada
+// ─────────────────────────────────────────────────────────────
 function PlanCompras({ me }) {
+  const appData = useAppStore();
+  const plan = appData.planData || { shopping:[] };
+  const items = plan.shopping || [];
+  const [text, setText] = React.useState('');
+  const [qty, setQty] = React.useState('');
+
+  const add = async () => {
+    if (!text.trim()) return;
+    const newS = { id:'shop_'+Date.now().toString(36), text:text.trim(), qty:qty.trim(), done:false, at:Date.now() };
+    await AppStore.setPlanning({ ...plan, shopping:[...items, newS] });
+    setText(''); setQty('');
+  };
+
+  const toggle = async (id) => {
+    await AppStore.setPlanning({ ...plan, shopping: items.map(s => s.id===id ? {...s, done:!s.done} : s) });
+  };
+
+  const remove = async (id) => {
+    await AppStore.setPlanning({ ...plan, shopping: items.filter(s => s.id !== id) });
+  };
+
+  const clearDone = async () => {
+    if (!window.confirm('Limpar itens já comprados?')) return;
+    await AppStore.setPlanning({ ...plan, shopping: items.filter(s => !s.done) });
+  };
+
+  const pending = items.filter(s => !s.done);
+  const done = items.filter(s => s.done);
+
   return (
-    <div style={{ padding:'48px 0', textAlign:'center', color:'var(--pa-muted)', fontSize:14 }}>
-      <div style={{ fontSize:32, marginBottom:16 }}>🛒</div>
-      Em breve — a lista de compras fica aqui.
+    <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+      <div style={{ background:'#fff', border:'1px solid var(--pa-line)', borderRadius:14, padding:16, display:'flex', gap:8 }}>
+        <input value={text} onChange={(e)=>setText(e.target.value)} onKeyDown={(e)=>{ if(e.key==='Enter'){ e.preventDefault(); add(); } }}
+          placeholder="Protetor solar..." style={{ flex:1, padding:'10px 14px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:14, outline:'none' }} />
+        <input value={qty} onChange={(e)=>setQty(e.target.value)} placeholder="Qtd" style={{ width:62, padding:'10px 8px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:14, outline:'none', textAlign:'center' }} />
+        <Btn variant="accent" onClick={add} disabled={!text.trim()}>+</Btn>
+      </div>
+
+      {pending.length > 0 && (
+        <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>Por comprar ({pending.length})</div>
+          {pending.map(s => (
+            <div key={s.id} style={{ background:'#fff', border:'1px solid var(--pa-line)', borderRadius:12, padding:'10px 14px', display:'flex', alignItems:'center', gap:10 }}>
+              <button onClick={()=>toggle(s.id)} style={{ width:22, height:22, borderRadius:6, border:'2px solid var(--pa-line)', background:'#fff', cursor:'pointer', flexShrink:0, padding:0 }} />
+              <div style={{ flex:1, fontFamily:'var(--pa-body)', fontSize:13.5 }}>{s.text}</div>
+              {s.qty && <Pill size="sm" tone="muted">×{s.qty}</Pill>}
+              <button onClick={()=>remove(s.id)} style={{ border:'none', background:'transparent', cursor:'pointer', color:'var(--pa-muted)', fontSize:16, padding:0 }}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {done.length > 0 && (
+        <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>Comprado ({done.length})</div>
+            <Btn variant="ghost" size="sm" onClick={clearDone}>Limpar</Btn>
+          </div>
+          {done.map(s => (
+            <div key={s.id} style={{ background:'rgba(31,26,20,0.03)', borderRadius:12, padding:'10px 14px', display:'flex', alignItems:'center', gap:10 }}>
+              <button onClick={()=>toggle(s.id)} style={{ width:22, height:22, borderRadius:6, border:'none', background:'var(--pa-accent)', color:'#fff', cursor:'pointer', flexShrink:0, padding:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13 }}>✓</button>
+              <div style={{ flex:1, fontFamily:'var(--pa-body)', fontSize:13.5, color:'var(--pa-muted)', textDecoration:'line-through' }}>{s.text}</div>
+              {s.qty && <Pill size="sm" tone="muted">×{s.qty}</Pill>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {items.length === 0 && (
+        <div style={{ padding:'24px 0', textAlign:'center', color:'var(--pa-muted)', fontSize:13 }}>
+          Lista vazia. Adiciona itens acima.
+        </div>
+      )}
     </div>
   );
 }
@@ -5522,6 +5891,11 @@ function DesktopShell({ viewAs = 'admin', phase: initialPhase, liveUser, onLogou
           <DLeftRail phase={phase} me={me} />
           <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', background:'#fcf9f3' }}>
             <PhaseView me={me} />
+            {initialPhase === undefined && (
+              <div style={{ padding:'12px 36px 16px', background:'#fcf9f3', borderTop:'1px solid var(--pa-line)' }}>
+                <PhaseProgressBanner phase={phase} me={me} />
+              </div>
+            )}
           </div>
           <DRightRail phase={phase} me={me} />
         </div>
@@ -5759,6 +6133,7 @@ function MPhase3({ me, onLogout, onOpenChat }) {
   const [vote, setVote] = mUseState(() => VoteStore.getVote(me.id, 'loc'));
   mUseEffect(() => { setVote(VoteStore.getVote(me.id, 'loc')); }, [appData.locVotes, me.id]);
   const [saved, setSaved] = mUseState(false);
+  const [tieOpen, setTieOpen] = mUseState(false);
 
   const handleVote = (id) => {
     setVote(id);
@@ -5766,6 +6141,13 @@ function MPhase3({ me, onLogout, onOpenChat }) {
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
+
+  // Empate
+  const inMembers = (typeof getInMembers === 'function') ? getInMembers(appData) : [];
+  const votes = appData.locVotes || {};
+  const allVoted = inMembers.length > 0 && inMembers.every(m => votes[m.id]);
+  const tie = allVoted ? detectTie(votes, suggestions) : null;
+  mUseEffect(() => { if (tie && !appData.locWinner) setTieOpen(true); }, [tie?.tiedIds?.join(','), appData.locWinner]);
 
   if (suggestions.length === 0) {
     return (
@@ -5811,11 +6193,17 @@ function MPhase3({ me, onLogout, onOpenChat }) {
           </div>
         )}
       </div>
+      <TiebreakModal
+        open={tieOpen && !!tie && !appData.locWinner}
+        onClose={()=>setTieOpen(false)}
+        tie={tie}
+        me={me}
+        voteKey="tieVotesLoc"
+        onResolve={(winnerId)=>AppStore.setLocWinner(winnerId)}
+      />
     </MShell>
   );
 }
-
-// PHASE 4 — Sugerir alojamento
 function MPhase4({ me, onLogout, onOpenChat }) {
   const appData = useAppStore();
   const suggestions = appData.accSuggs || [];
@@ -5909,9 +6297,17 @@ function MPhase5({ me, onLogout, onOpenChat }) {
   const [vote, setVote] = mUseState(() => VoteStore.getVote(me.id, 'acc'));
   mUseEffect(() => { setVote(VoteStore.getVote(me.id, 'acc')); }, [appData.accVotes, me.id]);
   const [saved, setSaved] = mUseState(false);
+  const [tieOpen, setTieOpen] = mUseState(false);
 
-  const votingClosed = false; // Admin fecha manualmente
-  const isTie = false; // Simplificado para mobile
+  // Empate
+  const inMembers = (typeof getInMembers === 'function') ? getInMembers(appData) : [];
+  const votes = appData.accVotes || {};
+  const allVoted = inMembers.length > 0 && inMembers.every(m => votes[m.id]);
+  const tie = allVoted ? detectTie(votes, suggestions) : null;
+  mUseEffect(() => { if (tie && !appData.accWinner) setTieOpen(true); }, [tie?.tiedIds?.join(','), appData.accWinner]);
+
+  const votingClosed = false;
+  const isTie = !!tie;
 
   const handleVote = (id) => {
     if (votingClosed) return;
@@ -5970,6 +6366,14 @@ function MPhase5({ me, onLogout, onOpenChat }) {
           </div>
         )}
       </div>
+      <TiebreakModal
+        open={tieOpen && !!tie && !appData.accWinner}
+        onClose={()=>setTieOpen(false)}
+        tie={tie}
+        me={me}
+        voteKey="tieVotesAcc"
+        onResolve={(winnerId)=>AppStore.setAccWinner(winnerId)}
+      />
     </MShell>
   );
 }
@@ -6014,6 +6418,13 @@ function MPhase6({ me, onLogout, onOpenChat }) {
 function MPhase7({ me, onLogout, onOpenChat }) {
   const appData = useAppStore();
   const locked = appData.locked;
+  const allAvail = appData.avail || {};
+  const totalIn = (typeof getInMembers === 'function') ? getInMembers(appData).length : 0;
+  const [range, setRange] = mUseState({ from: null, to: null });
+
+  // Heat map dos dias
+  const heat = {};
+  Object.values(allAvail).forEach(arr => (arr||[]).forEach(d => { heat[d] = (heat[d]||0) + 1; }));
 
   return (
     <MShell>
@@ -6029,6 +6440,52 @@ function MPhase7({ me, onLogout, onOpenChat }) {
               <div style={{ fontFamily:'var(--pa-display)', fontSize:40, fontWeight:600, letterSpacing:-1 }}>{locked.from}–{locked.to}</div>
               <div style={{ marginTop:4, opacity:0.7 }}>{locked.monthLabel || D.phase6.monthLabel}</div>
             </div>
+            {me.isAdmin && (
+              <Btn variant="ghost" size="sm" style={{ width:'100%', marginTop:12 }}
+                onClick={() => AppStore.clearKey('locked')}>
+                Destrancar
+              </Btn>
+            )}
+          </div>
+        </>
+      ) : me.isAdmin ? (
+        <>
+          <MPhaseTitle kicker="Tu decides"
+            title={<>Tranca os <br/><span style={{ color:'var(--pa-accent)' }}>melhores dias.</span></>}
+            sub="Toca num dia para começar a seleção." />
+          <div style={{ padding:'6px 16px 14px', flex:1, overflow:'auto' }}>
+            <div style={{ background:'#fff', borderRadius:16, padding:16, border:'1px solid var(--pa-line)' }}>
+              <Calendar dense renderCell={(d) => {
+                const n = heat[d] || 0;
+                const inRange = range.from && range.to && d >= range.from && d <= range.to;
+                const intensity = totalIn > 0 ? n/totalIn : 0;
+                return (
+                  <div onClick={() => { setRange({ from:d, to:Math.min(d+2,31) }); }}
+                    style={{ width:'100%', height:'100%', borderRadius:7,
+                    background: inRange ? 'var(--pa-ink)' : intensity > 0 ? `rgba(217,119,87,${0.10+intensity*0.6})` : '#fff',
+                    color: inRange ? '#fff' : 'var(--pa-ink)',
+                    border: intensity===0&&!inRange ? '1px solid var(--pa-line)' : 'none',
+                    display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', cursor:'pointer' }}>
+                    <div style={{ fontFamily:'var(--pa-body)', fontSize:12, fontWeight:600 }}>{d}</div>
+                    {n > 0 && <div style={{ fontFamily:'var(--pa-mono)', fontSize:8, color: inRange?'rgba(255,255,255,0.7)':'var(--pa-muted)' }}>{n}/{totalIn}</div>}
+                  </div>
+                );
+              }} />
+            </div>
+            {range.from && (
+              <div style={{ background:'#fff', borderRadius:14, padding:14, marginTop:12, border:'1px solid var(--pa-line)' }}>
+                <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>Seleção</div>
+                <div style={{ fontFamily:'var(--pa-display)', fontSize:22, fontWeight:600, marginTop:4 }}>{range.from}–{range.to}</div>
+                <div style={{ display:'flex', gap:6, marginTop:10 }}>
+                  <Btn variant="ghost" size="sm" style={{ flex:1 }} onClick={() => setRange({from:Math.max(1,range.from-1), to:range.to})}>−1 dia</Btn>
+                  <Btn variant="ghost" size="sm" style={{ flex:1 }} onClick={() => setRange({from:range.from, to:Math.min(31,range.to+1)})}>+1 dia</Btn>
+                </div>
+                <Btn variant="accent" style={{ width:'100%', marginTop:10 }}
+                  onClick={() => { AppStore.setLockedDates(range.from, range.to, D.phase6.monthLabel); }}>
+                  Trancar estes dias 🔒
+                </Btn>
+              </div>
+            )}
           </div>
         </>
       ) : (
@@ -6051,25 +6508,51 @@ function MPhase7({ me, onLogout, onOpenChat }) {
 function MPhase8({ me, onLogout, onOpenChat }) {
   const appData = useAppStore();
   const locked = appData.locked;
+  const [tab, setTab] = mUseState('estadia');
+
+  const tabs = [
+    { id:'estadia',    label:'Estadia',    icon:'🏠' },
+    { id:'custos',     label:'Custos',     icon:'€' },
+    { id:'itinerario', label:'Itinerário', icon:'📍' },
+    { id:'atividades', label:'Atividades', icon:'🎯' },
+    { id:'compras',    label:'Compras',    icon:'🛒' },
+  ];
 
   return (
     <MShell>
       <MHeader phase={8} onLogout={onLogout} onOpenChat={onOpenChat} />
       {locked && (
-        <div style={{ padding:'0 22px 4px' }}>
+        <div style={{ padding:'0 16px 4px' }}>
           <Pill tone="success" size="sm">
             <span style={{ width:5, height:5, borderRadius:5, background:'#3d5e44' }} />
             {locked.from}–{locked.to} · trancado
           </Pill>
         </div>
       )}
-      <MPhaseTitle
-        title={<>Vamos planear.</>}
-        sub="O planeamento detalhado está disponível no desktop." />
-      <div style={{ padding:'6px 16px', flex:1 }}>
-        <div style={{ padding:24, background:'#fff', borderRadius:16, border:'1px solid var(--pa-line)', textAlign:'center', color:'var(--pa-muted)', fontSize:13 }}>
-          Para o planeamento completo (itinerário, contas, compras) usa o computador.
+      <MPhaseTitle title={<>Planeamento.</>} sub="A viagem nos detalhes." />
+
+      {/* Tab bar deslizável */}
+      <div style={{ padding:'0 16px 12px', overflowX:'auto', WebkitOverflowScrolling:'touch' }}>
+        <div style={{ display:'flex', gap:6, minWidth:'min-content' }}>
+          {tabs.map(t => (
+            <button key={t.id} onClick={()=>setTab(t.id)} style={{
+              padding:'8px 14px', borderRadius:999, border:'1px solid var(--pa-line)',
+              background: tab === t.id ? 'var(--pa-ink)' : '#fff',
+              color: tab === t.id ? '#fff' : 'var(--pa-ink)',
+              fontFamily:'var(--pa-body)', fontSize:12, fontWeight:600, cursor:'pointer',
+              display:'flex', alignItems:'center', gap:5, whiteSpace:'nowrap', flexShrink:0 }}>
+              <span>{t.icon}</span>{t.label}
+            </button>
+          ))}
         </div>
+      </div>
+
+      <div style={{ padding:'4px 16px 12px', flex:1, overflow:'auto' }}>
+        {tab === 'estadia'    && <PlanEstadia appData={appData} />}
+        {tab === 'custos'     && <PlanCustos me={me} />}
+        {tab === 'itinerario' && <PlanItinerario me={me} />}
+        {tab === 'atividades' && <PlanAtividades me={me} />}
+        {tab === 'compras'    && <PlanCompras me={me} />}
       </div>
     </MShell>
   );
@@ -6085,8 +6568,15 @@ function MobileApp({ viewAs = 'member', liveUser, onLogout, phase: initialPhase,
   const View = phases[phase] || MPhase1;
   return (
     <MNavCtx.Provider value={{ onBackToHub, onEditProfile, me }}>
-      <div style={{ position:'relative', width:'100%', height:'100%' }}>
-        <View me={me} onLogout={onLogout} onOpenChat={() => setChatOpen(true)} />
+      <div style={{ position:'relative', width:'100%', height:'100%', display:'flex', flexDirection:'column' }}>
+        <div style={{ flex:1, overflow:'hidden', position:'relative' }}>
+          <View me={me} onLogout={onLogout} onOpenChat={() => setChatOpen(true)} />
+        </div>
+        {initialPhase === undefined && (
+          <div style={{ padding:'8px 14px 12px', background:'var(--pa-bg)', borderTop:'1px solid var(--pa-line)', flexShrink:0 }}>
+            <PhaseProgressBanner phase={phase} me={me} narrow />
+          </div>
+        )}
         <MobileChatSheet me={me} open={chatOpen} onClose={() => setChatOpen(false)} />
       </div>
     </MNavCtx.Provider>
@@ -6098,6 +6588,539 @@ Object.assign(window, {
   MobileApp,
 });
 </script>
+<script type="text/babel">// Perdidos Algures — Sistema de progressão de fases.
+// - Auto-advance: quando todos os participantes "in" tiverem completado a fase,
+//   inicia countdown de 10s. Quando chega a 0, qualquer cliente avança a fase
+//   (idempotente, primeiro a chegar ganha; os outros notam e param).
+// - Voto para passar: botão "Vamos avançar"; se >50% dos "in" votarem, passa já.
+// Tudo guardado na edição ativa via AppStore.
+
+const { useState: pUseState, useEffect: pUseEffect, useRef: pUseRef } = React;
+
+// ─────────────────────────────────────────────────────────────
+// Quem está "a bordo" (RSVP === 'in'). Inclui o admin se respondeu in.
+// ─────────────────────────────────────────────────────────────
+function getInMembers(appData) {
+  const rsvp = appData.rsvp || {};
+  const all = (typeof getAllMembers === 'function') ? getAllMembers() : [];
+  return all.filter(m => rsvp[m.id] === 'in');
+}
+
+// Quantos membros TOTAIS existem (para fase 1, onde ainda ninguém disse 'in')
+function getTotalMembers() {
+  return (typeof getAllMembers === 'function') ? getAllMembers().length : 0;
+}
+
+// ─────────────────────────────────────────────────────────────
+// phaseComplete: a fase está pronta para avançar?
+//   - Fase 1: todos responderam (in/out/maybe)
+//   - Fase 2: todos os "in" submeteram pelo menos uma sugestão de local
+//   - Fase 3: todos os "in" votaram num local
+//   - Fase 4: todos os "in" submeteram pelo menos uma sugestão de alojamento
+//   - Fase 5: todos os "in" votaram num alojamento E sem empate
+//   - Fase 6: todos os "in" submeteram disponibilidade
+//   - Fase 7: datas trancadas
+//   - Fase 8: nunca (é a última)
+// ─────────────────────────────────────────────────────────────
+function phaseComplete(phase, appData) {
+  const rsvp = appData.rsvp || {};
+  const allMembers = (typeof getAllMembers === 'function') ? getAllMembers() : [];
+  const inIds = allMembers.filter(m => rsvp[m.id] === 'in').map(m => m.id);
+
+  if (phase === 1) {
+    if (allMembers.length === 0) return false;
+    return allMembers.every(m => rsvp[m.id]); // todos têm uma resposta
+  }
+  if (phase === 2) {
+    if (inIds.length === 0) return false;
+    const suggs = appData.locSuggs || [];
+    return inIds.every(id => suggs.some(s => s.by === id));
+  }
+  if (phase === 3) {
+    if (inIds.length === 0) return false;
+    const votes = appData.locVotes || {};
+    return inIds.every(id => votes[id]);
+  }
+  if (phase === 4) {
+    if (inIds.length === 0) return false;
+    const suggs = appData.accSuggs || [];
+    return inIds.every(id => suggs.some(s => s.by === id));
+  }
+  if (phase === 5) {
+    if (inIds.length === 0) return false;
+    const votes = appData.accVotes || {};
+    const allVoted = inIds.every(id => votes[id]);
+    if (!allVoted) return false;
+    // Verifica empate — se houver, NÃO completa (admin tem de desempatar)
+    const tally = {};
+    Object.values(votes).forEach(v => { tally[v] = (tally[v]||0) + 1; });
+    const sorted = Object.values(tally).sort((a,b) => b-a);
+    const tied = sorted[0] === sorted[1];
+    return !tied;
+  }
+  if (phase === 6) {
+    if (inIds.length === 0) return false;
+    const avail = appData.avail || {};
+    return inIds.every(id => Array.isArray(avail[id]) && avail[id].length > 0);
+  }
+  if (phase === 7) {
+    return !!appData.locked;
+  }
+  return false; // fase 8 é a última
+}
+
+// ─────────────────────────────────────────────────────────────
+// Hook: gere countdown automático + voto para passar
+// ─────────────────────────────────────────────────────────────
+function usePhaseProgress(phase, me) {
+  const appData = useAppStore();
+  const [now, setNow] = pUseState(Date.now());
+  const advanceFiredRef = pUseRef(false);
+
+  const isLast = phase >= 8;
+  const isComplete = phaseComplete(phase, appData);
+  const completeAt = appData.phaseCompleteAt;
+  const skipVotes = appData.skipVotes || {};
+  const inMembers = getInMembers(appData);
+  const skipThreshold = Math.max(1, Math.ceil((inMembers.length || 1) / 2) + 0); // >50%
+  const skipCount = Object.keys(skipVotes).filter(uid => inMembers.some(m => m.id === uid)).length;
+  const skipReached = skipCount > inMembers.length / 2;
+  const iVoted = !!skipVotes[me?.id];
+
+  // Marca o timestamp quando a fase fica completa
+  pUseEffect(() => {
+    if (isLast) return;
+    if (isComplete && !completeAt) {
+      AppStore._set('phaseCompleteAt', Date.now());
+    } else if (!isComplete && completeAt) {
+      // Se algo descompletar (ex: sugestão removida), limpa
+      AppStore.clearKey('phaseCompleteAt');
+    }
+  }, [isComplete, completeAt, isLast]);
+
+  // Tick a cada segundo para o countdown
+  pUseEffect(() => {
+    if (!completeAt || isLast) return;
+    const id = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(id);
+  }, [completeAt, isLast]);
+
+  // Quando timer chega a 0, ou skip reached, avança (primeiro cliente que detetar)
+  pUseEffect(() => {
+    if (isLast || advanceFiredRef.current) return;
+    const timeUp = completeAt && (now - completeAt >= 10000);
+    if ((timeUp || skipReached) && phase === (appData.currentPhase || 1)) {
+      advanceFiredRef.current = true;
+      // Avança e limpa votes/timer da fase atual
+      Promise.resolve()
+        .then(() => AppStore.setPhase(phase + 1))
+        .then(() => AppStore.clearKey('phaseCompleteAt'))
+        .then(() => AppStore.clearKey('skipVotes'))
+        .catch(()=>{});
+    }
+  }, [now, completeAt, skipReached, phase, isLast, appData.currentPhase]);
+
+  // Reset do guard quando a fase muda
+  pUseEffect(() => { advanceFiredRef.current = false; }, [phase]);
+
+  const remainingMs = completeAt ? Math.max(0, 10000 - (now - completeAt)) : null;
+  const remainingSec = remainingMs !== null ? Math.ceil(remainingMs / 1000) : null;
+
+  const voteSkip = async () => {
+    if (!me || iVoted || isLast) return;
+    const next = { ...skipVotes, [me.id]: Date.now() };
+    await AppStore._set('skipVotes', next);
+  };
+
+  const cancelMySkip = async () => {
+    if (!me || !iVoted) return;
+    const next = { ...skipVotes };
+    delete next[me.id];
+    await AppStore._set('skipVotes', next);
+  };
+
+  return {
+    isLast, isComplete, completeAt, remainingSec,
+    skipCount, skipThreshold: Math.ceil(inMembers.length/2 + 0.001),
+    skipReached, iVoted, inCount: inMembers.length,
+    voteSkip, cancelMySkip,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────
+// Componente: Banner de progresso (countdown + voto passar)
+// Aparece no fundo da fase ou flutuante. Compacto e responsivo.
+// ─────────────────────────────────────────────────────────────
+function PhaseProgressBanner({ phase, me, narrow }) {
+  const p = usePhaseProgress(phase, me);
+  if (p.isLast || !me) return null;
+
+  // Se está em countdown: mostra grande
+  if (p.completeAt && p.remainingSec !== null && p.remainingSec > 0) {
+    return (
+      <div style={{
+        background:'var(--pa-ink)', color:'#fff', borderRadius:14, padding: narrow ? '10px 14px' : '12px 18px',
+        display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, flexWrap:'wrap' }}>
+        <div>
+          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, opacity:0.7, textTransform:'uppercase' }}>
+            Todos prontos
+          </div>
+          <div style={{ fontFamily:'var(--pa-display)', fontSize: narrow?15:17, fontWeight:600, marginTop:2 }}>
+            Próxima fase em {p.remainingSec}s...
+          </div>
+        </div>
+        {me.isAdmin && (
+          <button onClick={() => AppStore.clearKey('phaseCompleteAt')} style={{
+            background:'rgba(255,255,255,0.12)', border:'none', color:'#fff', padding:'6px 12px', borderRadius:999,
+            fontFamily:'var(--pa-body)', fontSize:12, fontWeight:600, cursor:'pointer' }}>
+            Cancelar
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  // Caso contrário: botão "Vamos avançar" (se ainda não completou normalmente)
+  if (p.isComplete) return null; // está a esperar o timestamp, próximo render mostra countdown
+  if (p.inCount === 0) return null; // ninguém in ainda
+
+  return (
+    <div style={{
+      background:'#fff', border:'1px solid var(--pa-line)', borderRadius:14, padding: narrow ? '10px 14px' : '12px 18px',
+      display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, flexWrap:'wrap' }}>
+      <div style={{ flex:1, minWidth:0 }}>
+        <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>
+          Votos para avançar
+        </div>
+        <div style={{ display:'flex', alignItems:'center', gap:8, marginTop:4 }}>
+          <span style={{ fontFamily:'var(--pa-display)', fontSize: narrow?15:17, fontWeight:600 }}>
+            {p.skipCount} / {p.inCount}
+          </span>
+          <span style={{ fontFamily:'var(--pa-body)', fontSize:12, color:'var(--pa-muted)' }}>
+            (precisa de mais de metade)
+          </span>
+        </div>
+      </div>
+      {p.iVoted
+        ? <Btn variant="soft" size="sm" onClick={p.cancelMySkip}>Cancelar voto</Btn>
+        : <Btn variant="accent" size="sm" onClick={p.voteSkip}>Vamos avançar →</Btn>}
+    </div>
+  );
+}
+
+Object.assign(window, { getInMembers, getTotalMembers, phaseComplete, usePhaseProgress, PhaseProgressBanner });
+</script>
+
+<script type="text/babel">// Perdidos Algures — Painel de desempate (admin).
+// Quando há empate, admin pode resolver com:
+//  - Cara ou coroa (random, animação)
+//  - Votação por pontos (3-2-1 — cada um classifica top 3)
+// O resultado é guardado em locWinner / accWinner conforme a fase.
+
+const { useState: tbUseState2, useEffect: tbUseEffect2, useRef: tbUseRef2 } = React;
+
+// Deteta empate nos votos da fase atual
+function detectTie(votes, suggestions) {
+  if (!votes || Object.keys(votes).length === 0) return null;
+  const tally = {};
+  suggestions.forEach(s => { tally[s.id] = 0; });
+  Object.values(votes).forEach(id => { if (tally[id] !== undefined) tally[id]++; });
+  const sorted = Object.entries(tally).sort((a,b) => b[1] - a[1]);
+  if (sorted.length < 2 || sorted[0][1] === 0) return null;
+  const top = sorted[0][1];
+  const tied = sorted.filter(([,v]) => v === top).map(([id]) => id);
+  if (tied.length < 2) return null;
+  return {
+    tiedIds: tied,
+    tiedItems: tied.map(id => suggestions.find(s => s.id === id)).filter(Boolean),
+    tally,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────
+// Cara ou Coroa — animação simples, resultado aleatório
+// ─────────────────────────────────────────────────────────────
+function CoinFlip({ tiedItems, onResolve, onCancel }) {
+  const [flipping, setFlipping] = tbUseState2(false);
+  const [result, setResult] = tbUseState2(null);
+  const [rotation, setRotation] = tbUseState2(0);
+
+  const flip = () => {
+    if (flipping) return;
+    setFlipping(true);
+    setResult(null);
+    const winnerIdx = Math.floor(Math.random() * tiedItems.length);
+    const finalRot = 360 * 6 + winnerIdx * (360 / tiedItems.length);
+    setRotation(finalRot);
+    setTimeout(() => {
+      setResult(tiedItems[winnerIdx]);
+      setFlipping(false);
+    }, 2400);
+  };
+
+  const accept = () => result && onResolve(result.id);
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:18, alignItems:'center', padding:'8px 0' }}>
+      <div style={{ fontFamily:'var(--pa-mono)', fontSize:11, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase', textAlign:'center' }}>
+        {tiedItems.length === 2 ? 'Cara ou coroa' : 'Roleta da sorte'}
+      </div>
+
+      {/* Roda dos empatados */}
+      <div style={{ position:'relative', width:220, height:220 }}>
+        <div style={{
+          width:'100%', height:'100%', borderRadius:'50%',
+          border:'4px solid var(--pa-ink)',
+          transform:`rotate(${rotation}deg)`,
+          transition: flipping ? 'transform 2.2s cubic-bezier(0.2,0.8,0.2,1)' : 'none',
+          position:'relative', overflow:'hidden', background:'var(--pa-bg)' }}>
+          {tiedItems.map((item, i) => {
+            const angle = (360 / tiedItems.length) * i;
+            const sliceAngle = 360 / tiedItems.length;
+            return (
+              <div key={item.id} style={{
+                position:'absolute', inset:0,
+                clipPath: `polygon(50% 50%, ${50 + 50*Math.cos((angle - 90 - sliceAngle/2)*Math.PI/180)}% ${50 + 50*Math.sin((angle - 90 - sliceAngle/2)*Math.PI/180)}%, ${50 + 50*Math.cos((angle - 90 + sliceAngle/2)*Math.PI/180)}% ${50 + 50*Math.sin((angle - 90 + sliceAngle/2)*Math.PI/180)}%)`,
+                background: i % 2 === 0 ? 'var(--pa-accent)' : '#fff',
+                display:'flex', alignItems:'flex-start', justifyContent:'center', paddingTop:24,
+                transform:`rotate(${angle}deg)`, transformOrigin:'50% 50%' }}>
+                <div style={{ fontFamily:'var(--pa-display)', fontSize:13, fontWeight:600, color: i%2===0?'#fff':'var(--pa-ink)', textAlign:'center', maxWidth:60, lineHeight:1.1 }}>
+                  {(item.name || item.area || '?').slice(0, 14)}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {/* Ponteiro */}
+        <div style={{ position:'absolute', top:-8, left:'50%', transform:'translateX(-50%)',
+          width:0, height:0, borderLeft:'10px solid transparent', borderRight:'10px solid transparent',
+          borderTop:'18px solid var(--pa-ink)' }} />
+      </div>
+
+      {result && (
+        <div style={{ textAlign:'center' }}>
+          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>Vencedor</div>
+          <div style={{ fontFamily:'var(--pa-display)', fontSize:22, fontWeight:600, color:'var(--pa-accent)', marginTop:4 }}>
+            {result.name || result.area || '?'}
+          </div>
+        </div>
+      )}
+
+      <div style={{ display:'flex', gap:8, width:'100%' }}>
+        {!result
+          ? <>
+              <Btn variant="ghost" onClick={onCancel} style={{ flex:1 }}>Cancelar</Btn>
+              <Btn variant="accent" onClick={flip} disabled={flipping} style={{ flex:1 }}>{flipping ? 'A rodar...' : 'Rodar!'}</Btn>
+            </>
+          : <>
+              <Btn variant="ghost" onClick={() => { setResult(null); setRotation(0); }} style={{ flex:1 }}>Repetir</Btn>
+              <Btn variant="accent" onClick={accept} style={{ flex:1 }}>Aceitar vencedor</Btn>
+            </>}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Votação por pontos — cada pessoa classifica top 3 dos empatados
+//   1ª escolha = 3 pts, 2ª = 2 pts, 3ª = 1 pt
+//   Resultados guardados em appData.tieVotes (objeto por user → array ordenado)
+// ─────────────────────────────────────────────────────────────
+function PointsVote({ tiedItems, me, onResolve, onCancel, voteKey }) {
+  const appData = useAppStore();
+  const tieVotes = appData[voteKey] || {};  // ex: 'tieVotesLoc'
+  const [myRank, setMyRank] = tbUseState2(() => {
+    const existing = tieVotes[me?.id];
+    if (existing && Array.isArray(existing) && existing.length === tiedItems.length) return existing.slice();
+    return tiedItems.map(i => i.id);
+  });
+
+  tbUseEffect2(() => {
+    const existing = tieVotes[me?.id];
+    if (existing && JSON.stringify(existing) !== JSON.stringify(myRank)) {
+      setMyRank(existing.slice());
+    }
+  }, [tieVotes[me?.id]]);
+
+  const inMembers = getInMembers(appData);
+  const voted = inMembers.filter(m => Array.isArray(tieVotes[m.id]) && tieVotes[m.id].length === tiedItems.length);
+  const allVoted = voted.length === inMembers.length;
+
+  const moveItem = (idx, dir) => {
+    const swap = idx + dir;
+    if (swap < 0 || swap >= myRank.length) return;
+    const next = myRank.slice();
+    [next[idx], next[swap]] = [next[swap], next[idx]];
+    setMyRank(next);
+  };
+
+  const submit = async () => {
+    await AppStore._set(voteKey, { ...tieVotes, [me.id]: myRank });
+  };
+
+  const resolveWinner = () => {
+    // Pontuação: posição 0 = N pontos, posição N-1 = 1 ponto
+    const N = tiedItems.length;
+    const score = {};
+    tiedItems.forEach(t => { score[t.id] = 0; });
+    voted.forEach(m => {
+      const rank = tieVotes[m.id];
+      rank.forEach((id, i) => { score[id] = (score[id] || 0) + (N - i); });
+    });
+    const sorted = Object.entries(score).sort((a,b) => b[1] - a[1]);
+    if (sorted.length === 0) return null;
+    return { winnerId: sorted[0][0], scores: score };
+  };
+
+  const accept = async () => {
+    const r = resolveWinner();
+    if (!r) return;
+    await AppStore.clearKey(voteKey);
+    onResolve(r.winnerId);
+  };
+
+  const result = allVoted ? resolveWinner() : null;
+  const myVoteSubmitted = !!tieVotes[me?.id];
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+      <div style={{ fontFamily:'var(--pa-body)', fontSize:13, color:'var(--pa-muted)' }}>
+        Ordena por preferência. A 1ª escolha vale {tiedItems.length} pontos, a última vale 1.
+      </div>
+
+      <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+        {myRank.map((id, idx) => {
+          const item = tiedItems.find(t => t.id === id);
+          if (!item) return null;
+          const points = tiedItems.length - idx;
+          return (
+            <div key={id} style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 12px',
+              background:'#fff', borderRadius:12, border:'1px solid var(--pa-line)' }}>
+              <div style={{ width:28, height:28, borderRadius:8, background:'var(--pa-accent)', color:'#fff',
+                display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'var(--pa-display)', fontWeight:700, fontSize:13, flexShrink:0 }}>
+                {idx + 1}
+              </div>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontFamily:'var(--pa-body)', fontSize:13.5, fontWeight:600 }}>{item.name || item.area || '?'}</div>
+                <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, color:'var(--pa-muted)' }}>{points} {points===1?'ponto':'pontos'}</div>
+              </div>
+              <div style={{ display:'flex', flexDirection:'column', gap:2 }}>
+                <button onClick={() => moveItem(idx, -1)} disabled={idx===0 || myVoteSubmitted} style={{ width:24, height:18, border:'1px solid var(--pa-line)', borderRadius:4, background:'#fff', cursor:idx===0?'default':'pointer', padding:0, opacity:idx===0||myVoteSubmitted?0.4:1 }}>
+                  <svg width="10" height="6" viewBox="0 0 10 6"><path d="M1 5l4-4 4 4" fill="none" stroke="var(--pa-ink)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                </button>
+                <button onClick={() => moveItem(idx, 1)} disabled={idx===myRank.length-1 || myVoteSubmitted} style={{ width:24, height:18, border:'1px solid var(--pa-line)', borderRadius:4, background:'#fff', cursor:idx===myRank.length-1?'default':'pointer', padding:0, opacity:(idx===myRank.length-1||myVoteSubmitted)?0.4:1 }}>
+                  <svg width="10" height="6" viewBox="0 0 10 6"><path d="M1 1l4 4 4-4" fill="none" stroke="var(--pa-ink)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={{ padding:'10px 12px', background:'rgba(31,26,20,0.04)', borderRadius:10 }}>
+        <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>
+          Votos
+        </div>
+        <div style={{ fontFamily:'var(--pa-display)', fontSize:15, fontWeight:600, marginTop:2 }}>
+          {voted.length} / {inMembers.length}
+        </div>
+      </div>
+
+      {result && me?.isAdmin && (
+        <div style={{ padding:'12px 14px', borderRadius:12, background:'var(--pa-ink)', color:'#fff' }}>
+          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, opacity:0.6, textTransform:'uppercase' }}>Resultado</div>
+          <div style={{ fontFamily:'var(--pa-display)', fontSize:18, fontWeight:600, marginTop:4 }}>
+            {(tiedItems.find(t=>t.id===result.winnerId) || {}).name || (tiedItems.find(t=>t.id===result.winnerId) || {}).area} ganha
+          </div>
+          <div style={{ fontFamily:'var(--pa-body)', fontSize:11, opacity:0.7, marginTop:4 }}>
+            {Object.entries(result.scores).map(([id,s]) => `${(tiedItems.find(t=>t.id===id)||{}).name||(tiedItems.find(t=>t.id===id)||{}).area}: ${s}`).join(' · ')}
+          </div>
+        </div>
+      )}
+
+      <div style={{ display:'flex', gap:8 }}>
+        <Btn variant="ghost" onClick={onCancel} style={{ flex:1 }}>Voltar</Btn>
+        {!myVoteSubmitted
+          ? <Btn variant="accent" onClick={submit} style={{ flex:1 }}>Submeter voto</Btn>
+          : (me?.isAdmin && result
+              ? <Btn variant="accent" onClick={accept} style={{ flex:1 }}>Aceitar vencedor</Btn>
+              : <Btn variant="soft" disabled style={{ flex:1 }}>Voto submetido · aguarda outros</Btn>)}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Modal global de desempate (admin escolhe método; membros vêm o método ativo)
+// O método ativo guarda-se em appData.tieMethod = 'coin' | 'points' | null
+// ─────────────────────────────────────────────────────────────
+function TiebreakModal({ open, onClose, tie, me, voteKey, onResolve }) {
+  const appData = useAppStore();
+  const method = appData.tieMethod;
+
+  if (!open || !tie) return null;
+
+  const choose = (m) => AppStore._set('tieMethod', m);
+  const cancel = () => { AppStore.clearKey('tieMethod'); AppStore.clearKey(voteKey); onClose(); };
+  const resolveAndClose = async (winnerId) => {
+    await AppStore.clearKey('tieMethod');
+    await AppStore.clearKey(voteKey);
+    await onResolve(winnerId);
+    onClose();
+  };
+
+  return (
+    <PAModal open={open} onClose={me?.isAdmin ? cancel : onClose} title="🎯 Desempate" maxWidth={500}>
+      <div style={{ fontFamily:'var(--pa-body)', fontSize:13.5, color:'var(--pa-muted)', marginBottom:14 }}>
+        Empate entre <strong style={{ color:'var(--pa-ink)' }}>{tie.tiedItems.length} opções</strong>:&nbsp;
+        {tie.tiedItems.map(t => t.name || t.area).join(' · ')}
+      </div>
+
+      {!method && (
+        me?.isAdmin ? (
+          <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+            <button onClick={() => choose('coin')} style={{
+              padding:'14px 16px', borderRadius:14, border:'1px solid var(--pa-line)', background:'#fff',
+              cursor:'pointer', textAlign:'left', display:'flex', alignItems:'center', gap:14, fontFamily:'var(--pa-body)' }}>
+              <div style={{ fontSize:30 }}>🎰</div>
+              <div>
+                <div style={{ fontSize:15, fontWeight:600 }}>Roleta da sorte</div>
+                <div style={{ fontSize:12, color:'var(--pa-muted)', marginTop:2 }}>Cara ou coroa (à sorte)</div>
+              </div>
+            </button>
+            <button onClick={() => choose('points')} style={{
+              padding:'14px 16px', borderRadius:14, border:'1px solid var(--pa-line)', background:'#fff',
+              cursor:'pointer', textAlign:'left', display:'flex', alignItems:'center', gap:14, fontFamily:'var(--pa-body)' }}>
+              <div style={{ fontSize:30 }}>🏆</div>
+              <div>
+                <div style={{ fontSize:15, fontWeight:600 }}>Votação por pontos</div>
+                <div style={{ fontSize:12, color:'var(--pa-muted)', marginTop:2 }}>Cada um classifica · 1º = mais pontos · ganha o que somar mais</div>
+              </div>
+            </button>
+          </div>
+        ) : (
+          <div style={{ padding:'20px 0', textAlign:'center', color:'var(--pa-muted)' }}>
+            O admin está a escolher como desempatar...
+          </div>
+        )
+      )}
+
+      {method === 'coin' && (
+        <CoinFlip tiedItems={tie.tiedItems} onResolve={resolveAndClose} onCancel={() => AppStore.clearKey('tieMethod')} />
+      )}
+
+      {method === 'points' && (
+        <PointsVote tiedItems={tie.tiedItems} me={me} voteKey={voteKey}
+          onResolve={resolveAndClose}
+          onCancel={() => me?.isAdmin && AppStore.clearKey('tieMethod')} />
+      )}
+    </PAModal>
+  );
+}
+
+Object.assign(window, { detectTie, CoinFlip, PointsVote, TiebreakModal });
+</script>
+
 <script type="text/babel">// Perdidos Algures — Edition Hub + modais (perfil, criar/editar edição).
 // Funciona em desktop e mobile (layout responsivo).
 
