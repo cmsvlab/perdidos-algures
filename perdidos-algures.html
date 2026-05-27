@@ -2313,7 +2313,7 @@ function _clearSession()  {
   try { sessionStorage.removeItem('pa-session'); } catch {}
 }
 function _profileToSession(r) {
-  return { id: r.id, name: r.name, initials: r.initials, color: r.color, photoDataUrl: r.photo_url || null, isAdmin: r.is_admin };
+  return { id: r.id, name: r.name, displayName: r.display_name || r.name, initials: r.initials, color: r.color, photoDataUrl: r.photo_url || null, isAdmin: r.is_admin };
 }
 
 // Cache síncrono de utilizadores — populado no arranque
@@ -2322,8 +2322,8 @@ let _usersCache = [];
 const AuthStore = {
   getUsers() { return _usersCache; },  // síncrono — cache populado no arranque
   async refreshUsers() {
-    const { data } = await _sb.from('profiles').select('id,name,initials,color,photo_url,is_admin');
-    _usersCache = (data||[]).map(r => ({ id:r.id, name:r.name, initials:r.initials, color:r.color, photoDataUrl:r.photo_url||null, isAdmin:r.is_admin }));
+    const { data } = await _sb.from('profiles').select('id,name,display_name,initials,color,photo_url,is_admin');
+    _usersCache = (data||[]).map(r => ({ id:r.id, name:r.display_name||r.name, loginName:r.name, initials:r.initials, color:r.color, photoDataUrl:r.photo_url||null, isAdmin:r.is_admin }));
     return _usersCache;
   },
   getSession()    { return _session; },
@@ -2343,7 +2343,7 @@ const AuthStore = {
     if (!n) throw new Error('Falta o nome.');
     if (!password) throw new Error('Falta a password.');
     const { data: profiles, error } = await _sb.from('profiles')
-      .select('id,name,initials,color,photo_url,is_admin').ilike('name', n).limit(1);
+      .select('id,name,display_name,initials,color,photo_url,is_admin').ilike('name', n).limit(1);
     if (error) throw new Error('Erro de base de dados: ' + error.message);
     if (!profiles?.length) throw new Error('Conta não encontrada. Regista-te primeiro.');
     const profile = profiles[0];
@@ -2368,12 +2368,31 @@ const AuthStore = {
     if (existing?.length) throw new Error('Já existe alguém com esse nome.');
     const passHash = await sha256(password);
     const { data: inserted, error: insertErr } = await _sb.from('profiles')
-      .insert({ name:n, initials:this.initialsFromName(n), color:this.colorFromName(n), photo_url:photoDataUrl||null, is_admin:false })
+      .insert({ name:n, display_name:n, initials:this.initialsFromName(n), color:this.colorFromName(n), photo_url:photoDataUrl||null, is_admin:false })
       .select().single();
     if (insertErr) throw new Error('Erro ao criar conta: ' + insertErr.message);
     const { error: authInsErr } = await _sb.from('profiles_auth').insert({ profile_id: inserted.id, pass_hash: passHash });
     if (authInsErr) throw new Error('Erro ao guardar password: ' + authInsErr.message);
     const session = _profileToSession(inserted);
+    _saveSession(session);
+    await this.refreshUsers();
+    return session;
+  },
+
+  // Editar perfil: display name + foto. O nome de login e password ficam iguais.
+  async updateProfile({ displayName, photoDataUrl }) {
+    if (!_session) throw new Error('Sessão inválida.');
+    const fields = {};
+    if (displayName !== undefined) {
+      const dn = (displayName||'').trim();
+      if (!dn) throw new Error('O nome não pode ficar vazio.');
+      fields.display_name = dn;
+      fields.initials = this.initialsFromName(dn);
+    }
+    if (photoDataUrl !== undefined) fields.photo_url = photoDataUrl;
+    const { data, error } = await _sb.from('profiles').update(fields).eq('id', _session.id).select().single();
+    if (error) throw new Error('Erro ao atualizar perfil: ' + error.message);
+    const session = _profileToSession(data);
     _saveSession(session);
     await this.refreshUsers();
     return session;
@@ -2386,67 +2405,209 @@ const AuthStore = {
 //   rsvp, locSuggs, accSuggs, locWinner, accWinner, locVotes, accVotes,
 //   avail, locked, currentPhase, editionTitle/Number/Subtitle, planData, history
 // ─────────────────────────────────────────────────────────────
-let _appCache = null;
-const _appListeners = new Set();
-let _appPolling = null;
+// ─────────────────────────────────────────────────────────────
+// EditionStore — gere múltiplas edições (tabela editions).
+// Cada edição tem o seu estado completo no campo jsonb `data`.
+// ─────────────────────────────────────────────────────────────
+let _editionsCache = [];
+const _editionsListeners = new Set();
+let _activeEditionId = (() => { try { return localStorage.getItem('pa-active-edition') || null; } catch { return null; } })();
 
-const AppStore = {
-  async _fetch() {
-    const { data } = await _sb.from('app_data').select('key,value');
-    _appCache = {};
-    for (const row of (data||[])) _appCache[row.key] = row.value;
-    return _appCache;
+const EditionStore = {
+  list() { return _editionsCache; },
+  active() { return _editionsCache.find(e => e.id === _activeEditionId) || null; },
+  activeId() { return _activeEditionId; },
+  setActive(id) {
+    _activeEditionId = id;
+    try { id ? localStorage.setItem('pa-active-edition', id) : localStorage.removeItem('pa-active-edition'); } catch {}
+    // Recarrega o cache do AppStore para a nova edição
+    AppStore._syncFromActive();
+    _editionsListeners.forEach(fn => fn(_editionsCache.slice()));
+    _appListeners.forEach(fn => fn(AppStore._cache()));
   },
-  _cache() { return _appCache || {}; },
-  _notify() { _appListeners.forEach(fn => fn({ ...this._cache() })); },
-  async _set(key, value) {
-    _appCache = { ...(this._cache()), [key]: value };
+  _notify() { _editionsListeners.forEach(fn => fn(_editionsCache.slice())); },
+
+  async fetchAll() {
+    const { data } = await _sb.from('editions').select('*').order('number', { ascending: false });
+    _editionsCache = data || [];
+    AppStore._syncFromActive();
+    return _editionsCache;
+  },
+
+  nextNumber() {
+    if (!_editionsCache.length) return 1;
+    return Math.max(..._editionsCache.map(e => e.number || 0)) + 1;
+  },
+
+  async create({ number, title, subtitle }) {
+    const num = number || this.nextNumber();
+    const { data, error } = await _sb.from('editions')
+      .insert({ number: num, title: title || 'Nova Aventura', subtitle: subtitle || 'Algures no mundo.', status: 'active', current_phase: 1, data: {} })
+      .select().single();
+    if (error) throw new Error('Erro ao criar edição: ' + error.message);
+    _editionsCache = [data, ..._editionsCache].sort((a,b)=>b.number-a.number);
     this._notify();
-    const { error } = await _sb.from('app_data').upsert({ key, value, updated_at: new Date().toISOString() });
-    if (error) console.error('[PA AppStore] erro a guardar', key, error.message);
+    return data;
   },
+
+  async update(id, fields) {
+    const { data, error } = await _sb.from('editions').update(fields).eq('id', id).select().single();
+    if (error) throw new Error('Erro ao atualizar: ' + error.message);
+    _editionsCache = _editionsCache.map(e => e.id === id ? data : e).sort((a,b)=>b.number-a.number);
+    this._notify();
+    if (id === _activeEditionId) { AppStore._syncFromActive(); _appListeners.forEach(fn => fn(AppStore._cache())); }
+    return data;
+  },
+
+  async archive(id)   { return this.update(id, { status: 'archived', archived_at: new Date().toISOString() }); },
+  async unarchive(id) { return this.update(id, { status: 'active', archived_at: null }); },
+
+  async remove(id) {
+    const { error } = await _sb.from('editions').delete().eq('id', id);
+    if (error) throw new Error('Erro ao eliminar: ' + error.message);
+    _editionsCache = _editionsCache.filter(e => e.id !== id);
+    if (_activeEditionId === id) this.setActive(null);
+    this._notify();
+  },
+
+  async reset(id) {
+    // Limpa o estado mas mantém metadata (número, título)
+    return this.update(id, { data: {}, current_phase: 1 });
+  },
+
+  async duplicate(id, { copyData = false } = {}) {
+    const src = _editionsCache.find(e => e.id === id);
+    if (!src) throw new Error('Edição não encontrada.');
+    return this.create({
+      number: this.nextNumber(),
+      title: src.title + ' (cópia)',
+      subtitle: src.subtitle,
+    }).then(async (newEd) => {
+      if (copyData) await this.update(newEd.id, { data: src.data || {} });
+      return newEd;
+    });
+  },
+
+  subscribe(fn)   { _editionsListeners.add(fn); },
+  unsubscribe(fn) { _editionsListeners.delete(fn); },
+
   async init() {
-    await this._fetch();
-    // Realtime; se falhar, polling
+    await this.fetchAll();
     try {
-      const ch = _sb.channel('app_data_ch')
-        .on('postgres_changes', { event:'*', schema:'public', table:'app_data' }, payload => {
-          const row = payload.new || payload.old;
-          if (!row) return;
-          if (payload.eventType === 'DELETE') { delete _appCache[row.key]; }
-          else { _appCache = { ...(this._cache()), [row.key]: row.value }; }
+      _sb.channel('editions_ch')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'editions' }, async () => {
+          await this.fetchAll();
           this._notify();
+          _appListeners.forEach(fn => fn(AppStore._cache()));
         })
         .subscribe((status) => {
           if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') this._startPolling();
         });
-      setTimeout(() => { if (ch.state !== 'joined') this._startPolling(); }, 5000);
+      setTimeout(() => { const ch = _sb.getChannels().find(c=>c.topic.includes('editions_ch')); if (!ch || ch.state !== 'joined') this._startPolling(); }, 5000);
     } catch(e) { this._startPolling(); }
   },
+  _pollingInterval: null,
   _startPolling() {
-    if (_appPolling) return;
-    console.log('[PA AppStore] polling 4s');
-    _appPolling = setInterval(async () => {
-      const before = JSON.stringify(this._cache());
-      await this._fetch();
-      if (JSON.stringify(this._cache()) !== before) this._notify();
+    if (this._pollingInterval) return;
+    console.log('[PA Editions] polling 4s');
+    this._pollingInterval = setInterval(async () => {
+      const before = JSON.stringify(_editionsCache);
+      await this.fetchAll();
+      if (JSON.stringify(_editionsCache) !== before) { this._notify(); _appListeners.forEach(fn => fn(AppStore._cache())); }
     }, 4000);
+  },
+};
+
+function useEditions() {
+  const [eds, setEds] = React.useState(() => EditionStore.list());
+  React.useEffect(() => {
+    setEds(EditionStore.list().slice());
+    const fn = (list) => setEds(list);
+    EditionStore.subscribe(fn);
+    return () => EditionStore.unsubscribe(fn);
+  }, []);
+  return eds;
+}
+
+// ─────────────────────────────────────────────────────────────
+// AppStore — opera sobre a EDIÇÃO ATIVA (EditionStore.active()).
+// O cache (_appCache) reflete o campo `data` da edição ativa + currentPhase.
+// A interface pública (getRsvp, setRsvp, etc.) mantém-se igual.
+// ─────────────────────────────────────────────────────────────
+let _appCache = {};
+const _appListeners = new Set();
+
+const AppStore = {
+  _cache() { return _appCache || {}; },
+  _notify() { _appListeners.forEach(fn => fn({ ...this._cache() })); },
+
+  // Reconstrói o cache a partir da edição ativa
+  _syncFromActive() {
+    const ed = (typeof EditionStore !== 'undefined') ? EditionStore.active() : null;
+    if (!ed) { _appCache = {}; return; }
+    _appCache = {
+      ...(ed.data || {}),
+      currentPhase: ed.current_phase || 1,
+      editionTitle: ed.title,
+      editionSubtitle: ed.subtitle,
+      editionNumber: ed.number,
+    };
+  },
+
+  // Grava uma chave de dados na edição ativa
+  async _set(key, value) {
+    const ed = EditionStore.active();
+    if (!ed) { console.warn('[PA AppStore] sem edição ativa'); return; }
+    _appCache = { ...(this._cache()), [key]: value };
+    this._notify();
+    // Atualiza o jsonb data (merge da chave)
+    const newData = { ...(ed.data || {}) };
+    newData[key] = value;
+    ed.data = newData; // atualiza cache local da edição
+    const { error } = await _sb.from('editions').update({ data: newData }).eq('id', ed.id);
+    if (error) console.error('[PA AppStore] erro a guardar', key, error.message);
+  },
+
+  async clearKey(key) {
+    const ed = EditionStore.active();
+    if (!ed) return;
+    _appCache = { ...(this._cache()) };
+    delete _appCache[key];
+    this._notify();
+    const newData = { ...(ed.data || {}) };
+    delete newData[key];
+    ed.data = newData;
+    await _sb.from('editions').update({ data: newData }).eq('id', ed.id);
+  },
+
+  async init() {
+    // O EditionStore.init() já populou e sincronizou; nada a fazer aqui.
+    this._syncFromActive();
   },
 
   load() { return this._cache(); },
 
-  // ── Edição ──
+  // ── Edição (metadata) ──
   getEdition() {
     const d = this._cache();
     return { title:d.editionTitle||'Nova Aventura', subtitle:d.editionSubtitle||'Algures no mundo.', number:d.editionNumber||1 };
   },
   async setEdition(t,s,n) {
-    await Promise.all([this._set('editionTitle',t), this._set('editionSubtitle',s), this._set('editionNumber',n||1)]);
+    const ed = EditionStore.active();
+    if (!ed) return;
+    await EditionStore.update(ed.id, { title:t, subtitle:s, number:n||ed.number });
   },
 
-  // ── Fase (partilhada entre todos via Supabase) ──
+  // ── Fase (guardada em editions.current_phase) ──
   getPhase()        { return this._cache().currentPhase || 1; },
-  async setPhase(n) { await this._set('currentPhase', n); },
+  async setPhase(n) {
+    const ed = EditionStore.active();
+    if (!ed) return;
+    _appCache = { ...(this._cache()), currentPhase: n };
+    this._notify();
+    ed.current_phase = n;
+    await EditionStore.update(ed.id, { current_phase: n });
+  },
 
   // ── RSVP ──
   setRsvp(uid,st)  { const rsvp={...(this._cache().rsvp||{}), [uid]:st}; return this._set('rsvp',rsvp); },
@@ -2471,15 +2632,14 @@ const AppStore = {
   getAccVotes()                 { return this._cache().accVotes||{}; },
   async setAccVote(uid,id)      { await this._set('accVotes',{...this.getAccVotes(),[uid]:id}); },
 
-  // ── Disponibilidade (chave 'avail', devolve array do user) ──
+  // ── Disponibilidade ──
   getAvailability(uid)          { return (this._cache().avail||{})[uid] || []; },
   getAllAvailability()          { return this._cache().avail||{}; },
   async setAvailability(uid,days){ await this._set('avail',{...(this._cache().avail||{}),[uid]:days}); },
 
-  // ── Datas trancadas (chave 'locked', aceita from/to/monthLabel) ──
+  // ── Datas trancadas ──
   getLockedDates()              { return this._cache().locked||null; },
   async setLockedDates(from,to,monthLabel){
-    // Suporta tanto (from,to,monthLabel) como (objeto)
     const val = (typeof from === 'object' && from !== null) ? from : { from, to, monthLabel };
     await this._set('locked', val);
   },
@@ -2488,20 +2648,11 @@ const AppStore = {
   getPlanning() { return this._cache().planData || { costs:{perPerson:0,breakdown:[],paid:{}}, itinerary:[],activities:[],shopping:[] }; },
   async setPlanning(p) { await this._set('planData',p); },
 
-  // ── Reset (admin) ──
-  async clearKey(key) {
-    _appCache = { ...(this._cache()) };
-    delete _appCache[key];
-    this._notify();
-    await _sb.from('app_data').delete().eq('key', key);
-  },
+  // ── Reset da edição ativa ──
   async resetEdition() {
-    // Apaga as chaves dinâmicas, mantém edição
-    const keys = ['rsvp','locSuggs','accSuggs','locWinner','accWinner','locVotes','accVotes','avail','locked','planData','currentPhase'];
-    _appCache = { ...(this._cache()) };
-    for (const k of keys) delete _appCache[k];
-    this._notify();
-    await Promise.all(keys.map(k => _sb.from('app_data').delete().eq('key', k)));
+    const ed = EditionStore.active();
+    if (!ed) return;
+    await EditionStore.reset(ed.id);
   },
 
   subscribe(fn)   { _appListeners.add(fn); },
@@ -2638,29 +2789,30 @@ async function readPhotoFile(file) {
 async function initSupabase() {
   // Carrega utilizadores primeiro (necessário para memberById)
   await AuthStore.refreshUsers();
+  // EditionStore antes do AppStore (AppStore depende da edição ativa)
+  await EditionStore.init();
   await Promise.all([AppStore.init(), ChatStore.init()]);
-  // Mantém cache de utilizadores actualizado
+  // Mantém cache de utilizadores actualizado (display_name incluído)
   try {
-    _sb.channel('profiles_ch').on('postgres_changes', { event:'INSERT', schema:'public', table:'profiles' }, payload => {
-      const r = payload.new;
-      if (!_usersCache.some(u=>u.id===r.id)) {
-        _usersCache.push({ id:r.id, name:r.name, initials:r.initials, color:r.color, photoDataUrl:r.photo_url||null, isAdmin:r.is_admin });
-      }
+    _sb.channel('profiles_ch').on('postgres_changes', { event:'*', schema:'public', table:'profiles' }, async () => {
+      await AuthStore.refreshUsers();
+      _appListeners.forEach(fn => fn(AppStore._cache()));
     }).subscribe();
   } catch {}
-  console.log('[PA] Supabase iniciado ✓', _usersCache.length, 'utilizadores');
+  console.log('[PA] Supabase iniciado ✓', _usersCache.length, 'utilizadores,', _editionsCache.length, 'edições');
 }
 
 Object.assign(window, {
-  _sb, safeStore, AuthStore, AppStore, VoteStore, ChatStore,
+  _sb, safeStore, AuthStore, AppStore, VoteStore, ChatStore, EditionStore,
   useAuth: function() {
     const [user, setUser] = React.useState(() => _session);
     const login    = async (name,pw)  => { const s=await AuthStore.login(name,pw);    setUser(s); return s; };
     const register = async (opts)     => { const s=await AuthStore.register(opts);    setUser(s); return s; };
+    const updateProfile = async (opts) => { const s=await AuthStore.updateProfile(opts); setUser(s); return s; };
     const logout   = ()               => { AuthStore.clearSession(); setUser(null); };
-    return { user, login, register, logout };
+    return { user, login, register, updateProfile, logout };
   },
-  useAppStore, useChat, getChatMessages, pushChatMessage, deleteChatMessage,
+  useAppStore, useEditions, useChat, getChatMessages, pushChatMessage, deleteChatMessage,
   readPhotoFile, initSupabase, ADMIN_NAME,
 });
 </script>
@@ -4124,11 +4276,19 @@ function AdminPhaseNav() {
   );
 }
 
-function DTopBar({ me, edition, onLogout }) {
+function DTopBar({ me, edition, onLogout, onBackToHub, onEditProfile }) {
   return (
     <div style={{ height:64, padding:'0 32px', borderBottom:'1px solid var(--pa-line)',
       background:'var(--pa-bg)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
       <div style={{ display:'flex', alignItems:'center', gap:18 }}>
+        {onBackToHub && (
+          <button onClick={onBackToHub} title="Voltar às edições" style={{
+            display:'flex', alignItems:'center', gap:6, height:36, padding:'0 12px', borderRadius:999,
+            background:'#fff', border:'1px solid var(--pa-line)', cursor:'pointer' }}>
+            <svg width="12" height="12" viewBox="0 0 12 12"><path d="M7.5 2L3.5 6l4 4" fill="none" stroke="var(--pa-ink)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+            <span style={{ fontFamily:'var(--pa-body)', fontSize:12.5, fontWeight:600 }}>Edições</span>
+          </button>
+        )}
         <Logo size={15} />
         <div style={{ width:1, height:18, background:'var(--pa-line)' }} />
         <div style={{ display:'flex', alignItems:'baseline', gap:8 }}>
@@ -4153,15 +4313,16 @@ function DTopBar({ me, edition, onLogout }) {
             </svg>
           </button>
         )}
-        <div style={{ display:'flex', alignItems:'center', gap:8, paddingLeft:10, borderLeft:'1px solid var(--pa-line)' }}>
+        <button onClick={onEditProfile} title="Editar perfil" style={{ display:'flex', alignItems:'center', gap:8, paddingLeft:10,
+          borderLeft:'1px solid var(--pa-line)', background:'transparent', border:'none', cursor: onEditProfile?'pointer':'default' }}>
           <Avatar member={me} size={32} />
-          <div>
+          <div style={{ textAlign:'left' }}>
             <div style={{ fontFamily:'var(--pa-body)', fontSize:13, fontWeight:600, lineHeight:1.1 }}>{me.name}</div>
             <div style={{ fontFamily:'var(--pa-mono)', fontSize:9.5, letterSpacing:0.8, color:'var(--pa-muted)', textTransform:'uppercase' }}>
               {me.isAdmin ? 'admin' : 'tripulante'}
             </div>
           </div>
-        </div>
+        </button>
       </div>
     </div>
   );
@@ -5326,7 +5487,7 @@ function PlanCompras({ me }) {
 // ─────────────────────────────────────────────────────────────
 const PHASE_STORAGE_KEY = 'pa-current-phase';
 
-function DesktopShell({ viewAs = 'admin', phase: initialPhase, liveUser, onLogout }) {
+function DesktopShell({ viewAs = 'admin', phase: initialPhase, liveUser, onLogout, onBackToHub, onEditProfile }) {
   const appData = useAppStore();
   const me = liveUser || (viewAs === 'admin' ? memberById(D.adminId) : (getAllMembers().find(m=>!m.isAdmin) || getAllMembers()[0] || memberById(D.adminId)));
 
@@ -5356,7 +5517,7 @@ function DesktopShell({ viewAs = 'admin', phase: initialPhase, liveUser, onLogou
       <div style={{ width:'100%', height:'100%', display:'flex', flexDirection:'column',
         background:'var(--pa-bg)', overflow:'hidden',
         fontFamily:'var(--pa-body)', color:'var(--pa-ink)', WebkitFontSmoothing:'antialiased' }}>
-        <DTopBar me={me} edition={edition} onLogout={onLogout} />
+        <DTopBar me={me} edition={edition} onLogout={onLogout} onBackToHub={onBackToHub} onEditProfile={onEditProfile} />
         <div style={{ flex:1, display:'flex', overflow:'hidden' }}>
           <DLeftRail phase={phase} me={me} />
           <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', background:'#fcf9f3' }}>
@@ -5391,10 +5552,22 @@ function MShell({ children }) {
   );
 }
 
+const MNavCtx = React.createContext({ onBackToHub: null, onEditProfile: null, me: null });
+
 function MHeader({ phase, onLogout, onOpenChat }) {
+  const nav = React.useContext(MNavCtx);
   return (
-    <div style={{ padding:'4px 22px 12px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-      <Logo size={13} />
+    <div style={{ padding:'4px 18px 12px', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+        {nav.onBackToHub && (
+          <button onClick={nav.onBackToHub} title="Edições" style={{
+            width:28, height:28, borderRadius:999, background:'#fff', border:'1px solid var(--pa-line)',
+            cursor:'pointer', padding:0, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+            <svg width="11" height="11" viewBox="0 0 12 12"><path d="M7.5 2L3.5 6l4 4" fill="none" stroke="var(--pa-ink)" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/></svg>
+          </button>
+        )}
+        <Logo size={13} compact />
+      </div>
       <div style={{ display:'flex', alignItems:'center', gap:8 }}>
         <Pill tone="dark" size="sm"><span style={{ fontFamily:'var(--pa-mono)' }}>FASE {String(phase).padStart(2,'0')}/{String(D.phases.length).padStart(2,'0')}</span></Pill>
         {onOpenChat && (
@@ -5405,6 +5578,11 @@ function MHeader({ phase, onLogout, onOpenChat }) {
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
               <path d="M2 4a2 2 0 012-2h6a2 2 0 012 2v4a2 2 0 01-2 2H6l-3 2.5V10H4a2 2 0 01-2-2V4z" stroke="var(--pa-ink)" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
+          </button>
+        )}
+        {nav.onEditProfile && nav.me && (
+          <button onClick={nav.onEditProfile} title="Perfil" style={{ padding:0, border:'none', background:'transparent', cursor:'pointer', display:'flex' }}>
+            <Avatar member={nav.me} size={28} />
           </button>
         )}
         {onLogout && (
@@ -5898,7 +6076,7 @@ function MPhase8({ me, onLogout, onOpenChat }) {
 }
 
 // Top-level mobile router
-function MobileApp({ viewAs = 'member', liveUser, onLogout, phase: initialPhase }) {
+function MobileApp({ viewAs = 'member', liveUser, onLogout, phase: initialPhase, onBackToHub, onEditProfile }) {
   const appData = useAppStore();
   const me = liveUser || (viewAs === 'admin' ? memberById(D.adminId) : getAllMembers()[0] || memberById(D.adminId));
   const [chatOpen, setChatOpen] = mUseState(false);
@@ -5906,10 +6084,12 @@ function MobileApp({ viewAs = 'member', liveUser, onLogout, phase: initialPhase 
   const phases = { 1:MPhase1, 2:MPhase2, 3:MPhase3, 4:MPhase4, 5:MPhase5, 6:MPhase6, 7:MPhase7, 8:MPhase8 };
   const View = phases[phase] || MPhase1;
   return (
-    <div style={{ position:'relative', width:'100%', height:'100%' }}>
-      <View me={me} onLogout={onLogout} onOpenChat={() => setChatOpen(true)} />
-      <MobileChatSheet me={me} open={chatOpen} onClose={() => setChatOpen(false)} />
-    </div>
+    <MNavCtx.Provider value={{ onBackToHub, onEditProfile, me }}>
+      <div style={{ position:'relative', width:'100%', height:'100%' }}>
+        <View me={me} onLogout={onLogout} onOpenChat={() => setChatOpen(true)} />
+        <MobileChatSheet me={me} open={chatOpen} onClose={() => setChatOpen(false)} />
+      </div>
+    </MNavCtx.Provider>
   );
 }
 
@@ -5918,6 +6098,349 @@ Object.assign(window, {
   MobileApp,
 });
 </script>
+<script type="text/babel">// Perdidos Algures — Edition Hub + modais (perfil, criar/editar edição).
+// Funciona em desktop e mobile (layout responsivo).
+
+const { useState: hUseState, useEffect: hUseEffect, useRef: hUseRef } = React;
+
+// ─────────────────────────────────────────────────────────────
+// Modal genérico (overlay centrado, responsivo)
+// ─────────────────────────────────────────────────────────────
+function PAModal({ open, onClose, title, children, maxWidth = 460 }) {
+  if (!open) return null;
+  return (
+    <div onClick={onClose} style={{
+      position:'fixed', inset:0, zIndex:1000, background:'rgba(31,26,20,0.45)',
+      display:'flex', alignItems:'center', justifyContent:'center', padding:16,
+      backdropFilter:'blur(2px)' }}>
+      <div onClick={(e)=>e.stopPropagation()} style={{
+        width:'100%', maxWidth, maxHeight:'90vh', overflow:'auto',
+        background:'var(--pa-bg)', borderRadius:20, padding:'24px 22px',
+        boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:18 }}>
+          <div style={{ fontFamily:'var(--pa-display)', fontSize:20, fontWeight:600, letterSpacing:-0.4 }}>{title}</div>
+          <button onClick={onClose} style={{ width:32, height:32, borderRadius:999, border:'none',
+            background:'rgba(31,26,20,0.06)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>
+            <svg width="12" height="12" viewBox="0 0 12 12"><path d="M3 3l6 6M9 3l-6 6" stroke="var(--pa-ink)" strokeWidth="1.5" strokeLinecap="round"/></svg>
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Editor de Perfil — foto + nome de exibição (login fica fixo)
+// ─────────────────────────────────────────────────────────────
+function ProfileEditor({ open, onClose, auth }) {
+  const me = auth.user;
+  const [displayName, setDisplayName] = hUseState(me?.displayName || me?.name || '');
+  const [photo, setPhoto] = hUseState(me?.photoDataUrl || null);
+  const [busy, setBusy] = hUseState(false);
+  const [err, setErr] = hUseState(null);
+  const fileRef = hUseRef(null);
+
+  hUseEffect(() => {
+    if (open) { setDisplayName(me?.displayName || me?.name || ''); setPhoto(me?.photoDataUrl || null); setErr(null); }
+  }, [open]);
+
+  const onPick = async (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    try { setPhoto(await readPhotoFile(f)); } catch { setErr('Não consegui ler a foto.'); }
+  };
+
+  const save = async () => {
+    setBusy(true); setErr(null);
+    try { await auth.updateProfile({ displayName, photoDataUrl: photo }); onClose(); }
+    catch (ex) { setErr(ex.message); }
+    finally { setBusy(false); }
+  };
+
+  const preview = { initials: AuthStore.initialsFromName(displayName||'?'), color: me?.color||'var(--pa-accent)', photoDataUrl: photo, name: displayName };
+
+  return (
+    <PAModal open={open} onClose={onClose} title="Editar perfil">
+      <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:16 }}>
+          <Avatar member={preview} size={64} />
+          <div style={{ flex:1 }}>
+            <Btn variant="soft" size="sm" onClick={()=>fileRef.current?.click()}>Mudar foto</Btn>
+            {photo && <Btn variant="ghost" size="sm" style={{ marginLeft:8 }} onClick={()=>setPhoto(null)}>Remover</Btn>}
+            <input ref={fileRef} type="file" accept="image/*" onChange={onPick} style={{ display:'none' }} />
+          </div>
+        </div>
+        <Field label="Nome de exibição" value={displayName} onChange={setDisplayName} placeholder="Como queres aparecer" />
+        <div style={{ padding:'10px 14px', borderRadius:12, background:'rgba(31,26,20,0.04)', border:'1px solid var(--pa-line)' }}>
+          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>Nome de login (fixo)</div>
+          <div style={{ fontFamily:'var(--pa-body)', fontSize:14, marginTop:2 }}>{me?.name}</div>
+        </div>
+        {err && <AuthError msg={err} />}
+        <div style={{ display:'flex', justifyContent:'flex-end', gap:8 }}>
+          <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+          <Btn variant="accent" onClick={save} disabled={busy}>{busy ? 'A guardar...' : 'Guardar'}</Btn>
+        </div>
+      </div>
+    </PAModal>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Editor de Edição — criar ou editar (número, título, subtítulo)
+// ─────────────────────────────────────────────────────────────
+function EditionEditor({ open, onClose, edition }) {
+  const isNew = !edition;
+  const [number, setNumber] = hUseState('');
+  const [title, setTitle] = hUseState('');
+  const [subtitle, setSubtitle] = hUseState('');
+  const [busy, setBusy] = hUseState(false);
+  const [err, setErr] = hUseState(null);
+
+  hUseEffect(() => {
+    if (open) {
+      setNumber(String(edition?.number || EditionStore.nextNumber()));
+      setTitle(edition?.title || '');
+      setSubtitle(edition?.subtitle || '');
+      setErr(null);
+    }
+  }, [open]);
+
+  const save = async () => {
+    setBusy(true); setErr(null);
+    try {
+      const num = parseInt(number) || EditionStore.nextNumber();
+      if (isNew) await EditionStore.create({ number:num, title:title.trim()||'Nova Aventura', subtitle:subtitle.trim() });
+      else await EditionStore.update(edition.id, { number:num, title:title.trim()||'Nova Aventura', subtitle:subtitle.trim() });
+      onClose();
+    } catch (ex) { setErr(ex.message); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <PAModal open={open} onClose={onClose} title={isNew ? 'Nova edição' : 'Editar edição'}>
+      <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+        <Field label="Número" value={number} onChange={setNumber} placeholder="1" />
+        <Field label="Nome da edição" value={title} onChange={setTitle} placeholder="Nova Aventura" />
+        <Field label="Subtítulo" value={subtitle} onChange={setSubtitle} placeholder="Algures no mundo." />
+        {err && <AuthError msg={err} />}
+        <div style={{ display:'flex', justifyContent:'flex-end', gap:8 }}>
+          <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
+          <Btn variant="accent" onClick={save} disabled={busy}>{busy ? 'A guardar...' : (isNew ? 'Criar' : 'Guardar')}</Btn>
+        </div>
+      </div>
+    </PAModal>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Card de edição — mostra info + ações (admin)
+// ─────────────────────────────────────────────────────────────
+function EditionCard({ edition, isAdmin, onEnter, onEdit, onAction, narrow }) {
+  const [menuOpen, setMenuOpen] = hUseState(false);
+  const data = edition.data || {};
+  const rsvp = data.rsvp || {};
+  const inCount = Object.values(rsvp).filter(s => s === 'in').length;
+  const phaseName = (D.phases.find(p => p.n === edition.current_phase) || {}).name || '—';
+  const archived = edition.status === 'archived';
+  const createdLabel = (() => {
+    try { return new Date(edition.created_at).toLocaleDateString('pt-PT', { day:'2-digit', month:'short', year:'numeric' }); } catch { return ''; }
+  })();
+
+  return (
+    <div style={{
+      background:'#fff', borderRadius:18, border:'1px solid var(--pa-line)',
+      padding:narrow?'16px':'20px', position:'relative', opacity:archived?0.72:1,
+      display:'flex', flexDirection:'column', gap:14 }}>
+      <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:10 }}>
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+            <span style={{ fontFamily:'var(--pa-mono)', fontSize:10.5, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>
+              {edition.number}ª edição
+            </span>
+            {archived
+              ? <Pill tone="muted" size="sm">Arquivada</Pill>
+              : <Pill tone="success" size="sm">Ativa</Pill>}
+          </div>
+          <div style={{ fontFamily:'var(--pa-display)', fontSize:narrow?20:23, fontWeight:600, letterSpacing:-0.5, marginTop:4, lineHeight:1.05 }}>
+            {edition.title}
+          </div>
+          {edition.subtitle && <div style={{ fontFamily:'var(--pa-body)', fontSize:13, color:'var(--pa-muted)', marginTop:2 }}>{edition.subtitle}</div>}
+        </div>
+        {isAdmin && (
+          <div style={{ position:'relative' }}>
+            <button onClick={()=>setMenuOpen(o=>!o)} style={{ width:32, height:32, borderRadius:999, border:'1px solid var(--pa-line)',
+              background:'#fff', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+              <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="3" r="1.3" fill="var(--pa-ink)"/><circle cx="7" cy="7" r="1.3" fill="var(--pa-ink)"/><circle cx="7" cy="11" r="1.3" fill="var(--pa-ink)"/></svg>
+            </button>
+            {menuOpen && (
+              <>
+                <div onClick={()=>setMenuOpen(false)} style={{ position:'fixed', inset:0, zIndex:50 }} />
+                <div style={{ position:'absolute', right:0, top:38, zIndex:51, background:'#fff', borderRadius:12,
+                  border:'1px solid var(--pa-line)', boxShadow:'0 8px 28px rgba(0,0,0,0.16)', overflow:'hidden', minWidth:180 }}>
+                  {[
+                    { label:'✏️  Editar', act:'edit' },
+                    { label:'🔄  Recomeçar', act:'reset' },
+                    { label:'📑  Duplicar', act:'duplicate' },
+                    archived ? { label:'📤  Desarquivar', act:'unarchive' } : { label:'📥  Arquivar', act:'archive' },
+                    { label:'🗑️  Eliminar', act:'delete', danger:true },
+                  ].map((item) => (
+                    <button key={item.act} onClick={()=>{ setMenuOpen(false); item.act==='edit' ? onEdit(edition) : onAction(item.act, edition); }}
+                      style={{ display:'block', width:'100%', textAlign:'left', padding:'11px 14px', border:'none',
+                        background:'transparent', cursor:'pointer', fontFamily:'var(--pa-body)', fontSize:13.5,
+                        color: item.danger ? '#8a4220' : 'var(--pa-ink)', borderBottom:'1px solid var(--pa-line)' }}
+                      onMouseEnter={(e)=>e.currentTarget.style.background='rgba(31,26,20,0.04)'}
+                      onMouseLeave={(e)=>e.currentTarget.style.background='transparent'}>
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div style={{ display:'flex', alignItems:'center', gap:16, flexWrap:'wrap' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+          <span style={{ fontFamily:'var(--pa-display)', fontSize:18, fontWeight:600 }}>{edition.current_phase}</span>
+          <span style={{ fontFamily:'var(--pa-mono)', fontSize:10, color:'var(--pa-muted)', textTransform:'uppercase', letterSpacing:0.8 }}>/ 8 · {phaseName}</span>
+        </div>
+        <div style={{ width:1, height:20, background:'var(--pa-line)' }} />
+        <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+          <span style={{ fontFamily:'var(--pa-display)', fontSize:18, fontWeight:600 }}>{inCount}</span>
+          <span style={{ fontFamily:'var(--pa-mono)', fontSize:10, color:'var(--pa-muted)', textTransform:'uppercase', letterSpacing:0.8 }}>a bordo</span>
+        </div>
+        {createdLabel && <>
+          <div style={{ width:1, height:20, background:'var(--pa-line)' }} />
+          <span style={{ fontFamily:'var(--pa-mono)', fontSize:10.5, color:'var(--pa-muted)' }}>{createdLabel}</span>
+        </>}
+      </div>
+
+      <Btn variant={archived ? 'soft' : 'primary'} onClick={()=>onEnter(edition)} style={{ width:'100%' }}>
+        {archived ? 'Ver edição' : 'Entrar →'}
+      </Btn>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// EditionHub — ecrã principal após login (desktop + mobile)
+// ─────────────────────────────────────────────────────────────
+function EditionHub({ auth, onEnterEdition, narrow }) {
+  const editions = useEditions();
+  const me = sessionToMember(auth.user);
+  const isAdmin = !!auth.user?.isAdmin;
+  const [profileOpen, setProfileOpen] = hUseState(false);
+  const [editorOpen, setEditorOpen] = hUseState(false);
+  const [editingEdition, setEditingEdition] = hUseState(null);
+  const [showArchived, setShowArchived] = hUseState(false);
+
+  const active = editions.filter(e => e.status !== 'archived');
+  const archived = editions.filter(e => e.status === 'archived');
+
+  const handleAction = async (act, ed) => {
+    try {
+      if (act === 'archive') await EditionStore.archive(ed.id);
+      else if (act === 'unarchive') await EditionStore.unarchive(ed.id);
+      else if (act === 'reset') { if (window.confirm(`Recomeçar a "${ed.title}"? Todos os dados (RSVP, votos, sugestões) serão apagados.`)) await EditionStore.reset(ed.id); }
+      else if (act === 'duplicate') { const copyData = window.confirm('Copiar também os dados (RSVP, votos, etc.)?\n\nOK = copiar tudo · Cancelar = só a estrutura'); await EditionStore.duplicate(ed.id, { copyData }); }
+      else if (act === 'delete') { if (window.confirm(`Eliminar a "${ed.title}" para sempre? Esta ação não pode ser desfeita.`)) await EditionStore.remove(ed.id); }
+    } catch (ex) { alert(ex.message); }
+  };
+
+  const enter = (ed) => { EditionStore.setActive(ed.id); onEnterEdition(ed); };
+
+  return (
+    <div style={{ width:'100%', minHeight:'100%', background:'var(--pa-bg)', display:'flex', flexDirection:'column',
+      fontFamily:'var(--pa-body)', color:'var(--pa-ink)' }}>
+      {/* Top bar */}
+      <div style={{ height:64, padding:narrow?'0 18px':'0 32px', borderBottom:'1px solid var(--pa-line)',
+        display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+        <Logo size={15} compact={narrow} />
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <button onClick={()=>setProfileOpen(true)} title="Editar perfil" style={{
+            display:'flex', alignItems:'center', gap:8, padding:'4px 4px 4px 10px', borderRadius:999,
+            border:'1px solid var(--pa-line)', background:'#fff', cursor:'pointer' }}>
+            {!narrow && <span style={{ fontFamily:'var(--pa-body)', fontSize:13, fontWeight:600 }}>{me.name}</span>}
+            <Avatar member={me} size={30} />
+          </button>
+          <button onClick={auth.logout} title="Sair" style={{ width:36, height:36, borderRadius:999, background:'#fff',
+            border:'1px solid var(--pa-line)', cursor:'pointer', padding:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M9 4V2.5a1 1 0 00-1-1H3a1 1 0 00-1 1v9a1 1 0 001 1h5a1 1 0 001-1V10" stroke="var(--pa-ink)" strokeWidth="1.3" strokeLinecap="round"/>
+              <path d="M6 7h7m0 0L10.5 4.5M13 7l-2.5 2.5" stroke="var(--pa-ink)" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {/* Conteúdo */}
+      <div style={{ flex:1, overflow:'auto', padding:narrow?'24px 18px 40px':'40px 48px 60px', maxWidth:1100, width:'100%', margin:'0 auto', boxSizing:'border-box' }}>
+        <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', gap:12, marginBottom:24, flexWrap:'wrap' }}>
+          <div>
+            <h1 style={{ fontFamily:'var(--pa-display)', fontSize:narrow?28:38, fontWeight:600, letterSpacing:-1, margin:0, lineHeight:1 }}>
+              As tuas aventuras
+            </h1>
+            <p style={{ fontFamily:'var(--pa-body)', fontSize:14, color:'var(--pa-muted)', margin:'8px 0 0' }}>
+              {isAdmin ? 'Cria, gere e entra nas edições.' : 'Escolhe uma edição para participar.'}
+            </p>
+          </div>
+          {isAdmin && (
+            <Btn variant="accent" onClick={()=>{ setEditingEdition(null); setEditorOpen(true); }} icon={<span style={{ fontSize:16 }}>+</span>}>
+              Nova edição
+            </Btn>
+          )}
+        </div>
+
+        {active.length === 0 && (
+          <div style={{ padding:'56px 0', textAlign:'center', color:'var(--pa-muted)' }}>
+            <div style={{ fontSize:40, marginBottom:8 }}>🗺️</div>
+            <div style={{ fontFamily:'var(--pa-body)', fontSize:15 }}>
+              {isAdmin ? 'Ainda não há edições. Cria a primeira!' : 'Ainda não há edições ativas. Aguarda o admin.'}
+            </div>
+          </div>
+        )}
+
+        <div style={{ display:'grid', gridTemplateColumns: narrow ? '1fr' : 'repeat(auto-fill, minmax(320px, 1fr))', gap:16 }}>
+          {active.map((ed) => (
+            <EditionCard key={ed.id} edition={ed} isAdmin={isAdmin} narrow={narrow}
+              onEnter={enter} onEdit={(e)=>{ setEditingEdition(e); setEditorOpen(true); }} onAction={handleAction} />
+          ))}
+        </div>
+
+        {archived.length > 0 && (
+          <div style={{ marginTop:32 }}>
+            <button onClick={()=>setShowArchived(s=>!s)} style={{ display:'flex', alignItems:'center', gap:8,
+              background:'transparent', border:'none', cursor:'pointer', padding:0, marginBottom:16 }}>
+              <span style={{ fontFamily:'var(--pa-mono)', fontSize:11, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>
+                Arquivadas ({archived.length})
+              </span>
+              <svg width="12" height="12" viewBox="0 0 12 12" style={{ transform: showArchived?'rotate(180deg)':'none', transition:'transform .2s' }}>
+                <path d="M2 4l4 4 4-4" fill="none" stroke="var(--pa-muted)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </button>
+            {showArchived && (
+              <div style={{ display:'grid', gridTemplateColumns: narrow ? '1fr' : 'repeat(auto-fill, minmax(320px, 1fr))', gap:16 }}>
+                {archived.map((ed) => (
+                  <EditionCard key={ed.id} edition={ed} isAdmin={isAdmin} narrow={narrow}
+                    onEnter={enter} onEdit={(e)=>{ setEditingEdition(e); setEditorOpen(true); }} onAction={handleAction} />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <ProfileEditor open={profileOpen} onClose={()=>setProfileOpen(false)} auth={auth} />
+      <EditionEditor open={editorOpen} onClose={()=>setEditorOpen(false)} edition={editingEdition} />
+    </div>
+  );
+}
+
+Object.assign(window, { PAModal, ProfileEditor, EditionEditor, EditionCard, EditionHub });
+</script>
+
 <script type="text/babel">// Perdidos Algures — Live app entry. Boots the auth gate and routes the
 // authenticated user into the desktop or mobile shell based on viewport.
 // This is the default landing UI when there is no ?canvas=1 query param.
@@ -5941,8 +6464,9 @@ function sessionToMember(session) {
   if (!session) return null;
   return {
     id: session.id,
-    name: session.name,
-    initials: session.initials || (session.name ? session.name[0].toUpperCase() : '?'),
+    name: session.displayName || session.name,
+    loginName: session.name,
+    initials: session.initials || ((session.displayName||session.name) ? (session.displayName||session.name)[0].toUpperCase() : '?'),
     color: session.color || '#1f1a14',
     photoDataUrl: session.photoDataUrl,
     isAdmin: !!session.isAdmin,
@@ -5953,6 +6477,9 @@ function LiveApp() {
   const auth = useAuth();
   const w = useViewport();
   const isDesktop = w >= 1100;
+  // edição selecionada (null = mostrar hub)
+  const [inEdition, setInEdition] = lUseState(() => !!EditionStore.activeId() && !!EditionStore.active());
+  const [profileOpen, setProfileOpen] = lUseState(false);
 
   if (!auth.user) {
     return (
@@ -5964,13 +6491,29 @@ function LiveApp() {
 
   const me = sessionToMember(auth.user);
   const viewAs = auth.user.isAdmin ? 'admin' : 'member';
-  // Do NOT pass phase — let DesktopShell/MobileApp manage phase via localStorage
-  // so admin navigation persists and isn't frozen.
+
+  // Hub de edições (landing após login)
+  if (!inEdition) {
+    return (
+      <div style={{ width:'100vw', height:'100vh', overflow:'auto' }}>
+        <EditionHub auth={auth} narrow={!isDesktop} onEnterEdition={() => setInEdition(true)} />
+      </div>
+    );
+  }
+
+  // Se a edição ativa desapareceu (eliminada), volta ao hub
+  if (!EditionStore.active()) {
+    setTimeout(() => setInEdition(false), 0);
+    return null;
+  }
+
+  const backToHub = () => { EditionStore.setActive(null); setInEdition(false); };
 
   if (isDesktop) {
     return (
       <div style={{ width: '100vw', height: '100vh' }}>
-        <DesktopShell viewAs={viewAs} liveUser={me} onLogout={auth.logout} />
+        <DesktopShell viewAs={viewAs} liveUser={me} onLogout={auth.logout} onBackToHub={backToHub} onEditProfile={()=>setProfileOpen(true)} />
+        <ProfileEditor open={profileOpen} onClose={()=>setProfileOpen(false)} auth={auth} />
       </div>
     );
   }
@@ -5978,7 +6521,8 @@ function LiveApp() {
   return (
     <div style={{ width: '100vw', height: '100vh', background: '#000', display: 'flex', alignItems: 'stretch', justifyContent: 'center' }}>
       <div style={{ width: '100%', maxWidth: 480, background: 'var(--pa-bg)', display: 'flex', flexDirection: 'column' }}>
-        <MobileApp viewAs={viewAs} liveUser={me} onLogout={auth.logout} />
+        <MobileApp viewAs={viewAs} liveUser={me} onLogout={auth.logout} onBackToHub={backToHub} onEditProfile={()=>setProfileOpen(true)} />
+        <ProfileEditor open={profileOpen} onClose={()=>setProfileOpen(false)} auth={auth} />
       </div>
     </div>
   );
