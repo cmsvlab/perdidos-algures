@@ -2311,6 +2311,7 @@ function _clearSession()  {
   _session = null;
   try { localStorage.removeItem('pa-session'); } catch {}
   try { sessionStorage.removeItem('pa-session'); } catch {}
+  try { localStorage.removeItem('pa-active-edition'); } catch {}
 }
 function _profileToSession(r) {
   return { id: r.id, name: r.name, displayName: r.display_name || r.name, initials: r.initials, color: r.color, photoDataUrl: r.photo_url || null, isAdmin: r.is_admin };
@@ -2710,6 +2711,27 @@ let _chatCache = null;
 const _chatListeners = new Set();
 
 const ChatStore = {
+  _visibilitySetup: false,
+  _setupVisibility() {
+    if (this._visibilitySetup) return;
+    this._visibilitySetup = true;
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) this._pollOnce();
+    });
+  },
+  async _pollOnce() {
+    const lastId = (_chatCache && _chatCache.length > 0) ? _chatCache[_chatCache.length-1].id : 0;
+    const { data } = await _sb.from('chat_messages')
+      .select('id,profile_id,text,created_at').gt('id', lastId).order('created_at',{ascending:true});
+    if (data && data.length > 0) {
+      const newMsgs = data.filter(r => !(_chatCache||[]).some(m=>m.id===r.id))
+        .map(r => ({ id:r.id, who:r.profile_id, text:r.text, when:_fmtTime(r.created_at) }));
+      if (newMsgs.length) {
+        _chatCache = [...(_chatCache||[]), ...newMsgs];
+        _chatListeners.forEach(fn=>fn(_chatCache.slice()));
+      }
+    }
+  },
   async load() {
     const { data } = await _sb.from('chat_messages').select('id,profile_id,text,created_at').order('created_at',{ascending:true});
     _chatCache = (data||[]).map(r => ({ id:r.id, who:r.profile_id, text:r.text, when:_fmtTime(r.created_at) }));
@@ -2718,6 +2740,7 @@ const ChatStore = {
   _pollingInterval: null,
   async init() {
     await this.load();
+    this._setupVisibility();
     _chatListeners.forEach(fn=>fn(_chatCache.slice()));
     try {
       const ch = _sb.channel('chat_rt')
@@ -2821,6 +2844,8 @@ async function initSupabase() {
     _sb.channel('profiles_ch').on('postgres_changes', { event:'*', schema:'public', table:'profiles' }, async () => {
       await AuthStore.refreshUsers();
       _appListeners.forEach(fn => fn(AppStore._cache()));
+      // Força chat a re-renderizar com nomes atualizados
+      _chatListeners.forEach(fn => fn((_chatCache||[]).slice()));
     }).subscribe();
   } catch {}
   console.log('[PA] Supabase iniciado ✓', _usersCache.length, 'utilizadores,', _editionsCache.length, 'edições');
@@ -2833,7 +2858,11 @@ Object.assign(window, {
     const login    = async (name,pw)  => { const s=await AuthStore.login(name,pw);    setUser(s); return s; };
     const register = async (opts)     => { const s=await AuthStore.register(opts);    setUser(s); return s; };
     const updateProfile = async (opts) => { const s=await AuthStore.updateProfile(opts); setUser(s); return s; };
-    const logout   = ()               => { AuthStore.clearSession(); setUser(null); };
+    const logout   = ()               => {
+      try { if (typeof EditionStore !== 'undefined') EditionStore.setActive(null); } catch {}
+      AuthStore.clearSession();
+      setUser(null);
+    };
     return { user, login, register, updateProfile, logout };
   },
   useAppStore, useEditions, useChat, getChatMessages, pushChatMessage, deleteChatMessage,
@@ -4790,7 +4819,11 @@ function DPhase3({ me }) {
   const [saved, setSaved] = dUseState(false);
   const [tieOpen, setTieOpen] = dUseState(false);
 
+  const inMembers = (typeof getInMembers === 'function') ? getInMembers(appData) : [];
+  const meIsIn = inMembers.some(m => m.id === me?.id);
+
   const handleVote = (id) => {
+    if (!meIsIn) { setSaved('blocked'); setTimeout(()=>setSaved(false), 2500); return; }
     setVote(id);
     VoteStore.setVote(me.id, 'loc', id);
     setSaved(true);
@@ -4798,10 +4831,9 @@ function DPhase3({ me }) {
   };
 
   // Detetar empate
-  const inMembers = (typeof getInMembers === 'function') ? getInMembers(appData) : [];
   const votes = appData.locVotes || {};
   const allVoted = inMembers.length > 0 && inMembers.every(m => votes[m.id]);
-  const tie = allVoted ? detectTie(votes, suggestions) : null;
+  const tie = allVoted ? detectTie(votes, suggestions, inMembers.map(m=>m.id)) : null;
   dUseEffect(() => { if (tie && !appData.locWinner) setTieOpen(true); }, [tie?.tiedIds?.join(','), appData.locWinner]);
 
   if (suggestions.length === 0) {
@@ -4856,11 +4888,13 @@ function DPhase3({ me }) {
         <svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" stroke="var(--pa-muted)" strokeWidth="1.2" fill="none"/><path d="M8 5v3.5M8 11v.5" stroke="var(--pa-muted)" strokeWidth="1.5" strokeLinecap="round"/></svg>
         <div style={{ fontSize:12.5, color:'var(--pa-muted)' }}>
           Cada um vota numa só opção.{' '}
-          {saved
-            ? <span style={{ color:'#3d5e44', fontWeight:600 }}>✓ Voto guardado!</span>
-            : vote
-              ? <span style={{ color:'var(--pa-ink)', fontWeight:600 }}>Voto em {suggestions.find((s) => s.id === vote)?.name}.</span>
-              : 'Ainda não votaste.'}
+          {saved === 'blocked'
+            ? <span style={{ color:'#8a4220', fontWeight:600 }}>Não estás a bordo desta edição.</span>
+            : saved
+              ? <span style={{ color:'#3d5e44', fontWeight:600 }}>✓ Voto guardado!</span>
+              : vote
+                ? <span style={{ color:'var(--pa-ink)', fontWeight:600 }}>Voto em {suggestions.find((s) => s.id === vote)?.name}.</span>
+                : 'Ainda não votaste.'}
         </div>
       </div>
 
@@ -5094,7 +5128,7 @@ function DPhase5({ me }) {
   const inMembers = (typeof getInMembers === 'function') ? getInMembers(appData) : [];
   const votes = appData.accVotes || {};
   const allVoted = inMembers.length > 0 && inMembers.every(m => votes[m.id]);
-  const tie = allVoted ? detectTie(votes, suggestions) : null;
+  const tie = allVoted ? detectTie(votes, suggestions, inMembers.map(m=>m.id)) : null;
   dUseEffect2(() => { if (tie && !appData.accWinner) setTieOpen(true); }, [tie?.tiedIds?.join(','), appData.accWinner]);
 
   if (suggestions.length === 0) {
@@ -6146,7 +6180,7 @@ function MPhase3({ me, onLogout, onOpenChat }) {
   const inMembers = (typeof getInMembers === 'function') ? getInMembers(appData) : [];
   const votes = appData.locVotes || {};
   const allVoted = inMembers.length > 0 && inMembers.every(m => votes[m.id]);
-  const tie = allVoted ? detectTie(votes, suggestions) : null;
+  const tie = allVoted ? detectTie(votes, suggestions, inMembers.map(m=>m.id)) : null;
   mUseEffect(() => { if (tie && !appData.locWinner) setTieOpen(true); }, [tie?.tiedIds?.join(','), appData.locWinner]);
 
   if (suggestions.length === 0) {
@@ -6303,7 +6337,7 @@ function MPhase5({ me, onLogout, onOpenChat }) {
   const inMembers = (typeof getInMembers === 'function') ? getInMembers(appData) : [];
   const votes = appData.accVotes || {};
   const allVoted = inMembers.length > 0 && inMembers.every(m => votes[m.id]);
-  const tie = allVoted ? detectTie(votes, suggestions) : null;
+  const tie = allVoted ? detectTie(votes, suggestions, inMembers.map(m=>m.id)) : null;
   mUseEffect(() => { if (tie && !appData.accWinner) setTieOpen(true); }, [tie?.tiedIds?.join(','), appData.accWinner]);
 
   const votingClosed = false;
@@ -6639,7 +6673,18 @@ function phaseComplete(phase, appData) {
   if (phase === 3) {
     if (inIds.length === 0) return false;
     const votes = appData.locVotes || {};
-    return inIds.every(id => votes[id]);
+    const allVoted = inIds.every(id => votes[id]);
+    if (!allVoted) return false;
+    // Se admin já desempatou, completo
+    if (appData.locWinner) return true;
+    // Se há empate (sem vencedor escolhido), NÃO completa
+    const suggs = appData.locSuggs || [];
+    const tally = {};
+    suggs.forEach(s => { tally[s.id] = 0; });
+    Object.values(votes).forEach(v => { if (tally[v] !== undefined) tally[v]++; });
+    const sorted = Object.values(tally).sort((a,b) => b-a);
+    if (sorted.length < 2) return true;
+    return !(sorted[0] === sorted[1]);
   }
   if (phase === 4) {
     if (inIds.length === 0) return false;
@@ -6651,12 +6696,14 @@ function phaseComplete(phase, appData) {
     const votes = appData.accVotes || {};
     const allVoted = inIds.every(id => votes[id]);
     if (!allVoted) return false;
-    // Verifica empate — se houver, NÃO completa (admin tem de desempatar)
+    if (appData.accWinner) return true;
+    const suggs = appData.accSuggs || [];
     const tally = {};
-    Object.values(votes).forEach(v => { tally[v] = (tally[v]||0) + 1; });
+    suggs.forEach(s => { tally[s.id] = 0; });
+    Object.values(votes).forEach(v => { if (tally[v] !== undefined) tally[v]++; });
     const sorted = Object.values(tally).sort((a,b) => b-a);
-    const tied = sorted[0] === sorted[1];
-    return !tied;
+    if (sorted.length < 2) return true;
+    return !(sorted[0] === sorted[1]);
   }
   if (phase === 6) {
     if (inIds.length === 0) return false;
@@ -6678,13 +6725,16 @@ function usePhaseProgress(phase, me) {
   const advanceFiredRef = pUseRef(false);
 
   const isLast = phase >= 8;
+  // Fase 7 é admin-only: o voto-para-passar não faz sentido (admin tranca)
+  const skipDisabled = phase === 7;
   const isComplete = phaseComplete(phase, appData);
   const completeAt = appData.phaseCompleteAt;
   const skipVotes = appData.skipVotes || {};
-  const inMembers = getInMembers(appData);
-  const skipThreshold = Math.max(1, Math.ceil((inMembers.length || 1) / 2) + 0); // >50%
+  // Na fase 1 ainda ninguém disse "in"; usar todos os membros registados
+  const allMembers = (typeof getAllMembers === 'function') ? getAllMembers() : [];
+  const inMembers = (phase === 1) ? allMembers : getInMembers(appData);
   const skipCount = Object.keys(skipVotes).filter(uid => inMembers.some(m => m.id === uid)).length;
-  const skipReached = skipCount > inMembers.length / 2;
+  const skipReached = inMembers.length > 0 && skipCount > inMembers.length / 2;
   const iVoted = !!skipVotes[me?.id];
 
   // Marca o timestamp quando a fase fica completa
@@ -6727,7 +6777,7 @@ function usePhaseProgress(phase, me) {
   const remainingSec = remainingMs !== null ? Math.ceil(remainingMs / 1000) : null;
 
   const voteSkip = async () => {
-    if (!me || iVoted || isLast) return;
+    if (!me || iVoted || isLast || skipDisabled) return;
     const next = { ...skipVotes, [me.id]: Date.now() };
     await AppStore._set('skipVotes', next);
   };
@@ -6743,6 +6793,7 @@ function usePhaseProgress(phase, me) {
     isLast, isComplete, completeAt, remainingSec,
     skipCount, skipThreshold: Math.ceil(inMembers.length/2 + 0.001),
     skipReached, iVoted, inCount: inMembers.length,
+    skipDisabled,
     voteSkip, cancelMySkip,
   };
 }
@@ -6754,6 +6805,7 @@ function usePhaseProgress(phase, me) {
 function PhaseProgressBanner({ phase, me, narrow }) {
   const p = usePhaseProgress(phase, me);
   if (p.isLast || !me) return null;
+  if (p.skipDisabled && !p.completeAt) return null; // não mostra na fase 7 a menos que esteja em countdown
 
   // Se está em countdown: mostra grande
   if (p.completeAt && p.remainingSec !== null && p.remainingSec > 0) {
@@ -6819,12 +6871,17 @@ Object.assign(window, { getInMembers, getTotalMembers, phaseComplete, usePhasePr
 
 const { useState: tbUseState2, useEffect: tbUseEffect2, useRef: tbUseRef2 } = React;
 
-// Deteta empate nos votos da fase atual
-function detectTie(votes, suggestions) {
-  if (!votes || Object.keys(votes).length === 0) return null;
+// Deteta empate nos votos da fase atual.
+// Se inIds for passado, conta apenas votos de quem está "in".
+function detectTie(votes, suggestions, inIds) {
+  if (!votes) return null;
+  const filteredVotes = inIds && Array.isArray(inIds)
+    ? Object.entries(votes).filter(([uid]) => inIds.includes(uid)).map(([_,v]) => v)
+    : Object.values(votes);
+  if (filteredVotes.length === 0) return null;
   const tally = {};
   suggestions.forEach(s => { tally[s.id] = 0; });
-  Object.values(votes).forEach(id => { if (tally[id] !== undefined) tally[id]++; });
+  filteredVotes.forEach(id => { if (tally[id] !== undefined) tally[id]++; });
   const sorted = Object.entries(tally).sort((a,b) => b[1] - a[1]);
   if (sorted.length < 2 || sorted[0][1] === 0) return null;
   const top = sorted[0][1];
@@ -6843,77 +6900,73 @@ function detectTie(votes, suggestions) {
 function CoinFlip({ tiedItems, onResolve, onCancel }) {
   const [flipping, setFlipping] = tbUseState2(false);
   const [result, setResult] = tbUseState2(null);
-  const [rotation, setRotation] = tbUseState2(0);
+  const [highlight, setHighlight] = tbUseState2(0);
 
+  // Animação "scrambler": passa rapidamente por todos os items, desacelera, e para num random
   const flip = () => {
     if (flipping) return;
     setFlipping(true);
     setResult(null);
     const winnerIdx = Math.floor(Math.random() * tiedItems.length);
-    const finalRot = 360 * 6 + winnerIdx * (360 / tiedItems.length);
-    setRotation(finalRot);
-    setTimeout(() => {
-      setResult(tiedItems[winnerIdx]);
-      setFlipping(false);
-    }, 2400);
+
+    // Faz ~30 iterações cada vez mais lentas, terminando no winner
+    const totalSteps = 24 + winnerIdx;  // garante que pára no winner
+    let step = 0;
+    const tick = () => {
+      step++;
+      setHighlight(step % tiedItems.length);
+      if (step < totalSteps) {
+        // delay cresce exponencialmente (efeito de "desacelerar")
+        const delay = 50 + Math.pow(step / totalSteps, 3) * 400;
+        setTimeout(tick, delay);
+      } else {
+        setHighlight(winnerIdx);
+        setResult(tiedItems[winnerIdx]);
+        setFlipping(false);
+      }
+    };
+    tick();
   };
 
   const accept = () => result && onResolve(result.id);
 
   return (
-    <div style={{ display:'flex', flexDirection:'column', gap:18, alignItems:'center', padding:'8px 0' }}>
+    <div style={{ display:'flex', flexDirection:'column', gap:18, padding:'8px 0' }}>
       <div style={{ fontFamily:'var(--pa-mono)', fontSize:11, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase', textAlign:'center' }}>
-        {tiedItems.length === 2 ? 'Cara ou coroa' : 'Roleta da sorte'}
+        {tiedItems.length === 2 ? 'Cara ou coroa' : 'À sorte'}
       </div>
 
-      {/* Roda dos empatados */}
-      <div style={{ position:'relative', width:220, height:220 }}>
-        <div style={{
-          width:'100%', height:'100%', borderRadius:'50%',
-          border:'4px solid var(--pa-ink)',
-          transform:`rotate(${rotation}deg)`,
-          transition: flipping ? 'transform 2.2s cubic-bezier(0.2,0.8,0.2,1)' : 'none',
-          position:'relative', overflow:'hidden', background:'var(--pa-bg)' }}>
-          {tiedItems.map((item, i) => {
-            const angle = (360 / tiedItems.length) * i;
-            const sliceAngle = 360 / tiedItems.length;
-            return (
-              <div key={item.id} style={{
-                position:'absolute', inset:0,
-                clipPath: `polygon(50% 50%, ${50 + 50*Math.cos((angle - 90 - sliceAngle/2)*Math.PI/180)}% ${50 + 50*Math.sin((angle - 90 - sliceAngle/2)*Math.PI/180)}%, ${50 + 50*Math.cos((angle - 90 + sliceAngle/2)*Math.PI/180)}% ${50 + 50*Math.sin((angle - 90 + sliceAngle/2)*Math.PI/180)}%)`,
-                background: i % 2 === 0 ? 'var(--pa-accent)' : '#fff',
-                display:'flex', alignItems:'flex-start', justifyContent:'center', paddingTop:24,
-                transform:`rotate(${angle}deg)`, transformOrigin:'50% 50%' }}>
-                <div style={{ fontFamily:'var(--pa-display)', fontSize:13, fontWeight:600, color: i%2===0?'#fff':'var(--pa-ink)', textAlign:'center', maxWidth:60, lineHeight:1.1 }}>
-                  {(item.name || item.area || '?').slice(0, 14)}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        {/* Ponteiro */}
-        <div style={{ position:'absolute', top:-8, left:'50%', transform:'translateX(-50%)',
-          width:0, height:0, borderLeft:'10px solid transparent', borderRight:'10px solid transparent',
-          borderTop:'18px solid var(--pa-ink)' }} />
+      {/* Lista vertical com destaque animado */}
+      <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+        {tiedItems.map((item, i) => {
+          const isHighlight = (flipping || result) && highlight === i;
+          const isResult = result && result.id === item.id;
+          return (
+            <div key={item.id} style={{
+              padding:'14px 16px', borderRadius:14,
+              background: isResult ? 'var(--pa-accent)' : isHighlight ? 'var(--pa-ink)' : '#fff',
+              color: (isResult || isHighlight) ? '#fff' : 'var(--pa-ink)',
+              border: '1px solid ' + ((isResult || isHighlight) ? 'transparent' : 'var(--pa-line)'),
+              fontFamily:'var(--pa-display)', fontSize:18, fontWeight:600,
+              transition: 'all 0.15s ease',
+              transform: isHighlight && !result ? 'scale(1.02)' : 'scale(1)',
+              boxShadow: isResult ? '0 6px 20px rgba(217,119,87,0.35)' : 'none',
+              display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+              <span>{item.name || item.area || '?'}</span>
+              {isResult && <span style={{ fontSize:14, opacity:0.9 }}>★ Vencedor</span>}
+            </div>
+          );
+        })}
       </div>
 
-      {result && (
-        <div style={{ textAlign:'center' }}>
-          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>Vencedor</div>
-          <div style={{ fontFamily:'var(--pa-display)', fontSize:22, fontWeight:600, color:'var(--pa-accent)', marginTop:4 }}>
-            {result.name || result.area || '?'}
-          </div>
-        </div>
-      )}
-
-      <div style={{ display:'flex', gap:8, width:'100%' }}>
+      <div style={{ display:'flex', gap:8 }}>
         {!result
           ? <>
-              <Btn variant="ghost" onClick={onCancel} style={{ flex:1 }}>Cancelar</Btn>
-              <Btn variant="accent" onClick={flip} disabled={flipping} style={{ flex:1 }}>{flipping ? 'A rodar...' : 'Rodar!'}</Btn>
+              <Btn variant="ghost" onClick={onCancel} style={{ flex:1 }} disabled={flipping}>Cancelar</Btn>
+              <Btn variant="accent" onClick={flip} disabled={flipping} style={{ flex:1 }}>{flipping ? 'A sortear...' : '🎲 Lançar'}</Btn>
             </>
           : <>
-              <Btn variant="ghost" onClick={() => { setResult(null); setRotation(0); }} style={{ flex:1 }}>Repetir</Btn>
+              <Btn variant="ghost" onClick={() => { setResult(null); setHighlight(0); }} style={{ flex:1 }}>Repetir</Btn>
               <Btn variant="accent" onClick={accept} style={{ flex:1 }}>Aceitar vencedor</Btn>
             </>}
       </div>
@@ -6928,7 +6981,9 @@ function CoinFlip({ tiedItems, onResolve, onCancel }) {
 // ─────────────────────────────────────────────────────────────
 function PointsVote({ tiedItems, me, onResolve, onCancel, voteKey }) {
   const appData = useAppStore();
-  const tieVotes = appData[voteKey] || {};  // ex: 'tieVotesLoc'
+  const tieVotes = appData[voteKey] || {};
+  const inMembers = getInMembers(appData);
+  const meIsIn = inMembers.some(m => m.id === me?.id);
   const [myRank, setMyRank] = tbUseState2(() => {
     const existing = tieVotes[me?.id];
     if (existing && Array.isArray(existing) && existing.length === tiedItems.length) return existing.slice();
@@ -6942,9 +6997,24 @@ function PointsVote({ tiedItems, me, onResolve, onCancel, voteKey }) {
     }
   }, [tieVotes[me?.id]]);
 
-  const inMembers = getInMembers(appData);
   const voted = inMembers.filter(m => Array.isArray(tieVotes[m.id]) && tieVotes[m.id].length === tiedItems.length);
   const allVoted = voted.length === inMembers.length;
+
+  // Se o user não está a bordo, mostra apenas o estado
+  if (!meIsIn) {
+    return (
+      <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+        <div style={{ padding:'12px 14px', background:'rgba(31,26,20,0.04)', borderRadius:12, textAlign:'center', fontFamily:'var(--pa-body)', fontSize:13.5, color:'var(--pa-muted)' }}>
+          Não estás a bordo desta edição. Aguarda o resultado.
+        </div>
+        <div style={{ padding:'10px 12px', background:'rgba(31,26,20,0.04)', borderRadius:10 }}>
+          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>Votos</div>
+          <div style={{ fontFamily:'var(--pa-display)', fontSize:15, fontWeight:600, marginTop:2 }}>{voted.length} / {inMembers.length}</div>
+        </div>
+        <Btn variant="ghost" onClick={onCancel} style={{ width:'100%' }}>Fechar</Btn>
+      </div>
+    );
+  }
 
   const moveItem = (idx, dir) => {
     const swap = idx + dir;
