@@ -2593,8 +2593,43 @@ const AppStore = {
     if (error) console.error('[PA AppStore] erro a guardar', key, error.message);
   },
 
+  // Sincroniza o cache local a partir de novos dados da edição
+  _applyNewData(ed, newData) {
+    ed.data = newData;
+    _appCache = {
+      ...newData,
+      currentPhase: ed.current_phase || 1,
+      editionTitle: ed.title,
+      editionSubtitle: ed.subtitle,
+      editionNumber: ed.number,
+    };
+    this._notify();
+  },
+
+  // Fallback read-modify-write directo (quando as RPC não existem na BD).
+  // Não é 100% atómico mas funciona; usado se o supabase-rpcs.sql ainda não correu.
+  async _rmwFallback(key, transformFn, ed) {
+    try {
+      const { data: fresh } = await _sb.from('editions').select('data').eq('id', ed.id).single();
+      const freshData = (fresh && fresh.data) || {};
+      const newData = { ...freshData, [key]: transformFn(freshData[key]) };
+      this._applyNewData(ed, newData);
+      const { error } = await _sb.from('editions').update({ data: newData }).eq('id', ed.id);
+      if (error) console.error('[PA AppStore] fallback erro:', key, error.message);
+    } catch (e) {
+      console.error('[PA AppStore] fallback falhou:', key, e.message);
+    }
+  },
+
+  // Detecta se o erro é "função RPC não existe" (PostgREST PGRST202 ou 404)
+  _isRpcMissing(error) {
+    if (!error) return false;
+    const msg = (error.message || '') + (error.code || '') + (error.hint || '');
+    return /PGRST202|not exist|not found|404|schema cache|Could not find/i.test(msg);
+  },
+
   // Merge profundo de chave-valor (para objects como votos, rsvp).
-  // Usa RPC atómica no servidor PostgreSQL — elimina lost updates por concorrência.
+  // Tenta RPC atómica; se não existir, faz fallback read-modify-write.
   async _merge(key, deltaObj) {
     const ed = EditionStore.active();
     if (!ed) { console.warn('[PA AppStore] sem edição ativa'); return; }
@@ -2604,34 +2639,21 @@ const AppStore = {
     _appCache = { ...(this._cache()), [key]: { ...localCurrent, ...deltaObj } };
     this._notify();
 
-    // RPC atómica no servidor — não tem race conditions
     try {
       const { data: newData, error } = await _sb.rpc('edition_merge_field', {
-        edition_id: ed.id,
-        field_name: key,
-        delta: deltaObj,
+        edition_id: ed.id, field_name: key, delta: deltaObj,
       });
       if (error) {
-        console.error('[PA AppStore] merge erro:', key, error.message);
-        return;
+        // RPC indisponível → fallback
+        return await this._rmwFallback(key, (cur) => ({ ...(cur || {}), ...deltaObj }), ed);
       }
-      if (newData) {
-        ed.data = newData;
-        _appCache = {
-          ...newData,
-          currentPhase: ed.current_phase || 1,
-          editionTitle: ed.title,
-          editionSubtitle: ed.subtitle,
-          editionNumber: ed.number,
-        };
-        this._notify();
-      }
+      if (newData) this._applyNewData(ed, newData);
     } catch (e) {
-      console.error('[PA AppStore] merge falhou:', key, e.message);
+      return await this._rmwFallback(key, (cur) => ({ ...(cur || {}), ...deltaObj }), ed);
     }
   },
 
-  // Adiciona um item a um array atomicamente, deduplicando por id se houver.
+  // Adiciona um item a um array atomicamente (dedup por id). Fallback se RPC faltar.
   async _appendToArray(key, item) {
     const ed = EditionStore.active();
     if (!ed) return;
@@ -2642,31 +2664,26 @@ const AppStore = {
 
     try {
       const { data: newData, error } = await _sb.rpc('edition_append_array', {
-        edition_id: ed.id,
-        field_name: key,
-        item: item,
+        edition_id: ed.id, field_name: key, item: item,
       });
       if (error) {
-        console.error('[PA AppStore] append erro:', key, error.message);
-        return;
+        return await this._rmwFallback(key, (cur) => {
+          const arr = cur || [];
+          if (item && item.id && arr.some(x => x && x.id === item.id)) return arr;
+          return [...arr, item];
+        }, ed);
       }
-      if (newData) {
-        ed.data = newData;
-        _appCache = {
-          ...newData,
-          currentPhase: ed.current_phase || 1,
-          editionTitle: ed.title,
-          editionSubtitle: ed.subtitle,
-          editionNumber: ed.number,
-        };
-        this._notify();
-      }
+      if (newData) this._applyNewData(ed, newData);
     } catch (e) {
-      console.error('[PA AppStore] append falhou:', key, e.message);
+      return await this._rmwFallback(key, (cur) => {
+        const arr = cur || [];
+        if (item && item.id && arr.some(x => x && x.id === item.id)) return arr;
+        return [...arr, item];
+      }, ed);
     }
   },
 
-  // Remove items de um array por id atomicamente.
+  // Remove items de um array por id atomicamente. Fallback se RPC faltar.
   async _removeFromArray(key, itemId) {
     const ed = EditionStore.active();
     if (!ed) return;
@@ -2677,58 +2694,25 @@ const AppStore = {
 
     try {
       const { data: newData, error } = await _sb.rpc('edition_remove_from_array', {
-        edition_id: ed.id,
-        field_name: key,
-        item_id: itemId,
+        edition_id: ed.id, field_name: key, item_id: itemId,
       });
       if (error) {
-        console.error('[PA AppStore] remove erro:', key, error.message);
-        return;
+        return await this._rmwFallback(key, (cur) => (cur || []).filter(x => !x || x.id !== itemId), ed);
       }
-      if (newData) {
-        ed.data = newData;
-        _appCache = {
-          ...newData,
-          currentPhase: ed.current_phase || 1,
-          editionTitle: ed.title,
-          editionSubtitle: ed.subtitle,
-          editionNumber: ed.number,
-        };
-        this._notify();
-      }
+      if (newData) this._applyNewData(ed, newData);
     } catch (e) {
-      console.error('[PA AppStore] remove falhou:', key, e.message);
+      return await this._rmwFallback(key, (cur) => (cur || []).filter(x => !x || x.id !== itemId), ed);
     }
   },
 
-  // Modifica um array com uma função (fallback para casos complexos sem RPC).
-  // Atenção: ainda tem janela de race; usar _appendToArray/_removeFromArray quando possível.
+  // Modifica um array com função custom (fallback puro, sem RPC).
   async _modifyArray(key, fn) {
     const ed = EditionStore.active();
     if (!ed) return;
-
     const localCurrent = this._cache()[key] || [];
     _appCache = { ...(this._cache()), [key]: fn(localCurrent) };
     this._notify();
-
-    try {
-      const { data: fresh } = await _sb.from('editions').select('data').eq('id', ed.id).single();
-      const freshData = (fresh && fresh.data) || {};
-      const newArr = fn(freshData[key] || []);
-      const newData = { ...freshData, [key]: newArr };
-      ed.data = newData;
-      _appCache = {
-        ...newData,
-        currentPhase: ed.current_phase || 1,
-        editionTitle: ed.title,
-        editionSubtitle: ed.subtitle,
-        editionNumber: ed.number,
-      };
-      this._notify();
-      await _sb.from('editions').update({ data: newData }).eq('id', ed.id);
-    } catch (e) {
-      console.error('[PA AppStore] modify erro:', key, e.message);
-    }
+    await this._rmwFallback(key, (cur) => fn(cur || []), ed);
   },
 
   async clearKey(key) {
@@ -2810,6 +2794,30 @@ const AppStore = {
   // ── Planeamento ──
   getPlanning() { return this._cache().planData || { costs:{perPerson:0,breakdown:[],paid:{}}, itinerary:[],activities:[],shopping:[] }; },
   async setPlanning(p) { await this._set('planData',p); },
+  // Atualização segura do planeamento via função transformadora (read-modify-write).
+  // Reduz drasticamente a janela de race quando vários editam custos/itinerário em simultâneo.
+  async updatePlanning(transformFn) {
+    const ed = EditionStore.active();
+    if (!ed) return;
+    const emptyPlan = { costs:{ perPerson:0, breakdown:[], paid:{} }, itinerary:[], activities:[], shopping:[] };
+    // Optimistic local
+    const localPlan = this.getPlanning();
+    _appCache = { ...(this._cache()), planData: transformFn(localPlan) };
+    this._notify();
+    // Read-modify-write a partir do servidor
+    try {
+      const { data: fresh } = await _sb.from('editions').select('data').eq('id', ed.id).single();
+      const freshData = (fresh && fresh.data) || {};
+      const freshPlan = freshData.planData || emptyPlan;
+      const newPlan = transformFn(freshPlan);
+      const newData = { ...freshData, planData: newPlan };
+      this._applyNewData(ed, newData);
+      const { error } = await _sb.from('editions').update({ data: newData }).eq('id', ed.id);
+      if (error) console.error('[PA AppStore] planning erro:', error.message);
+    } catch (e) {
+      console.error('[PA AppStore] planning falhou:', e.message);
+    }
+  },
 
   // ── Reset da edição ativa ──
   async resetEdition() {
@@ -5693,16 +5701,14 @@ function PlanCustos({ me }) {
   const addExpense = async () => {
     const v = parseFloat(amount);
     if (!desc.trim() || !v || v <= 0) return;
-    const newE = { id:'exp_'+Date.now().toString(36), desc:desc.trim(), amount:v, paidBy:payer || me.id, at:Date.now() };
-    const next = { ...plan, costs:{ ...(plan.costs||{}), breakdown:[...breakdown, newE] } };
-    await AppStore.setPlanning(next);
+    const newE = { id:'exp_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6), desc:desc.trim(), amount:v, paidBy:payer || me.id, at:Date.now() };
+    await AppStore.updatePlanning(p => ({ ...p, costs:{ ...(p.costs||{}), breakdown:[...((p.costs&&p.costs.breakdown)||[]), newE] } }));
     setDesc(''); setAmount('');
   };
 
   const remove = async (id) => {
     if (!window.confirm('Apagar esta despesa?')) return;
-    const next = { ...plan, costs:{ ...(plan.costs||{}), breakdown: breakdown.filter(e=>e.id!==id) } };
-    await AppStore.setPlanning(next);
+    await AppStore.updatePlanning(p => ({ ...p, costs:{ ...(p.costs||{}), breakdown:((p.costs&&p.costs.breakdown)||[]).filter(e=>e.id!==id) } }));
   };
 
   // Saldo por pessoa: pagou - quota
@@ -5811,15 +5817,13 @@ function PlanItinerario({ me }) {
 
   const add = async () => {
     if (!what.trim()) return;
-    const newI = { id:'it_'+Date.now().toString(36), day, time:time.trim(), what:what.trim() };
-    const next = { ...plan, itinerary:[...items, newI] };
-    await AppStore.setPlanning(next);
+    const newI = { id:'it_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6), day, time:time.trim(), what:what.trim() };
+    await AppStore.updatePlanning(p => ({ ...p, itinerary:[...((p.itinerary)||[]), newI] }));
     setTime(''); setWhat('');
   };
 
   const remove = async (id) => {
-    const next = { ...plan, itinerary: items.filter(i => i.id !== id) };
-    await AppStore.setPlanning(next);
+    await AppStore.updatePlanning(p => ({ ...p, itinerary:((p.itinerary)||[]).filter(i => i.id !== id) }));
   };
 
   return (
@@ -5876,17 +5880,17 @@ function PlanAtividades({ me }) {
 
   const add = async () => {
     if (!text.trim()) return;
-    const newA = { id:'act_'+Date.now().toString(36), text:text.trim(), by:me?.id, done:false, at:Date.now() };
-    await AppStore.setPlanning({ ...plan, activities:[...items, newA] });
+    const newA = { id:'act_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6), text:text.trim(), by:me?.id, done:false, at:Date.now() };
+    await AppStore.updatePlanning(p => ({ ...p, activities:[...((p.activities)||[]), newA] }));
     setText('');
   };
 
   const toggle = async (id) => {
-    await AppStore.setPlanning({ ...plan, activities: items.map(a => a.id===id ? {...a, done:!a.done} : a) });
+    await AppStore.updatePlanning(p => ({ ...p, activities:((p.activities)||[]).map(a => a.id===id ? {...a, done:!a.done} : a) }));
   };
 
   const remove = async (id) => {
-    await AppStore.setPlanning({ ...plan, activities: items.filter(a => a.id !== id) });
+    await AppStore.updatePlanning(p => ({ ...p, activities:((p.activities)||[]).filter(a => a.id !== id) }));
   };
 
   const pending = items.filter(a => !a.done);
@@ -5951,22 +5955,22 @@ function PlanCompras({ me }) {
 
   const add = async () => {
     if (!text.trim()) return;
-    const newS = { id:'shop_'+Date.now().toString(36), text:text.trim(), qty:qty.trim(), done:false, at:Date.now() };
-    await AppStore.setPlanning({ ...plan, shopping:[...items, newS] });
+    const newS = { id:'shop_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6), text:text.trim(), qty:qty.trim(), done:false, at:Date.now() };
+    await AppStore.updatePlanning(p => ({ ...p, shopping:[...((p.shopping)||[]), newS] }));
     setText(''); setQty('');
   };
 
   const toggle = async (id) => {
-    await AppStore.setPlanning({ ...plan, shopping: items.map(s => s.id===id ? {...s, done:!s.done} : s) });
+    await AppStore.updatePlanning(p => ({ ...p, shopping:((p.shopping)||[]).map(s => s.id===id ? {...s, done:!s.done} : s) }));
   };
 
   const remove = async (id) => {
-    await AppStore.setPlanning({ ...plan, shopping: items.filter(s => s.id !== id) });
+    await AppStore.updatePlanning(p => ({ ...p, shopping:((p.shopping)||[]).filter(s => s.id !== id) }));
   };
 
   const clearDone = async () => {
     if (!window.confirm('Limpar itens já comprados?')) return;
-    await AppStore.setPlanning({ ...plan, shopping: items.filter(s => !s.done) });
+    await AppStore.updatePlanning(p => ({ ...p, shopping:((p.shopping)||[]).filter(s => !s.done) }));
   };
 
   const pending = items.filter(s => !s.done);
