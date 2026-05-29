@@ -2578,18 +2578,157 @@ const AppStore = {
     };
   },
 
-  // Grava uma chave de dados na edição ativa
+  // Grava uma chave de dados na edição ativa (substitui o valor inteiro).
+  // Usar APENAS para valores primitivos ou substituições completas.
+  // Para edições concorrentes em objects/arrays, usar _merge/_appendToArray/_modifyArray.
   async _set(key, value) {
     const ed = EditionStore.active();
     if (!ed) { console.warn('[PA AppStore] sem edição ativa'); return; }
     _appCache = { ...(this._cache()), [key]: value };
     this._notify();
-    // Atualiza o jsonb data (merge da chave)
     const newData = { ...(ed.data || {}) };
     newData[key] = value;
-    ed.data = newData; // atualiza cache local da edição
+    ed.data = newData;
     const { error } = await _sb.from('editions').update({ data: newData }).eq('id', ed.id);
     if (error) console.error('[PA AppStore] erro a guardar', key, error.message);
+  },
+
+  // Merge profundo de chave-valor (para objects como votos, rsvp).
+  // Usa RPC atómica no servidor PostgreSQL — elimina lost updates por concorrência.
+  async _merge(key, deltaObj) {
+    const ed = EditionStore.active();
+    if (!ed) { console.warn('[PA AppStore] sem edição ativa'); return; }
+
+    // Optimistic local update (UI feedback imediato)
+    const localCurrent = this._cache()[key] || {};
+    _appCache = { ...(this._cache()), [key]: { ...localCurrent, ...deltaObj } };
+    this._notify();
+
+    // RPC atómica no servidor — não tem race conditions
+    try {
+      const { data: newData, error } = await _sb.rpc('edition_merge_field', {
+        edition_id: ed.id,
+        field_name: key,
+        delta: deltaObj,
+      });
+      if (error) {
+        console.error('[PA AppStore] merge erro:', key, error.message);
+        return;
+      }
+      if (newData) {
+        ed.data = newData;
+        _appCache = {
+          ...newData,
+          currentPhase: ed.current_phase || 1,
+          editionTitle: ed.title,
+          editionSubtitle: ed.subtitle,
+          editionNumber: ed.number,
+        };
+        this._notify();
+      }
+    } catch (e) {
+      console.error('[PA AppStore] merge falhou:', key, e.message);
+    }
+  },
+
+  // Adiciona um item a um array atomicamente, deduplicando por id se houver.
+  async _appendToArray(key, item) {
+    const ed = EditionStore.active();
+    if (!ed) return;
+
+    const localCurrent = this._cache()[key] || [];
+    _appCache = { ...(this._cache()), [key]: [...localCurrent, item] };
+    this._notify();
+
+    try {
+      const { data: newData, error } = await _sb.rpc('edition_append_array', {
+        edition_id: ed.id,
+        field_name: key,
+        item: item,
+      });
+      if (error) {
+        console.error('[PA AppStore] append erro:', key, error.message);
+        return;
+      }
+      if (newData) {
+        ed.data = newData;
+        _appCache = {
+          ...newData,
+          currentPhase: ed.current_phase || 1,
+          editionTitle: ed.title,
+          editionSubtitle: ed.subtitle,
+          editionNumber: ed.number,
+        };
+        this._notify();
+      }
+    } catch (e) {
+      console.error('[PA AppStore] append falhou:', key, e.message);
+    }
+  },
+
+  // Remove items de um array por id atomicamente.
+  async _removeFromArray(key, itemId) {
+    const ed = EditionStore.active();
+    if (!ed) return;
+
+    const localCurrent = this._cache()[key] || [];
+    _appCache = { ...(this._cache()), [key]: localCurrent.filter(x => x && x.id !== itemId) };
+    this._notify();
+
+    try {
+      const { data: newData, error } = await _sb.rpc('edition_remove_from_array', {
+        edition_id: ed.id,
+        field_name: key,
+        item_id: itemId,
+      });
+      if (error) {
+        console.error('[PA AppStore] remove erro:', key, error.message);
+        return;
+      }
+      if (newData) {
+        ed.data = newData;
+        _appCache = {
+          ...newData,
+          currentPhase: ed.current_phase || 1,
+          editionTitle: ed.title,
+          editionSubtitle: ed.subtitle,
+          editionNumber: ed.number,
+        };
+        this._notify();
+      }
+    } catch (e) {
+      console.error('[PA AppStore] remove falhou:', key, e.message);
+    }
+  },
+
+  // Modifica um array com uma função (fallback para casos complexos sem RPC).
+  // Atenção: ainda tem janela de race; usar _appendToArray/_removeFromArray quando possível.
+  async _modifyArray(key, fn) {
+    const ed = EditionStore.active();
+    if (!ed) return;
+
+    const localCurrent = this._cache()[key] || [];
+    _appCache = { ...(this._cache()), [key]: fn(localCurrent) };
+    this._notify();
+
+    try {
+      const { data: fresh } = await _sb.from('editions').select('data').eq('id', ed.id).single();
+      const freshData = (fresh && fresh.data) || {};
+      const newArr = fn(freshData[key] || []);
+      const newData = { ...freshData, [key]: newArr };
+      ed.data = newData;
+      _appCache = {
+        ...newData,
+        currentPhase: ed.current_phase || 1,
+        editionTitle: ed.title,
+        editionSubtitle: ed.subtitle,
+        editionNumber: ed.number,
+      };
+      this._notify();
+      await _sb.from('editions').update({ data: newData }).eq('id', ed.id);
+    } catch (e) {
+      console.error('[PA AppStore] modify erro:', key, e.message);
+    }
   },
 
   async clearKey(key) {
@@ -2634,32 +2773,32 @@ const AppStore = {
   },
 
   // ── RSVP ──
-  setRsvp(uid,st)  { const rsvp={...(this._cache().rsvp||{}), [uid]:st}; return this._set('rsvp',rsvp); },
+  setRsvp(uid,st)  { return this._merge('rsvp', { [uid]:st }); },
   getRsvp(uid)     { return this._cache().rsvp?.[uid]||null; },
   getAllRsvp()     { return this._cache().rsvp||{}; },
 
   // ── Sugestões de localização ──
   getLocSuggestions()           { return this._cache().locSuggs||[]; },
-  async addLocSuggestion(s)     { await this._set('locSuggs',[...this.getLocSuggestions(),s]); },
-  async removeLocSuggestion(id) { await this._set('locSuggs',this.getLocSuggestions().filter(x=>x.id!==id)); },
+  async addLocSuggestion(s)     { await this._appendToArray('locSuggs', s); },
+  async removeLocSuggestion(id) { await this._removeFromArray('locSuggs', id); },
   getLocWinner()                { return this._cache().locWinner||null; },
   async setLocWinner(id)        { await this._set('locWinner',id); },
   getLocVotes()                 { return this._cache().locVotes||{}; },
-  async setLocVote(uid,id)      { await this._set('locVotes',{...this.getLocVotes(),[uid]:id}); },
+  async setLocVote(uid,id)      { await this._merge('locVotes', { [uid]:id }); },
 
   // ── Sugestões de alojamento ──
   getAccSuggestions()           { return this._cache().accSuggs||[]; },
-  async addAccSuggestion(s)     { await this._set('accSuggs',[...this.getAccSuggestions(),s]); },
-  async removeAccSuggestion(id) { await this._set('accSuggs',this.getAccSuggestions().filter(x=>x.id!==id)); },
+  async addAccSuggestion(s)     { await this._appendToArray('accSuggs', s); },
+  async removeAccSuggestion(id) { await this._removeFromArray('accSuggs', id); },
   getAccWinner()                { return this._cache().accWinner||null; },
   async setAccWinner(id)        { await this._set('accWinner',id); },
   getAccVotes()                 { return this._cache().accVotes||{}; },
-  async setAccVote(uid,id)      { await this._set('accVotes',{...this.getAccVotes(),[uid]:id}); },
+  async setAccVote(uid,id)      { await this._merge('accVotes', { [uid]:id }); },
 
   // ── Disponibilidade ──
   getAvailability(uid)          { return (this._cache().avail||{})[uid] || []; },
   getAllAvailability()          { return this._cache().avail||{}; },
-  async setAvailability(uid,days){ await this._set('avail',{...(this._cache().avail||{}),[uid]:days}); },
+  async setAvailability(uid,days){ await this._merge('avail', { [uid]:days }); },
 
   // ── Datas trancadas ──
   getLockedDates()              { return this._cache().locked||null; },
@@ -4590,8 +4729,8 @@ function DPhase1({ me }) {
   return (
     <div style={{ flex:1, padding:'32px 36px', display:'flex', flexDirection:'column', overflow:'auto' }}>
       <DPhaseHeader phase={1} status="Em curso" statusTone="accent"
-        title={<>Quem entra na <span style={{ color:'var(--pa-accent)' }}>{(appData.editionNumber||1)}ª</span>?</>}
-        sub={<>O {memberById(D.adminId)?.name || 'admin'} iniciou esta edição — <em style={{ color:'var(--pa-ink)' }}>"{appData.editionTitle || 'Nova Aventura'}"</em>. Diz se estás dentro.</>} />
+        title={<>Quem entra na <span style={{ color:'var(--pa-accent)' }}>{(appData.editionNumber||1)}ª edição</span> — <span style={{ color:'var(--pa-accent)' }}>{appData.editionTitle || 'Nova Aventura'}</span>?</>}
+        sub={<>O {memberById(D.adminId)?.name || 'admin'} iniciou esta edição. Diz se estás dentro.</>} />
 
       {/* balcões */}
       <div style={{ display:'flex', gap:12, marginBottom:24 }}>
@@ -4820,10 +4959,8 @@ function DPhase3({ me }) {
   const [tieOpen, setTieOpen] = dUseState(false);
 
   const inMembers = (typeof getInMembers === 'function') ? getInMembers(appData) : [];
-  const meIsIn = inMembers.some(m => m.id === me?.id);
 
   const handleVote = (id) => {
-    if (!meIsIn) { setSaved('blocked'); setTimeout(()=>setSaved(false), 2500); return; }
     setVote(id);
     VoteStore.setVote(me.id, 'loc', id);
     setSaved(true);
@@ -4833,7 +4970,7 @@ function DPhase3({ me }) {
   // Detetar empate
   const votes = appData.locVotes || {};
   const allVoted = inMembers.length > 0 && inMembers.every(m => votes[m.id]);
-  const tie = allVoted ? detectTie(votes, suggestions, inMembers.map(m=>m.id)) : null;
+  const tie = allVoted ? detectTie(votes, suggestions) : null;
   dUseEffect(() => { if (tie && !appData.locWinner) setTieOpen(true); }, [tie?.tiedIds?.join(','), appData.locWinner]);
 
   if (suggestions.length === 0) {
@@ -4888,13 +5025,11 @@ function DPhase3({ me }) {
         <svg width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" stroke="var(--pa-muted)" strokeWidth="1.2" fill="none"/><path d="M8 5v3.5M8 11v.5" stroke="var(--pa-muted)" strokeWidth="1.5" strokeLinecap="round"/></svg>
         <div style={{ fontSize:12.5, color:'var(--pa-muted)' }}>
           Cada um vota numa só opção.{' '}
-          {saved === 'blocked'
-            ? <span style={{ color:'#8a4220', fontWeight:600 }}>Não estás a bordo desta edição.</span>
-            : saved
-              ? <span style={{ color:'#3d5e44', fontWeight:600 }}>✓ Voto guardado!</span>
-              : vote
-                ? <span style={{ color:'var(--pa-ink)', fontWeight:600 }}>Voto em {suggestions.find((s) => s.id === vote)?.name}.</span>
-                : 'Ainda não votaste.'}
+          {saved
+            ? <span style={{ color:'#3d5e44', fontWeight:600 }}>✓ Voto guardado!</span>
+            : vote
+              ? <span style={{ color:'var(--pa-ink)', fontWeight:600 }}>Voto em {suggestions.find((s) => s.id === vote)?.name}.</span>
+              : 'Ainda não votaste.'}
         </div>
       </div>
 
@@ -5128,7 +5263,7 @@ function DPhase5({ me }) {
   const inMembers = (typeof getInMembers === 'function') ? getInMembers(appData) : [];
   const votes = appData.accVotes || {};
   const allVoted = inMembers.length > 0 && inMembers.every(m => votes[m.id]);
-  const tie = allVoted ? detectTie(votes, suggestions, inMembers.map(m=>m.id)) : null;
+  const tie = allVoted ? detectTie(votes, suggestions) : null;
   dUseEffect2(() => { if (tie && !appData.accWinner) setTieOpen(true); }, [tie?.tiedIds?.join(','), appData.accWinner]);
 
   if (suggestions.length === 0) {
@@ -6041,8 +6176,8 @@ function MPhase1({ me, onLogout, onOpenChat }) {
       <MHeader phase={1} onLogout={onLogout} onOpenChat={onOpenChat} />
       <MPhaseTitle
         kicker={`${memberById(D.adminId)?.name || 'Admin'} chamou-te`}
-        title={<>Estás dentro<br/>da {appData.editionNumber || 1}ª?</>}
-        sub={`"${appData.editionTitle || 'Nova Aventura'}"`} />
+        title={<>Quem entra<br/><span style={{ color:'var(--pa-accent)' }}>{appData.editionTitle || 'Nova Aventura'}</span>?</>}
+        sub={`${appData.editionNumber || 1}ª edição`} />
       <div style={{ padding:'6px 22px', flex:1, overflow:'auto' }}>
         <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
           {[
@@ -6180,7 +6315,7 @@ function MPhase3({ me, onLogout, onOpenChat }) {
   const inMembers = (typeof getInMembers === 'function') ? getInMembers(appData) : [];
   const votes = appData.locVotes || {};
   const allVoted = inMembers.length > 0 && inMembers.every(m => votes[m.id]);
-  const tie = allVoted ? detectTie(votes, suggestions, inMembers.map(m=>m.id)) : null;
+  const tie = allVoted ? detectTie(votes, suggestions) : null;
   mUseEffect(() => { if (tie && !appData.locWinner) setTieOpen(true); }, [tie?.tiedIds?.join(','), appData.locWinner]);
 
   if (suggestions.length === 0) {
@@ -6337,7 +6472,7 @@ function MPhase5({ me, onLogout, onOpenChat }) {
   const inMembers = (typeof getInMembers === 'function') ? getInMembers(appData) : [];
   const votes = appData.accVotes || {};
   const allVoted = inMembers.length > 0 && inMembers.every(m => votes[m.id]);
-  const tie = allVoted ? detectTie(votes, suggestions, inMembers.map(m=>m.id)) : null;
+  const tie = allVoted ? detectTie(votes, suggestions) : null;
   mUseEffect(() => { if (tie && !appData.accWinner) setTieOpen(true); }, [tie?.tiedIds?.join(','), appData.accWinner]);
 
   const votingClosed = false;
@@ -6717,148 +6852,204 @@ function phaseComplete(phase, appData) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Hook: gere countdown automático + voto para passar
+// Hook: gere progresso da fase (SEM countdown automático).
+// - Quando todos os "in" estão prontos, admin pode avançar com botão
+// - Qualquer participante pode votar "Vamos avançar"; se >50% votar, avança
+// - Sem timer, sem auto-advance silencioso — sempre uma ação humana clara
 // ─────────────────────────────────────────────────────────────
 function usePhaseProgress(phase, me) {
   const appData = useAppStore();
-  const [now, setNow] = pUseState(Date.now());
   const advanceFiredRef = pUseRef(false);
 
   const isLast = phase >= 8;
-  // Fase 7 é admin-only: o voto-para-passar não faz sentido (admin tranca)
-  const skipDisabled = phase === 7;
   const isComplete = phaseComplete(phase, appData);
-  const completeAt = appData.phaseCompleteAt;
   const skipVotes = appData.skipVotes || {};
-  // Na fase 1 ainda ninguém disse "in"; usar todos os membros registados
+  // Na fase 1 ainda ninguém é "in"; usar todos os membros registados como pool
   const allMembers = (typeof getAllMembers === 'function') ? getAllMembers() : [];
   const inMembers = (phase === 1) ? allMembers : getInMembers(appData);
   const skipCount = Object.keys(skipVotes).filter(uid => inMembers.some(m => m.id === uid)).length;
   const skipReached = inMembers.length > 0 && skipCount > inMembers.length / 2;
   const iVoted = !!skipVotes[me?.id];
 
-  // Marca o timestamp quando a fase fica completa
-  pUseEffect(() => {
-    if (isLast) return;
-    if (isComplete && !completeAt) {
-      AppStore._set('phaseCompleteAt', Date.now());
-    } else if (!isComplete && completeAt) {
-      // Se algo descompletar (ex: sugestão removida), limpa
-      AppStore.clearKey('phaseCompleteAt');
-    }
-  }, [isComplete, completeAt, isLast]);
-
-  // Tick a cada segundo para o countdown
-  pUseEffect(() => {
-    if (!completeAt || isLast) return;
-    const id = setInterval(() => setNow(Date.now()), 500);
-    return () => clearInterval(id);
-  }, [completeAt, isLast]);
-
-  // Quando timer chega a 0, ou skip reached, avança (primeiro cliente que detetar)
+  // Quando skip atinge >50%, avança automaticamente (imediato, sem countdown)
   pUseEffect(() => {
     if (isLast || advanceFiredRef.current) return;
-    const timeUp = completeAt && (now - completeAt >= 10000);
-    if ((timeUp || skipReached) && phase === (appData.currentPhase || 1)) {
+    if (skipReached && phase === (appData.currentPhase || 1)) {
       advanceFiredRef.current = true;
-      // Avança e limpa votes/timer da fase atual
       Promise.resolve()
         .then(() => AppStore.setPhase(phase + 1))
-        .then(() => AppStore.clearKey('phaseCompleteAt'))
         .then(() => AppStore.clearKey('skipVotes'))
         .catch(()=>{});
     }
-  }, [now, completeAt, skipReached, phase, isLast, appData.currentPhase]);
-
-  // Reset do guard quando a fase muda
+  }, [skipReached, phase, isLast, appData.currentPhase]);
   pUseEffect(() => { advanceFiredRef.current = false; }, [phase]);
 
-  const remainingMs = completeAt ? Math.max(0, 10000 - (now - completeAt)) : null;
-  const remainingSec = remainingMs !== null ? Math.ceil(remainingMs / 1000) : null;
+  // Limpa phaseCompleteAt antigo (legacy) ao montar — caso edições ainda tenham
+  pUseEffect(() => {
+    if (appData.phaseCompleteAt && me?.isAdmin) AppStore.clearKey('phaseCompleteAt');
+  }, [appData.phaseCompleteAt, me?.isAdmin]);
 
   const voteSkip = async () => {
-    if (!me || iVoted || isLast || skipDisabled) return;
-    const next = { ...skipVotes, [me.id]: Date.now() };
-    await AppStore._set('skipVotes', next);
+    if (!me || iVoted || isLast) return;
+    await AppStore._merge('skipVotes', { [me.id]: Date.now() });
   };
-
   const cancelMySkip = async () => {
     if (!me || !iVoted) return;
+    // Para remoção de chave (não há _unset), usa _set com snapshot.
+    // Concorrência: se outro user adicionou skipVote ao mesmo tempo, fica overwrite.
+    // Aceitável aqui — é só skip vote, pode-se re-clicar.
     const next = { ...skipVotes };
     delete next[me.id];
     await AppStore._set('skipVotes', next);
   };
 
+  // Quem ainda não completou (para mostrar quem falta)
+  let pending = [];
+  if (!isComplete && inMembers.length > 0) {
+    if (phase === 1) {
+      pending = allMembers.filter(m => !(appData.rsvp||{})[m.id]);
+    } else if (phase === 2) {
+      const suggs = appData.locSuggs || [];
+      pending = inMembers.filter(m => !suggs.some(s => s.by === m.id));
+    } else if (phase === 3) {
+      const votes = appData.locVotes || {};
+      pending = inMembers.filter(m => !votes[m.id]);
+    } else if (phase === 4) {
+      const suggs = appData.accSuggs || [];
+      pending = inMembers.filter(m => !suggs.some(s => s.by === m.id));
+    } else if (phase === 5) {
+      const votes = appData.accVotes || {};
+      pending = inMembers.filter(m => !votes[m.id]);
+    } else if (phase === 6) {
+      const avail = appData.avail || {};
+      pending = inMembers.filter(m => !(Array.isArray(avail[m.id]) && avail[m.id].length > 0));
+    }
+  }
+
+  const advanceNow = async () => {
+    if (isLast) return;
+    await AppStore.setPhase(phase + 1);
+    await AppStore.clearKey('skipVotes');
+  };
+
   return {
-    isLast, isComplete, completeAt, remainingSec,
-    skipCount, skipThreshold: Math.ceil(inMembers.length/2 + 0.001),
-    skipReached, iVoted, inCount: inMembers.length,
-    skipDisabled,
-    voteSkip, cancelMySkip,
+    isLast, isComplete,
+    skipCount, skipReached, iVoted,
+    inCount: inMembers.length,
+    pending,
+    voteSkip, cancelMySkip, advanceNow,
   };
 }
 
 // ─────────────────────────────────────────────────────────────
-// Componente: Banner de progresso (countdown + voto passar)
-// Aparece no fundo da fase ou flutuante. Compacto e responsivo.
+// Componente: Banner de progresso (sem countdown).
+// 3 estados:
+//   A) Fase incompleta: mostra "Faltam: X" + voto para avançar
+//   B) Fase completa: "Todos prontos!" + botão admin "Avançar fase →"
+//   C) Empate fase 3/5 não resolvido: avisa que admin tem de desempatar
 // ─────────────────────────────────────────────────────────────
 function PhaseProgressBanner({ phase, me, narrow }) {
   const p = usePhaseProgress(phase, me);
   if (p.isLast || !me) return null;
-  if (p.skipDisabled && !p.completeAt) return null; // não mostra na fase 7 a menos que esteja em countdown
 
-  // Se está em countdown: mostra grande
-  if (p.completeAt && p.remainingSec !== null && p.remainingSec > 0) {
+  const appData = AppStore._cache();
+
+  // Estado C: empate na fase 3 ou 5 (todos votaram mas há empate sem vencedor)
+  const tieIn3 = (phase === 3 && !appData.locWinner) ? (() => {
+    const inMembers = getInMembers(appData);
+    const votes = appData.locVotes || {};
+    const allVoted = inMembers.length > 0 && inMembers.every(m => votes[m.id]);
+    return allVoted && detectTie(votes, appData.locSuggs || []);
+  })() : null;
+  const tieIn5 = (phase === 5 && !appData.accWinner) ? (() => {
+    const inMembers = getInMembers(appData);
+    const votes = appData.accVotes || {};
+    const allVoted = inMembers.length > 0 && inMembers.every(m => votes[m.id]);
+    return allVoted && detectTie(votes, appData.accSuggs || []);
+  })() : null;
+  const hasUnresolvedTie = tieIn3 || tieIn5;
+
+  if (hasUnresolvedTie) {
     return (
       <div style={{
-        background:'var(--pa-ink)', color:'#fff', borderRadius:14, padding: narrow ? '10px 14px' : '12px 18px',
-        display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, flexWrap:'wrap' }}>
-        <div>
-          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, opacity:0.7, textTransform:'uppercase' }}>
-            Todos prontos
+        background:'#fff', border:'1px solid var(--pa-accent)', borderRadius:14,
+        padding: narrow ? '10px 14px' : '12px 18px',
+        display:'flex', alignItems:'center', gap:12 }}>
+        <div style={{ fontSize:22 }}>🎯</div>
+        <div style={{ flex:1 }}>
+          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-accent)', textTransform:'uppercase' }}>Empate</div>
+          <div style={{ fontFamily:'var(--pa-body)', fontSize:13.5, color:'var(--pa-ink)', marginTop:2 }}>
+            {me.isAdmin ? 'Tens de desempatar para avançar.' : 'O admin está a desempatar...'}
           </div>
-          <div style={{ fontFamily:'var(--pa-display)', fontSize: narrow?15:17, fontWeight:600, marginTop:2 }}>
-            Próxima fase em {p.remainingSec}s...
+        </div>
+      </div>
+    );
+  }
+
+  // Estado B: fase completa — admin avança
+  if (p.isComplete) {
+    return (
+      <div style={{
+        background:'#3d5e44', color:'#fff', borderRadius:14,
+        padding: narrow ? '12px 14px' : '14px 18px',
+        display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, flexWrap:'wrap' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <div style={{ fontSize:18 }}>✓</div>
+          <div>
+            <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, opacity:0.75, textTransform:'uppercase' }}>Todos prontos</div>
+            <div style={{ fontFamily:'var(--pa-display)', fontSize: narrow?14:16, fontWeight:600, marginTop:2 }}>
+              {me.isAdmin ? 'Podes avançar a fase.' : 'À espera de o admin avançar.'}
+            </div>
           </div>
         </div>
         {me.isAdmin && (
-          <button onClick={() => AppStore.clearKey('phaseCompleteAt')} style={{
-            background:'rgba(255,255,255,0.12)', border:'none', color:'#fff', padding:'6px 12px', borderRadius:999,
-            fontFamily:'var(--pa-body)', fontSize:12, fontWeight:600, cursor:'pointer' }}>
-            Cancelar
+          <button onClick={p.advanceNow} style={{
+            background:'#fff', color:'#3d5e44', border:'none', padding:'8px 16px', borderRadius:999,
+            fontFamily:'var(--pa-body)', fontSize:13, fontWeight:700, cursor:'pointer' }}>
+            Avançar fase →
           </button>
         )}
       </div>
     );
   }
 
-  // Caso contrário: botão "Vamos avançar" (se ainda não completou normalmente)
-  if (p.isComplete) return null; // está a esperar o timestamp, próximo render mostra countdown
-  if (p.inCount === 0) return null; // ninguém in ainda
+  // Estado A: fase incompleta
+  if (p.inCount === 0) return null;
+  const pendingNames = p.pending.slice(0, 3).map(m => m.name).join(', ');
+  const extraPending = p.pending.length > 3 ? ` +${p.pending.length - 3}` : '';
 
   return (
     <div style={{
-      background:'#fff', border:'1px solid var(--pa-line)', borderRadius:14, padding: narrow ? '10px 14px' : '12px 18px',
+      background:'#fff', border:'1px solid var(--pa-line)', borderRadius:14,
+      padding: narrow ? '10px 14px' : '12px 18px',
       display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, flexWrap:'wrap' }}>
       <div style={{ flex:1, minWidth:0 }}>
         <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>
-          Votos para avançar
+          {p.pending.length > 0 ? 'A aguardar' : 'Voto para avançar'}
         </div>
-        <div style={{ display:'flex', alignItems:'center', gap:8, marginTop:4 }}>
-          <span style={{ fontFamily:'var(--pa-display)', fontSize: narrow?15:17, fontWeight:600 }}>
-            {p.skipCount} / {p.inCount}
-          </span>
-          <span style={{ fontFamily:'var(--pa-body)', fontSize:12, color:'var(--pa-muted)' }}>
-            (precisa de mais de metade)
-          </span>
+        <div style={{ fontFamily:'var(--pa-body)', fontSize:13.5, color:'var(--pa-ink)', marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+          {p.pending.length > 0
+            ? <>Faltam: <strong>{pendingNames}{extraPending}</strong></>
+            : <>Já podem forçar o avanço.</>}
         </div>
+        {p.skipCount > 0 && (
+          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10.5, color:'var(--pa-muted)', marginTop:3 }}>
+            {p.skipCount}/{p.inCount} querem avançar (precisa de mais de metade)
+          </div>
+        )}
       </div>
-      {p.iVoted
-        ? <Btn variant="soft" size="sm" onClick={p.cancelMySkip}>Cancelar voto</Btn>
-        : <Btn variant="accent" size="sm" onClick={p.voteSkip}>Vamos avançar →</Btn>}
+      <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+        {p.iVoted
+          ? <Btn variant="soft" size="sm" onClick={p.cancelMySkip}>Cancelar voto</Btn>
+          : <Btn variant="accent" size="sm" onClick={p.voteSkip}>Vamos avançar</Btn>}
+        {me.isAdmin && (
+          <Btn variant="ghost" size="sm" onClick={p.advanceNow}>Avançar →</Btn>
+        )}
+      </div>
     </div>
   );
 }
+
 
 Object.assign(window, { getInMembers, getTotalMembers, phaseComplete, usePhaseProgress, PhaseProgressBanner });
 </script>
@@ -6897,38 +7088,63 @@ function detectTie(votes, suggestions, inIds) {
 // ─────────────────────────────────────────────────────────────
 // Cara ou Coroa — animação simples, resultado aleatório
 // ─────────────────────────────────────────────────────────────
-function CoinFlip({ tiedItems, onResolve, onCancel }) {
+function CoinFlip({ tiedItems, me, onResolve, onCancel }) {
+  const appData = useAppStore();
+  const isAdmin = !!me?.isAdmin;
+
+  // Resultado partilhado por todos os clientes (admin grava, outros leem)
+  const sharedResultId = appData.coinFlipResult;
+  const result = sharedResultId ? (tiedItems.find(t => t.id === sharedResultId) || null) : null;
+
   const [flipping, setFlipping] = tbUseState2(false);
-  const [result, setResult] = tbUseState2(null);
   const [highlight, setHighlight] = tbUseState2(0);
 
-  // Animação "scrambler": passa rapidamente por todos os items, desacelera, e para num random
-  const flip = () => {
-    if (flipping) return;
+  // Quando o resultado partilhado aparece e este cliente NÃO é admin (não tem animação local),
+  // sincroniza o highlight para destacar o vencedor
+  tbUseEffect2(() => {
+    if (!isAdmin && sharedResultId) {
+      const idx = tiedItems.findIndex(t => t.id === sharedResultId);
+      if (idx >= 0) setHighlight(idx);
+    }
+  }, [sharedResultId, isAdmin]);
+
+  // Animação local do admin: cycle através das opções e termina no winner persistido
+  const flip = async () => {
+    if (!isAdmin || flipping) return;
     setFlipping(true);
-    setResult(null);
     const winnerIdx = Math.floor(Math.random() * tiedItems.length);
 
-    // Faz ~30 iterações cada vez mais lentas, terminando no winner
-    const totalSteps = 24 + winnerIdx;  // garante que pára no winner
+    // Persiste o resultado IMEDIATAMENTE para todos os clientes verem
+    await AppStore._set('coinFlipResult', tiedItems[winnerIdx].id);
+
+    // Animação local apenas para o admin
+    const totalSteps = 24 + winnerIdx;
     let step = 0;
     const tick = () => {
       step++;
       setHighlight(step % tiedItems.length);
       if (step < totalSteps) {
-        // delay cresce exponencialmente (efeito de "desacelerar")
         const delay = 50 + Math.pow(step / totalSteps, 3) * 400;
         setTimeout(tick, delay);
       } else {
         setHighlight(winnerIdx);
-        setResult(tiedItems[winnerIdx]);
         setFlipping(false);
       }
     };
     tick();
   };
 
-  const accept = () => result && onResolve(result.id);
+  const repeat = async () => {
+    if (!isAdmin || flipping) return;
+    await AppStore.clearKey('coinFlipResult');
+    setHighlight(0);
+  };
+
+  const accept = async () => {
+    if (!isAdmin || !result) return;
+    await AppStore.clearKey('coinFlipResult');
+    onResolve(result.id);
+  };
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:18, padding:'8px 0' }}>
@@ -6936,7 +7152,14 @@ function CoinFlip({ tiedItems, onResolve, onCancel }) {
         {tiedItems.length === 2 ? 'Cara ou coroa' : 'À sorte'}
       </div>
 
-      {/* Lista vertical com destaque animado */}
+      {/* Estado para não-admin quando o admin ainda não lançou */}
+      {!isAdmin && !sharedResultId && (
+        <div style={{ padding:'12px 14px', background:'rgba(31,26,20,0.04)', borderRadius:12, textAlign:'center', fontFamily:'var(--pa-body)', fontSize:13.5, color:'var(--pa-muted)' }}>
+          O admin vai sortear num instante...
+        </div>
+      )}
+
+      {/* Lista vertical com destaque animado/sincronizado */}
       <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
         {tiedItems.map((item, i) => {
           const isHighlight = (flipping || result) && highlight === i;
@@ -6959,17 +7182,26 @@ function CoinFlip({ tiedItems, onResolve, onCancel }) {
         })}
       </div>
 
-      <div style={{ display:'flex', gap:8 }}>
-        {!result
-          ? <>
-              <Btn variant="ghost" onClick={onCancel} style={{ flex:1 }} disabled={flipping}>Cancelar</Btn>
-              <Btn variant="accent" onClick={flip} disabled={flipping} style={{ flex:1 }}>{flipping ? 'A sortear...' : '🎲 Lançar'}</Btn>
-            </>
-          : <>
-              <Btn variant="ghost" onClick={() => { setResult(null); setHighlight(0); }} style={{ flex:1 }}>Repetir</Btn>
-              <Btn variant="accent" onClick={accept} style={{ flex:1 }}>Aceitar vencedor</Btn>
-            </>}
-      </div>
+      {/* Controlos: só admin */}
+      {isAdmin ? (
+        <div style={{ display:'flex', gap:8 }}>
+          {!result
+            ? <>
+                <Btn variant="ghost" onClick={onCancel} style={{ flex:1 }} disabled={flipping}>Cancelar</Btn>
+                <Btn variant="accent" onClick={flip} disabled={flipping} style={{ flex:1 }}>{flipping ? 'A sortear...' : '🎲 Lançar'}</Btn>
+              </>
+            : <>
+                <Btn variant="ghost" onClick={repeat} style={{ flex:1 }}>Repetir</Btn>
+                <Btn variant="accent" onClick={accept} style={{ flex:1 }}>Aceitar vencedor</Btn>
+              </>}
+        </div>
+      ) : (
+        result && (
+          <div style={{ padding:'10px 12px', background:'rgba(31,26,20,0.04)', borderRadius:10, textAlign:'center', fontFamily:'var(--pa-body)', fontSize:13, color:'var(--pa-muted)' }}>
+            Aguarda o admin aceitar o vencedor...
+          </div>
+        )
+      )}
     </div>
   );
 }
@@ -6983,7 +7215,7 @@ function PointsVote({ tiedItems, me, onResolve, onCancel, voteKey }) {
   const appData = useAppStore();
   const tieVotes = appData[voteKey] || {};
   const inMembers = getInMembers(appData);
-  const meIsIn = inMembers.some(m => m.id === me?.id);
+  // Toda a gente que está na edição pode participar (não apenas in members)
   const [myRank, setMyRank] = tbUseState2(() => {
     const existing = tieVotes[me?.id];
     if (existing && Array.isArray(existing) && existing.length === tiedItems.length) return existing.slice();
@@ -6997,24 +7229,11 @@ function PointsVote({ tiedItems, me, onResolve, onCancel, voteKey }) {
     }
   }, [tieVotes[me?.id]]);
 
-  const voted = inMembers.filter(m => Array.isArray(tieVotes[m.id]) && tieVotes[m.id].length === tiedItems.length);
-  const allVoted = voted.length === inMembers.length;
-
-  // Se o user não está a bordo, mostra apenas o estado
-  if (!meIsIn) {
-    return (
-      <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-        <div style={{ padding:'12px 14px', background:'rgba(31,26,20,0.04)', borderRadius:12, textAlign:'center', fontFamily:'var(--pa-body)', fontSize:13.5, color:'var(--pa-muted)' }}>
-          Não estás a bordo desta edição. Aguarda o resultado.
-        </div>
-        <div style={{ padding:'10px 12px', background:'rgba(31,26,20,0.04)', borderRadius:10 }}>
-          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>Votos</div>
-          <div style={{ fontFamily:'var(--pa-display)', fontSize:15, fontWeight:600, marginTop:2 }}>{voted.length} / {inMembers.length}</div>
-        </div>
-        <Btn variant="ghost" onClick={onCancel} style={{ width:'100%' }}>Fechar</Btn>
-      </div>
-    );
-  }
+  // Conta todos os votos válidos (não só inMembers)
+  const allMembers = (typeof getAllMembers === 'function') ? getAllMembers() : [];
+  const eligible = allMembers; // toda a gente pode votar
+  const voted = eligible.filter(m => Array.isArray(tieVotes[m.id]) && tieVotes[m.id].length === tiedItems.length);
+  const allVoted = voted.length >= Math.max(inMembers.length, 1); // pelo menos os in
 
   const moveItem = (idx, dir) => {
     const swap = idx + dir;
@@ -7092,7 +7311,7 @@ function PointsVote({ tiedItems, me, onResolve, onCancel, voteKey }) {
           Votos
         </div>
         <div style={{ fontFamily:'var(--pa-display)', fontSize:15, fontWeight:600, marginTop:2 }}>
-          {voted.length} / {inMembers.length}
+          {voted.length} {voted.length === 1 ? 'voto' : 'votos'}
         </div>
       </div>
 
@@ -7176,7 +7395,7 @@ function TiebreakModal({ open, onClose, tie, me, voteKey, onResolve }) {
       )}
 
       {method === 'coin' && (
-        <CoinFlip tiedItems={tie.tiedItems} onResolve={resolveAndClose} onCancel={() => AppStore.clearKey('tieMethod')} />
+        <CoinFlip tiedItems={tie.tiedItems} me={me} onResolve={resolveAndClose} onCancel={() => AppStore.clearKey('tieMethod')} />
       )}
 
       {method === 'points' && (
@@ -7570,9 +7789,17 @@ function LiveApp() {
   const auth = useAuth();
   const w = useViewport();
   const isDesktop = w >= 1100;
-  // edição selecionada (null = mostrar hub)
+  // Re-renderiza quando a lista de edições muda (ex: eliminada externamente)
+  const editions = useEditions();
   const [inEdition, setInEdition] = lUseState(() => !!EditionStore.activeId() && !!EditionStore.active());
   const [profileOpen, setProfileOpen] = lUseState(false);
+
+  // Se a edição ativa desaparece (eliminada), volta automaticamente ao hub
+  lUseEffect(() => {
+    if (inEdition && !EditionStore.active()) {
+      setInEdition(false);
+    }
+  }, [editions, inEdition]);
 
   if (!auth.user) {
     return (
@@ -7585,19 +7812,13 @@ function LiveApp() {
   const me = sessionToMember(auth.user);
   const viewAs = auth.user.isAdmin ? 'admin' : 'member';
 
-  // Hub de edições (landing após login)
-  if (!inEdition) {
+  // Hub de edições (landing após login OU se edição ativa desapareceu)
+  if (!inEdition || !EditionStore.active()) {
     return (
       <div style={{ width:'100vw', height:'100vh', overflow:'auto' }}>
         <EditionHub auth={auth} narrow={!isDesktop} onEnterEdition={() => setInEdition(true)} />
       </div>
     );
-  }
-
-  // Se a edição ativa desapareceu (eliminada), volta ao hub
-  if (!EditionStore.active()) {
-    setTimeout(() => setInEdition(false), 0);
-    return null;
   }
 
   const backToHub = () => { EditionStore.setActive(null); setInEdition(false); };
