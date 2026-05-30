@@ -2119,7 +2119,7 @@ function Btn({ children, onClick, variant = 'primary', size = 'md', icon, style 
 function Field({ label, placeholder, value, onChange, textarea, prefix }) {
   const Tag = textarea ? 'textarea' : 'input';
   return (
-    <label style={{ display: 'block' }}>
+    <label style={{ display: 'block', minWidth: 0, width: '100%' }}>
       {label && <span style={{
         fontFamily: 'var(--pa-mono)', fontSize: 10, letterSpacing: 1.2,
         color: 'var(--pa-muted)', textTransform: 'uppercase',
@@ -2128,14 +2128,15 @@ function Field({ label, placeholder, value, onChange, textarea, prefix }) {
         marginTop: label ? 6 : 0, padding: '12px 14px', borderRadius: 12,
         background: '#fff', border: '1px solid var(--pa-line)',
         display: 'flex', alignItems: 'center', gap: 6,
+        minWidth: 0, boxSizing: 'border-box', width: '100%',
       }}>
-        {prefix && <span style={{ color: 'var(--pa-muted)', fontSize: 14 }}>{prefix}</span>}
+        {prefix && <span style={{ color: 'var(--pa-muted)', fontSize: 16, flexShrink: 0 }}>{prefix}</span>}
         <Tag value={value || ''} onChange={(e) => onChange && onChange(e.target.value)}
           placeholder={placeholder} rows={textarea ? 3 : undefined}
           style={{
-            flex: 1, border: 'none', outline: 'none',
-            background: 'transparent', resize: 'none',
-            fontFamily: 'var(--pa-body)', fontSize: 15, color: 'var(--pa-ink)',
+            flex: 1, minWidth: 0, width: '100%', border: 'none', outline: 'none',
+            background: 'transparent', resize: 'none', boxSizing: 'border-box',
+            fontFamily: 'var(--pa-body)', fontSize: 16, color: 'var(--pa-ink)',
           }} />
       </div>
     </label>
@@ -3431,7 +3432,7 @@ function ChatPanel({ me, compact = false }) {
             style={{
               width: '100%', padding: '10px 14px', borderRadius: 18,
               background: '#fff', border: '1px solid var(--pa-line)',
-              fontFamily: 'var(--pa-body)', fontSize: 13.5, color: 'var(--pa-ink)',
+              fontFamily: 'var(--pa-body)', fontSize: 16, color: 'var(--pa-ink)',
               outline: 'none', resize: 'none', boxSizing: 'border-box',
               maxHeight: 80, lineHeight: 1.4,
             }}
@@ -4778,8 +4779,8 @@ function DPhase1({ me }) {
         ))}
       </div>
 
-      {/* botões RSVP para não-admin */}
-      {!me.isAdmin && (
+      {/* botões RSVP — toda a gente responde, incluindo o admin */}
+      {(
         <div style={{ marginBottom:20, padding:16, background:'#fff', borderRadius:14, border:'1px solid var(--pa-line)' }}>
           <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:12 }}>
             A tua resposta
@@ -4795,7 +4796,7 @@ function DPhase1({ me }) {
             ))}
           </div>
           {myChoice && <div style={{ marginTop:10, fontSize:12, color:'var(--pa-muted)', textAlign:'center' }}>
-            Resposta guardada. Podes mudar até o admin fechar esta fase.
+            Resposta guardada. Podes mudar até a fase fechar.
           </div>}
         </div>
       )}
@@ -5497,10 +5498,12 @@ function DPhase7({ me }) {
   const allAvail = appData.avail || {};
   const allMembers = getAllMembers();
   const totalIn = allMembers.length;
+  const monthLabel = (D.phase6 && D.phase6.monthLabel) || 'Este mês';
+  const monthShort = monthLabel.split(' ')[0].slice(0,3);
 
   const heat = dUseMemo2(() => {
     const h = {};
-    Object.values(allAvail).forEach((arr) => { arr.forEach((d) => { h[d] = (h[d]||0) + 1; }); });
+    Object.values(allAvail).forEach((arr) => { (arr||[]).forEach((d) => { h[d] = (h[d]||0) + 1; }); });
     return h;
   }, [allAvail]);
 
@@ -5511,28 +5514,32 @@ function DPhase7({ me }) {
     return Object.entries(heat).sort((a,b) => b[1]-a[1]).slice(0,5).map(([d,n]) => ({ day:+d, count:n }));
   }, [heat]);
 
-  if (Object.keys(heat).length === 0) {
-    return (
-      <div style={{ flex:1, padding:'32px 36px', display:'flex', flexDirection:'column', overflow:'auto' }}>
-        <DPhaseHeader phase={7} status="Sem disponibilidade" statusTone="muted"
-          title={<>Ainda ninguém<br/><span style={{ color:'var(--pa-accent)' }}>marcou dias.</span></>}
-          sub="Volta à fase 6 e pede ao grupo para marcar disponibilidade." />
-        {me.isAdmin && <DAdminBar hint="Sem dados de disponibilidade." />}
-      </div>
-    );
-  }
+  const hasData = Object.keys(heat).length > 0;
+
+  // Seleção por cliques: 1º clique = início; 2º clique = fim (se depois do início).
+  const pickDay = (d) => {
+    if (!me.isAdmin) return;
+    setRange((r) => {
+      if (!r.from || (r.from && r.to)) return { from: d, to: null };       // novo início
+      if (d >= r.from) return { from: r.from, to: d };                      // fecha intervalo
+      return { from: d, to: null };                                         // antes do início → recomeça
+    });
+  };
+
+  const selFrom = range.from, selTo = range.to || range.from;
 
   return (
     <div style={{ flex:1, padding:'32px 36px', display:'flex', flexDirection:'column', overflow:'auto' }}>
       <DPhaseHeader phase={7} status={me.isAdmin ? 'Tu decides' : 'A aguardar'} statusTone={me.isAdmin?'accent':'muted'}
-        title={<>O calendário falou.<br/><span style={{ color:'var(--pa-accent)' }}>{me.isAdmin ? 'Tranca os dias.' : 'Admin está a escolher.'}</span></>}
-        sub="Quanto mais escura a célula, mais gente está disponível." />
+        title={<>O calendário falou.<br/><span style={{ color:'var(--pa-accent)' }}>{me.isAdmin ? 'Escolhe os dias.' : 'Admin está a escolher.'}</span></>}
+        sub={hasData ? 'Quanto mais escura a célula, mais gente está disponível. Clica num dia (ou clica em dois para um intervalo).' : 'Ninguém marcou disponibilidade na fase 6, mas podes escolher os dias à mesma.'} />
 
       <div style={{ display:'grid', gridTemplateColumns:'1.6fr 1fr', gap:22, alignItems:'flex-start', flex:1 }}>
         <div style={{ background:'#fff', borderRadius:18, padding:22, border:'1px solid var(--pa-line)' }}>
+          <div style={{ fontFamily:'var(--pa-mono)', fontSize:11, letterSpacing:1, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:14 }}>{monthLabel}</div>
           <Calendar renderCell={(d) => {
             const n = heat[d] || 0;
-            const inRange = range.from && range.to && d >= range.from && d <= range.to;
+            const inRange = selFrom && d >= selFrom && d <= selTo;
             const isLocked = locked && d >= locked.from && d <= locked.to;
             const intensity = totalIn > 0 ? n/totalIn : 0;
             return (
@@ -5541,13 +5548,18 @@ function DPhase7({ me }) {
                 color: isLocked||inRange ? '#fff' : 'var(--pa-ink)',
                 border: intensity===0&&!inRange&&!isLocked ? '1px solid var(--pa-line)' : 'none',
                 display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
-                cursor: me.isAdmin?'pointer':'default' }}
-                onClick={() => { if (me.isAdmin) setRange({ from:d, to:Math.min(d+2,31) }); }}>
+                cursor: me.isAdmin?'pointer':'default', transition:'background 0.12s' }}
+                onClick={() => pickDay(d)}>
                 <div style={{ fontFamily:'var(--pa-body)', fontSize:14, fontWeight:600 }}>{d}</div>
                 {n > 0 && <div style={{ fontFamily:'var(--pa-mono)', fontSize:9, marginTop:1, color: isLocked||inRange?'rgba(255,255,255,0.7)':'var(--pa-muted)', fontWeight:600 }}>{n}/{totalIn}</div>}
               </div>
             );
           }} />
+          {me.isAdmin && selFrom && !range.to && (
+            <div style={{ marginTop:12, fontSize:12, color:'var(--pa-muted)', textAlign:'center', fontFamily:'var(--pa-body)' }}>
+              Início em <strong>{selFrom}</strong>. Clica noutro dia para um intervalo, ou tranca já só esse dia.
+            </div>
+          )}
         </div>
 
         <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
@@ -5555,28 +5567,39 @@ function DPhase7({ me }) {
             <div style={{ background:'var(--pa-ink)', color:'#fff', borderRadius:16, padding:18 }}>
               <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'rgba(255,255,255,0.6)', textTransform:'uppercase' }}>Trancado 🔒</div>
               <div style={{ marginTop:6, fontFamily:'var(--pa-display)', fontSize:28, fontWeight:600, letterSpacing:-0.7 }}>
-                {locked.from}–{locked.to} Jun
+                {locked.from === locked.to ? `${locked.from} ${monthShort}` : `${locked.from}–${locked.to} ${monthShort}`}
               </div>
+              {me.isAdmin && (
+                <Btn variant="ghost" size="sm" style={{ width:'100%', marginTop:14, background:'rgba(255,255,255,0.12)', color:'#fff', border:'none' }}
+                  onClick={() => { AppStore.clearKey('locked'); setRange({ from:null, to:null }); }}>
+                  Destrancar
+                </Btn>
+              )}
             </div>
           )}
-          {!locked && range.from && (
+          {!locked && selFrom && (
             <div style={{ background:'#fff', borderRadius:16, padding:18, border:'1px solid var(--pa-line)' }}>
               <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>Seleção</div>
               <div style={{ marginTop:6, fontFamily:'var(--pa-display)', fontSize:28, fontWeight:600, letterSpacing:-0.7 }}>
-                {range.from}–{range.to}
+                {selFrom === selTo ? `${selFrom} ${monthShort}` : `${selFrom}–${selTo} ${monthShort}`}
               </div>
               {me.isAdmin && (
                 <Btn variant="accent" size="lg" style={{ width:'100%', marginTop:14 }}
-                  onClick={() => { AppStore.setLockedDates(range.from, range.to, D.phase6.monthLabel); }}>
-                  Trancar estes dias 🔒
+                  onClick={() => { AppStore.setLockedDates(selFrom, selTo, monthLabel); }}>
+                  Trancar {selFrom === selTo ? 'este dia' : 'estes dias'} 🔒
                 </Btn>
               )}
+            </div>
+          )}
+          {!locked && !selFrom && me.isAdmin && (
+            <div style={{ background:'rgba(31,26,20,0.04)', borderRadius:16, padding:18, fontFamily:'var(--pa-body)', fontSize:13, color:'var(--pa-muted)' }}>
+              Clica num dia no calendário para começar a escolher.
             </div>
           )}
 
           {ranked.length > 0 && (
             <div style={{ background:'#fff', borderRadius:16, padding:16, border:'1px solid var(--pa-line)' }}>
-              <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:10 }}>Top dias</div>
+              <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:10 }}>Dias com mais gente</div>
               {ranked.map((r) => (
                 <div key={r.day} style={{ display:'flex', alignItems:'center', gap:10, padding:'4px 0' }}>
                   <div style={{ width:32, height:28, borderRadius:6,
@@ -5598,7 +5621,6 @@ function DPhase7({ me }) {
     </div>
   );
 }
-
 // ─────────────────────────────────────────────────────────────
 // PHASE 8 — Planeamento
 // ─────────────────────────────────────────────────────────────
@@ -5764,9 +5786,9 @@ function PlanCustos({ me }) {
         <Field placeholder="Ex: Combustível, Supermercado..." value={desc} onChange={setDesc} />
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
           <Field placeholder="Valor (€)" value={amount} onChange={setAmount} prefix="€" />
-          <label style={{ display:'block' }}>
-            <div style={{ padding:'12px 14px', borderRadius:12, background:'#fff', border:'1px solid var(--pa-line)' }}>
-              <select value={payer} onChange={(e)=>setPayer(e.target.value)} style={{ width:'100%', border:'none', outline:'none', background:'transparent', fontFamily:'var(--pa-body)', fontSize:14 }}>
+          <label style={{ display:'block', minWidth:0, width:'100%' }}>
+            <div style={{ padding:'12px 14px', borderRadius:12, background:'#fff', border:'1px solid var(--pa-line)', boxSizing:'border-box', width:'100%', minWidth:0, display:'flex', alignItems:'center', height:'100%' }}>
+              <select value={payer} onChange={(e)=>setPayer(e.target.value)} style={{ width:'100%', minWidth:0, border:'none', outline:'none', background:'transparent', fontFamily:'var(--pa-body)', fontSize:16, color:'var(--pa-ink)' }}>
                 {inMembers.map(m => <option key={m.id} value={m.id}>{m.name} pagou</option>)}
               </select>
             </div>
@@ -5856,8 +5878,8 @@ function PlanItinerario({ me }) {
       <div style={{ background:'#fff', border:'1px solid var(--pa-line)', borderRadius:14, padding:16, display:'flex', flexDirection:'column', gap:10 }}>
         <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>Nova paragem</div>
         <div style={{ display:'grid', gridTemplateColumns:'auto 1fr', gap:10 }}>
-          <label style={{ padding:'12px 14px', borderRadius:12, background:'#fff', border:'1px solid var(--pa-line)', minWidth:90 }}>
-            <select value={day} onChange={(e)=>setDay(parseInt(e.target.value))} style={{ width:'100%', border:'none', outline:'none', background:'transparent', fontFamily:'var(--pa-body)', fontSize:14 }}>
+          <label style={{ padding:'12px 14px', borderRadius:12, background:'#fff', border:'1px solid var(--pa-line)', minWidth:90, boxSizing:'border-box', display:'flex', alignItems:'center' }}>
+            <select value={day} onChange={(e)=>setDay(parseInt(e.target.value))} style={{ width:'100%', minWidth:0, border:'none', outline:'none', background:'transparent', fontFamily:'var(--pa-body)', fontSize:16, color:'var(--pa-ink)' }}>
               {days.map(d => <option key={d} value={d}>Dia {d}</option>)}
             </select>
           </label>
@@ -5924,8 +5946,8 @@ function PlanAtividades({ me }) {
     <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
       <div style={{ background:'#fff', border:'1px solid var(--pa-line)', borderRadius:14, padding:16, display:'flex', gap:8 }}>
         <input value={text} onChange={(e)=>setText(e.target.value)} onKeyDown={(e)=>{ if(e.key==='Enter'){ e.preventDefault(); add(); } }}
-          placeholder="Surf ao pôr do sol, restaurante X..." style={{ flex:1, padding:'10px 14px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:14, outline:'none' }} />
-        <Btn variant="accent" onClick={add} disabled={!text.trim()}>+</Btn>
+          placeholder="Surf ao pôr do sol, restaurante X..." style={{ flex:1, minWidth:0, boxSizing:'border-box', padding:'10px 14px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:16, outline:'none' }} />
+        <Btn variant="accent" onClick={add} disabled={!text.trim()} style={{ flexShrink:0 }}>+</Btn>
       </div>
 
       {pending.length > 0 && (
@@ -6004,9 +6026,9 @@ function PlanCompras({ me }) {
     <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
       <div style={{ background:'#fff', border:'1px solid var(--pa-line)', borderRadius:14, padding:16, display:'flex', gap:8 }}>
         <input value={text} onChange={(e)=>setText(e.target.value)} onKeyDown={(e)=>{ if(e.key==='Enter'){ e.preventDefault(); add(); } }}
-          placeholder="Protetor solar..." style={{ flex:1, padding:'10px 14px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:14, outline:'none' }} />
-        <input value={qty} onChange={(e)=>setQty(e.target.value)} placeholder="Qtd" style={{ width:62, padding:'10px 8px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:14, outline:'none', textAlign:'center' }} />
-        <Btn variant="accent" onClick={add} disabled={!text.trim()}>+</Btn>
+          placeholder="Protetor solar..." style={{ flex:1, minWidth:0, boxSizing:'border-box', padding:'10px 14px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:16, outline:'none' }} />
+        <input value={qty} onChange={(e)=>setQty(e.target.value)} placeholder="Qtd" style={{ width:56, flexShrink:0, boxSizing:'border-box', padding:'10px 8px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:16, outline:'none', textAlign:'center' }} />
+        <Btn variant="accent" onClick={add} disabled={!text.trim()} style={{ flexShrink:0 }}>+</Btn>
       </div>
 
       {pending.length > 0 && (
