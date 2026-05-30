@@ -2277,6 +2277,26 @@ Object.assign(window, {
 // ============================================================
 // Perdidos Algures — Supabase Integration Layer (v2, corrigido)
 // ============================================================
+
+// Versão da app — confirma no rodapé do hub que tens a última versão.
+window.PA_VERSION = '2026.05.30-r4';
+
+// Toast simples (sem React, robusto) para feedback de erro/sucesso ao utilizador.
+window._paToast = function(msg, type) {
+  type = type || 'error';
+  try {
+    const el = document.createElement('div');
+    el.textContent = msg;
+    el.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:99999;' +
+      'background:' + (type === 'error' ? '#8a4220' : '#3d5e44') + ';color:#fff;padding:12px 18px;' +
+      'border-radius:12px;font-family:system-ui,sans-serif;font-size:14px;font-weight:600;' +
+      'box-shadow:0 8px 24px rgba(0,0,0,0.25);max-width:90%;text-align:center;opacity:0;transition:opacity .25s;';
+    document.body.appendChild(el);
+    requestAnimationFrame(() => { el.style.opacity = '1'; });
+    setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 4200);
+  } catch (e) {}
+};
+
 const { createClient } = supabase;
 const _sb = createClient(
   'https://sinhsvdzajgfnyjitqbw.supabase.co',
@@ -2615,9 +2635,13 @@ const AppStore = {
       const newData = { ...freshData, [key]: transformFn(freshData[key]) };
       this._applyNewData(ed, newData);
       const { error } = await _sb.from('editions').update({ data: newData }).eq('id', ed.id);
-      if (error) console.error('[PA AppStore] fallback erro:', key, error.message);
+      if (error) {
+        console.error('[PA AppStore] fallback erro:', key, error.message);
+        if (window._paToast) window._paToast('Não consegui guardar (' + key + '). Verifica a ligação.');
+      }
     } catch (e) {
       console.error('[PA AppStore] fallback falhou:', key, e.message);
+      if (window._paToast) window._paToast('Erro ao guardar. Tenta de novo.');
     }
   },
 
@@ -6101,6 +6125,46 @@ function MShell({ children }) {
 
 const MNavCtx = React.createContext({ onBackToHub: null, onEditProfile: null, me: null });
 
+function MPhaseNav({ phase }) {
+  const [open, setOpen] = mUseState(false);
+  const total = D.phases.length;
+  const go = (n) => { AppStore.setPhase(Math.max(1, Math.min(total, n))); AppStore.clearKey('skipVotes'); setOpen(false); };
+  return (
+    <div style={{ position:'relative', display:'flex', alignItems:'center', gap:3 }}>
+      <button onClick={() => go(phase - 1)} disabled={phase === 1} aria-label="Fase anterior"
+        style={{ width:24, height:24, borderRadius:999, border:'1px solid var(--pa-line)', background:'#fff',
+          cursor: phase===1?'default':'pointer', opacity: phase===1?0.4:1, padding:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
+        <svg width="9" height="9" viewBox="0 0 11 11"><path d="M7 2L3 5.5l4 3.5" stroke="var(--pa-ink)" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
+      </button>
+      <button onClick={() => setOpen(o=>!o)} style={{ height:24, padding:'0 8px', borderRadius:999, background:'var(--pa-ink)', color:'#fff', border:'none', fontFamily:'var(--pa-mono)', fontSize:10, fontWeight:600, cursor:'pointer', display:'inline-flex', alignItems:'center', gap:4 }}>
+        FASE {String(phase).padStart(2,'0')}/{String(total).padStart(2,'0')}
+        <svg width="8" height="5" viewBox="0 0 9 6"><path d="M1 1l3.5 3.5L8 1" stroke="#fff" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
+      </button>
+      <button onClick={() => go(phase + 1)} disabled={phase === total} aria-label="Fase seguinte"
+        style={{ width:24, height:24, borderRadius:999, border:'1px solid var(--pa-line)', background:'#fff',
+          cursor: phase===total?'default':'pointer', opacity: phase===total?0.4:1, padding:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
+        <svg width="9" height="9" viewBox="0 0 11 11"><path d="M4 2l4 3.5L4 9" stroke="var(--pa-ink)" strokeWidth="1.6" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
+      </button>
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position:'fixed', inset:0, zIndex:40 }} />
+          <div style={{ position:'absolute', top:'100%', right:0, marginTop:6, background:'#fff', borderRadius:12, padding:6, boxShadow:'0 8px 28px rgba(0,0,0,0.18)', border:'1px solid var(--pa-line)', zIndex:41, minWidth:160 }}>
+            {D.phases.map((p) => (
+              <button key={p.n} onClick={() => go(p.n)} style={{
+                width:'100%', textAlign:'left', padding:'8px 10px', borderRadius:8, border:'none', cursor:'pointer',
+                background: p.n===phase ? 'var(--pa-ink)' : 'transparent', color: p.n===phase ? '#fff' : 'var(--pa-ink)',
+                fontFamily:'var(--pa-body)', fontSize:12.5, display:'flex', gap:8, alignItems:'center' }}>
+                <span style={{ fontFamily:'var(--pa-mono)', fontSize:10, opacity:0.7 }}>{String(p.n).padStart(2,'0')}</span>
+                {p.name}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function MHeader({ phase, onLogout, onOpenChat }) {
   const nav = React.useContext(MNavCtx);
   return (
@@ -6116,7 +6180,9 @@ function MHeader({ phase, onLogout, onOpenChat }) {
         <Logo size={13} compact />
       </div>
       <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-        <Pill tone="dark" size="sm"><span style={{ fontFamily:'var(--pa-mono)' }}>FASE {String(phase).padStart(2,'0')}/{String(D.phases.length).padStart(2,'0')}</span></Pill>
+        {nav.me && nav.me.isAdmin
+          ? <MPhaseNav phase={phase} />
+          : <Pill tone="dark" size="sm"><span style={{ fontFamily:'var(--pa-mono)' }}>FASE {String(phase).padStart(2,'0')}/{String(D.phases.length).padStart(2,'0')}</span></Pill>}
         {onOpenChat && (
           <button onClick={onOpenChat} title="Chat" style={{
             width:28, height:28, borderRadius:999, background:'#fff',
@@ -6239,9 +6305,13 @@ function MPhase2({ me, onLogout, onOpenChat }) {
         title={<>Sugere até<br/><span style={{ color:'var(--pa-accent)' }}>{limit} sítios.</span></>} />
       <div style={{ padding:'6px 16px', flex:1, overflow:'auto', display:'flex', flexDirection:'column', gap:10 }}>
         {mine.map((s) => (
-          <div key={s.id} style={{ background:'#fff', borderRadius:14, padding:12, border:'1.5px solid var(--pa-accent)' }}>
-            <div style={{ fontFamily:'var(--pa-display)', fontSize:16, fontWeight:600 }}>{s.name}</div>
-            {s.city && <div style={{ fontSize:11.5, color:'var(--pa-muted)', marginTop:2 }}>{s.city}</div>}
+          <div key={s.id} style={{ background:'#fff', borderRadius:14, padding:12, border:'1.5px solid var(--pa-accent)', display:'flex', alignItems:'center', justifyContent:'space-between', gap:10 }}>
+            <div style={{ minWidth:0 }}>
+              <div style={{ fontFamily:'var(--pa-display)', fontSize:16, fontWeight:600 }}>{s.name}</div>
+              {s.city && <div style={{ fontSize:11.5, color:'var(--pa-muted)', marginTop:2 }}>{s.city}</div>}
+            </div>
+            <button onClick={() => AppStore.removeLocSuggestion(s.id)} aria-label="Remover"
+              style={{ flexShrink:0, width:30, height:30, borderRadius:30, border:'1px solid var(--pa-line)', background:'transparent', cursor:'pointer', color:'var(--pa-muted)', fontSize:15, lineHeight:1 }}>×</button>
           </div>
         ))}
 
@@ -6429,9 +6499,15 @@ function MPhase4({ me, onLogout, onOpenChat }) {
                   <Avatar member={by} size={16} />
                   <span style={{ fontSize:10.5, color:'var(--pa-muted)' }}>{mine?'tu':by.name}</span>
                 </div>
-                {s.link && (
-                  <a href={s.link} target="_blank" rel="noreferrer" style={{ fontFamily:'var(--pa-mono)', fontSize:10.5, color:'var(--pa-accent)', fontWeight:600, textDecoration:'none' }}>ver →</a>
-                )}
+                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                  {s.link && (
+                    <a href={s.link} target="_blank" rel="noreferrer" style={{ fontFamily:'var(--pa-mono)', fontSize:10.5, color:'var(--pa-accent)', fontWeight:600, textDecoration:'none' }}>ver →</a>
+                  )}
+                  {(mine || me.isAdmin) && (
+                    <button onClick={() => AppStore.removeAccSuggestion(s.id)} aria-label="Remover"
+                      style={{ border:'none', background:'transparent', cursor:'pointer', color:'var(--pa-muted)', fontSize:15, lineHeight:1, padding:0 }}>×</button>
+                  )}
+                </div>
               </div>
             </div>
           );
@@ -6959,17 +7035,18 @@ function PhaseProgressBanner({ phase, me, narrow }) {
   const appData = AppStore._cache();
 
   // Estado C: empate na fase 3 ou 5 (todos votaram mas há empate sem vencedor)
+  const _detectTie = (typeof detectTie === 'function') ? detectTie : () => null;
   const tieIn3 = (phase === 3 && !appData.locWinner) ? (() => {
     const inMembers = getInMembers(appData);
     const votes = appData.locVotes || {};
     const allVoted = inMembers.length > 0 && inMembers.every(m => votes[m.id]);
-    return allVoted && detectTie(votes, appData.locSuggs || []);
+    return allVoted && _detectTie(votes, appData.locSuggs || []);
   })() : null;
   const tieIn5 = (phase === 5 && !appData.accWinner) ? (() => {
     const inMembers = getInMembers(appData);
     const votes = appData.accVotes || {};
     const allVoted = inMembers.length > 0 && inMembers.every(m => votes[m.id]);
-    return allVoted && detectTie(votes, appData.accSuggs || []);
+    return allVoted && _detectTie(votes, appData.accSuggs || []);
   })() : null;
   const hasUnresolvedTie = tieIn3 || tieIn5;
 
@@ -7746,6 +7823,10 @@ function EditionHub({ auth, onEnterEdition, narrow }) {
             )}
           </div>
         )}
+      </div>
+
+      <div style={{ textAlign:'center', padding:'12px 0 20px', fontFamily:'var(--pa-mono)', fontSize:10, color:'var(--pa-muted)', opacity:0.6 }}>
+        Perdidos Algures · v{window.PA_VERSION || '?'}
       </div>
 
       <ProfileEditor open={profileOpen} onClose={()=>setProfileOpen(false)} auth={auth} />
