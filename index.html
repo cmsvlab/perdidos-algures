@@ -4,6 +4,13 @@
 <meta charset="utf-8" />
 <title>Perdidos Algures</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="description" content="Planeamento de viagens em grupo — decide juntos para onde, onde ficar e quando." />
+<meta name="theme-color" content="#fcf9f3" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="Perdidos Algures" />
+<link rel="manifest" href="manifest.json" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%231f1a14'/%3E%3Cpath d='M30 70 L50 28 L70 70' fill='none' stroke='%23d97757' stroke-width='8' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='50' cy='74' r='6' fill='%23d97757'/%3E%3C/svg%3E" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" />
@@ -25,10 +32,60 @@
   button, input, textarea { font-family: inherit; }
   *::-webkit-scrollbar { width: 0; height: 0; }
   *::-webkit-scrollbar-thumb { background: transparent; }
+
+  /* ── Sistema de animações ── */
+  @keyframes pa-fade-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes pa-slide-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes pa-scale-in { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+  @keyframes pa-pop { 0% { transform: scale(1); } 40% { transform: scale(1.08); } 100% { transform: scale(1); } }
+  @keyframes pa-grow-x { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+  .pa-fade { animation: pa-fade-in 0.3s ease both; }
+  .pa-slide { animation: pa-slide-up 0.34s cubic-bezier(0.16,1,0.3,1) both; }
+  .pa-scale { animation: pa-scale-in 0.26s cubic-bezier(0.16,1,0.3,1) both; }
+  .pa-pop { animation: pa-pop 0.32s ease; }
+
+  /* Entrada escalonada (stagger) para listas */
+  .pa-stagger > * { animation: pa-slide-up 0.4s cubic-bezier(0.16,1,0.3,1) both; }
+  .pa-stagger > *:nth-child(1) { animation-delay: 0.02s; }
+  .pa-stagger > *:nth-child(2) { animation-delay: 0.06s; }
+  .pa-stagger > *:nth-child(3) { animation-delay: 0.10s; }
+  .pa-stagger > *:nth-child(4) { animation-delay: 0.14s; }
+  .pa-stagger > *:nth-child(5) { animation-delay: 0.18s; }
+  .pa-stagger > *:nth-child(6) { animation-delay: 0.22s; }
+  .pa-stagger > *:nth-child(7) { animation-delay: 0.26s; }
+  .pa-stagger > *:nth-child(8) { animation-delay: 0.30s; }
+  .pa-stagger > *:nth-child(n+9) { animation-delay: 0.34s; }
+
+  /* Transições por defeito — fluidez global */
+  button { transition: transform 0.15s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.2s ease, background 0.2s ease, opacity 0.2s ease, border-color 0.2s ease; }
+  button:active:not(:disabled) { transform: scale(0.96); }
+  input, textarea, select { transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease; }
+
+  /* Cartões com hover suave */
+  .pa-card-hover { transition: transform 0.22s cubic-bezier(0.16,1,0.3,1), box-shadow 0.22s ease; }
+  .pa-card-hover:hover { transform: translateY(-3px); box-shadow: 0 12px 30px rgba(31,26,20,0.10); }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+  }
 </style>
 </head>
 <body>
-<div id="root"></div>
+<div id="root">
+  <div id="pa-boot" style="position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;background:#fcf9f3;font-family:system-ui,-apple-system,sans-serif;">
+    <div style="width:54px;height:54px;border-radius:16px;background:#1f1a14;display:flex;align-items:center;justify-content:center;animation:pa-boot-pulse 1.6s ease-in-out infinite;">
+      <svg width="30" height="30" viewBox="0 0 100 100"><path d="M30 70 L50 28 L70 70" fill="none" stroke="#d97757" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/><circle cx="50" cy="75" r="6.5" fill="#d97757"/></svg>
+    </div>
+    <div style="font-size:13px;letter-spacing:1px;color:#8a8178;text-transform:uppercase;font-weight:600;">Perdidos Algures</div>
+    <div class="pa-boot-spin" style="width:24px;height:24px;border:2.5px solid rgba(31,26,20,0.12);border-top-color:#d97757;border-radius:999px;"></div>
+  </div>
+</div>
+<style>@keyframes pa-boot-rot{to{transform:rotate(360deg)}}.pa-boot-spin{animation:pa-boot-rot 0.7s linear infinite}
+@keyframes pa-boot-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
+@keyframes pa-phase-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.pa-phase-enter{animation:pa-phase-in 0.28s cubic-bezier(0.16,1,0.3,1)}
+@media (prefers-reduced-motion: reduce){.pa-phase-enter{animation:none}.pa-boot-spin{animation-duration:1.4s}}</style>
 <!-- Supabase JS v2 -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 
@@ -2038,6 +2095,36 @@ function Avatar({ member, size = 36, ring = false, ringColor }) {
   );
 }
 
+// Mostra avatares de quem já participou (votou/sugeriu/marcou), sem revelar o quê.
+// doneIds = ids de quem já fez; allMembers = pool total.
+function VotersRow({ doneIds, allMembers, label, dark }) {
+  const done = (allMembers || []).filter(m => (doneIds || []).includes(m.id));
+  const pending = (allMembers || []).filter(m => !(doneIds || []).includes(m.id));
+  const total = (allMembers || []).length;
+  if (total === 0) return null;
+  const muted = dark ? 'rgba(255,255,255,0.6)' : 'var(--pa-muted)';
+  const ink = dark ? '#fff' : 'var(--pa-ink)';
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
+      <span style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1, color:muted, textTransform:'uppercase' }}>
+        {label || 'Já participaram'} {done.length}/{total}
+      </span>
+      <div style={{ display:'flex', alignItems:'center' }}>
+        {done.map((m, i) => (
+          <div key={m.id} title={m.name} style={{ marginLeft: i===0?0:-8, animation:'pa-scale-in 0.3s ease both', animationDelay:(i*0.04)+'s' }}>
+            <Avatar member={m} size={26} ring ringColor={dark ? 'var(--pa-ink)' : 'var(--pa-bg)'} />
+          </div>
+        ))}
+        {pending.map((m, i) => (
+          <div key={m.id} title={m.name + ' — em falta'} style={{ marginLeft:(done.length||i)?-8:0, opacity:0.34, filter:'grayscale(1)' }}>
+            <Avatar member={m} size={26} ring ringColor={dark ? 'var(--pa-ink)' : 'var(--pa-bg)'} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function Stack({ members, max = 4, size = 28, ringColor }) {
   return (
     <div style={{ display: 'inline-flex' }}>
@@ -2116,8 +2203,9 @@ function Btn({ children, onClick, variant = 'primary', size = 'md', icon, style 
   );
 }
 
-function Field({ label, placeholder, value, onChange, textarea, prefix }) {
+function Field({ label, placeholder, value, onChange, textarea, prefix, maxLength }) {
   const Tag = textarea ? 'textarea' : 'input';
+  const limit = maxLength || (textarea ? 500 : 120);
   return (
     <label style={{ display: 'block', minWidth: 0, width: '100%' }}>
       {label && <span style={{
@@ -2132,7 +2220,7 @@ function Field({ label, placeholder, value, onChange, textarea, prefix }) {
       }}>
         {prefix && <span style={{ color: 'var(--pa-muted)', fontSize: 16, flexShrink: 0 }}>{prefix}</span>}
         <Tag value={value || ''} onChange={(e) => onChange && onChange(e.target.value)}
-          placeholder={placeholder} rows={textarea ? 3 : undefined}
+          placeholder={placeholder} rows={textarea ? 3 : undefined} maxLength={limit}
           style={{
             flex: 1, minWidth: 0, width: '100%', border: 'none', outline: 'none',
             background: 'transparent', resize: 'none', boxSizing: 'border-box',
@@ -2266,7 +2354,7 @@ function MobileTopInset() {
 
 Object.assign(window, {
   D, memberById, ADMIN,
-  Avatar, Stack, Pill, Btn, Field, PhotoSlot, Logo, Calendar, MobileTopInset,
+  Avatar, VotersRow, Stack, Pill, Btn, Field, PhotoSlot, Logo, Calendar, MobileTopInset,
 });
 </script>
 <!-- ═══════════════════════════════════════════════════════════
@@ -2280,7 +2368,14 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.05.30-r4';
+window.PA_VERSION = '2026.06.01-r7';
+
+// Regista o service worker (PWA instalável + cache offline). Falha em silêncio se não suportado.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
 
 // Toast simples (sem React, robusto) para feedback de erro/sucesso ao utilizador.
 window._paToast = function(msg, type) {
@@ -2288,15 +2383,41 @@ window._paToast = function(msg, type) {
   try {
     const el = document.createElement('div');
     el.textContent = msg;
-    el.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:99999;' +
+    el.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(16px);z-index:99999;' +
       'background:' + (type === 'error' ? '#8a4220' : '#3d5e44') + ';color:#fff;padding:12px 18px;' +
       'border-radius:12px;font-family:system-ui,sans-serif;font-size:14px;font-weight:600;' +
-      'box-shadow:0 8px 24px rgba(0,0,0,0.25);max-width:90%;text-align:center;opacity:0;transition:opacity .25s;';
+      'box-shadow:0 8px 24px rgba(0,0,0,0.25);max-width:90%;text-align:center;opacity:0;' +
+      'transition:opacity .3s cubic-bezier(0.16,1,0.3,1),transform .3s cubic-bezier(0.16,1,0.3,1);';
     document.body.appendChild(el);
-    requestAnimationFrame(() => { el.style.opacity = '1'; });
-    setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 300); }, 4200);
+    requestAnimationFrame(() => { el.style.opacity = '1'; el.style.transform = 'translateX(-50%) translateY(0)'; });
+    setTimeout(() => { el.style.opacity = '0'; el.style.transform = 'translateX(-50%) translateY(16px)'; setTimeout(() => el.remove(), 320); }, 4200);
   } catch (e) {}
 };
+
+// Indicador de ligação subtil (não bloqueante): avisa quando fica sem rede
+// e confirma quando volta. Em JS puro para funcionar mesmo se o React falhar.
+(function setupConnectivityIndicator() {
+  let bar = null;
+  const show = () => {
+    if (bar) return;
+    bar = document.createElement('div');
+    bar.textContent = 'Sem ligação — as alterações podem não guardar';
+    bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99998;background:#8a4220;color:#fff;' +
+      'padding:8px 14px;font-family:system-ui,sans-serif;font-size:12.5px;font-weight:600;text-align:center;' +
+      'transform:translateY(-100%);transition:transform .3s cubic-bezier(0.16,1,0.3,1);box-shadow:0 2px 12px rgba(0,0,0,0.18);';
+    document.body.appendChild(bar);
+    requestAnimationFrame(() => { if (bar) bar.style.transform = 'translateY(0)'; });
+  };
+  const hide = (reconnected) => {
+    if (bar) { const b = bar; bar = null; b.style.transform = 'translateY(-100%)'; setTimeout(() => b.remove(), 320); }
+    if (reconnected && window._paToast) window._paToast('Ligação restabelecida', 'success');
+  };
+  try {
+    window.addEventListener('offline', show);
+    window.addEventListener('online', () => hide(true));
+    if (navigator.onLine === false) show();
+  } catch (e) {}
+})();
 
 const { createClient } = supabase;
 const _sb = createClient(
@@ -2610,8 +2731,32 @@ const AppStore = {
     const newData = { ...(ed.data || {}) };
     newData[key] = value;
     ed.data = newData;
-    const { error } = await _sb.from('editions').update({ data: newData }).eq('id', ed.id);
-    if (error) console.error('[PA AppStore] erro a guardar', key, error.message);
+    await this._updateWithRetry(ed.id, newData, key);
+  },
+
+  // Escreve no Supabase com até 3 tentativas e backoff exponencial (300ms, 600ms).
+  // Resiliente a falhas de rede transitórias; só avisa o utilizador se todas falharem.
+  async _updateWithRetry(edId, newData, key) {
+    const attempts = 3;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        const { error } = await _sb.from('editions').update({ data: newData }).eq('id', edId);
+        if (!error) return true;
+        if (i === attempts - 1) {
+          console.error('[PA AppStore] erro a guardar', key, error.message);
+          if (window._paToast) window._paToast('Não consegui guardar. Verifica a ligação.');
+          return false;
+        }
+      } catch (e) {
+        if (i === attempts - 1) {
+          console.error('[PA AppStore] exceção a guardar', key, e.message);
+          if (window._paToast) window._paToast('Não consegui guardar. Verifica a ligação.');
+          return false;
+        }
+      }
+      await new Promise(r => setTimeout(r, 300 * Math.pow(2, i)));
+    }
+    return false;
   },
 
   // Sincroniza o cache local a partir de novos dados da edição
@@ -2635,11 +2780,7 @@ const AppStore = {
       const freshData = (fresh && fresh.data) || {};
       const newData = { ...freshData, [key]: transformFn(freshData[key]) };
       this._applyNewData(ed, newData);
-      const { error } = await _sb.from('editions').update({ data: newData }).eq('id', ed.id);
-      if (error) {
-        console.error('[PA AppStore] fallback erro:', key, error.message);
-        if (window._paToast) window._paToast('Não consegui guardar (' + key + '). Verifica a ligação.');
-      }
+      await this._updateWithRetry(ed.id, newData, key);
     } catch (e) {
       console.error('[PA AppStore] fallback falhou:', key, e.message);
       if (window._paToast) window._paToast('Erro ao guardar. Tenta de novo.');
@@ -3359,6 +3500,13 @@ function ChatPanel({ me, compact = false }) {
         flex: 1, overflow: 'auto', padding: compact ? '6px 14px' : '8px 4px',
         display: 'flex', flexDirection: 'column', gap: 12,
       }}>
+        {messages.length === 0 && (
+          <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', textAlign:'center', padding:'24px 16px', color:'var(--pa-muted)' }}>
+            <div style={{ fontSize:26, marginBottom:8, opacity:0.5 }}>💬</div>
+            <div style={{ fontFamily:'var(--pa-body)', fontSize:13.5, fontWeight:600, color:'var(--pa-ink)' }}>Ainda sem mensagens</div>
+            <div style={{ fontFamily:'var(--pa-body)', fontSize:12, marginTop:2 }}>Sê o primeiro a dizer algo ao grupo.</div>
+          </div>
+        )}
         {messages.map((m) => {
           const author = memberById(m.who) || { name: m.who, color: 'var(--pa-muted)', initials: '?' };
           const mine = m.who === me.id;
@@ -3427,7 +3575,7 @@ function ChatPanel({ me, compact = false }) {
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={onKey}
-            placeholder="Escreve algo..."
+            placeholder="Escreve algo..." maxLength={500}
             rows={1}
             style={{
               width: '100%', padding: '10px 14px', borderRadius: 18,
@@ -5023,6 +5171,10 @@ function DPhase3({ me }) {
         title={<>Vota no teu<br/><span style={{ color:'var(--pa-accent)' }}>sítio favorito.</span></>}
         sub="Voto secreto. Um por pessoa." />
 
+      <div style={{ marginBottom:18 }}>
+        <VotersRow doneIds={Object.keys(votes)} allMembers={inMembers} label="Já votaram" />
+      </div>
+
       <div style={{ display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:14, marginBottom:8 }}>
         {suggestions.map((s) => {
           const by = memberById(s.by) || { name:s.by, color:'var(--pa-muted)', initials:'?' };
@@ -5324,6 +5476,12 @@ function DPhase5({ me }) {
         sub={winner ? `${winner.price}€/noite · sugerido por ${memberById(winner.by)?.name || winner.by}`
           : 'Voto secreto. Cada um vota num alojamento.'} />
 
+      {!winner && (
+        <div style={{ marginBottom:18 }}>
+          <VotersRow doneIds={Object.keys(votes)} allMembers={inMembers} label="Já votaram" />
+        </div>
+      )}
+
       {winner && (
         <div style={{ background:'var(--pa-ink)', color:'#fff', borderRadius:16, padding:20, marginBottom:20, display:'flex', alignItems:'center', gap:18 }}>
           <div style={{ width:56, height:56, borderRadius:12, flexShrink:0,
@@ -5478,7 +5636,7 @@ function DPhase6({ me }) {
 
           <Btn variant="accent" size="lg" style={{ width:'100%' }} onClick={() => {
             AppStore.setAvailability(me.id, days);
-            alert('Disponibilidade guardada!');
+            if (window._paToast) window._paToast('Disponibilidade guardada!', 'success');
           }}>Guardar disponibilidade</Btn>
         </div>
       </div>
@@ -5608,7 +5766,7 @@ function DPhase7({ me }) {
                     display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>{r.day}</div>
                   <div style={{ flex:1 }}>
                     <div style={{ height:4, borderRadius:4, background:'rgba(31,26,20,0.06)' }}>
-                      <div style={{ width:`${(r.count/totalIn)*100}%`, height:'100%', background:'var(--pa-accent)', borderRadius:4 }} />
+                      <div style={{ width:`${(r.count/totalIn)*100}%`, height:'100%', background:'var(--pa-accent)', borderRadius:4, transition:'width .5s cubic-bezier(0.16,1,0.3,1)' }} />
                     </div>
                   </div>
                   <span style={{ fontFamily:'var(--pa-mono)', fontSize:11, color:'var(--pa-ink)', fontWeight:600 }}>{r.count}/{totalIn}</span>
@@ -5728,28 +5886,139 @@ function PlanEstadia({ appData }) {
 // ─────────────────────────────────────────────────────────────
 // PlanCustos — registo de despesas + divisão equitativa
 // ─────────────────────────────────────────────────────────────
+// ── Splitwise: funções de cálculo de divisão de despesas ──
+// Converte texto em número aceitando vírgula decimal (formato PT: "33,50" → 33.5)
+function paNum(v) {
+  if (typeof v === 'number') return isNaN(v) ? 0 : v;
+  const n = parseFloat(String(v == null ? '' : v).replace(',', '.'));
+  return isNaN(n) ? 0 : n;
+}
+function expenseShares(exp, members) {
+  const amount = paNum(exp.amount);
+  const mode = exp.splitMode || 'equal';
+  const ids = members.map(m => m.id);
+  let among = (exp.splitAmong && exp.splitAmong.length) ? exp.splitAmong.filter(id => ids.includes(id)) : ids.slice();
+  if (among.length === 0) among = ids.slice();
+  const shares = {};
+  if (among.length === 0) return shares; // sem membros → nada a dividir (evita divisão por zero)
+  if (mode === 'custom' && exp.splitCustom) {
+    among.forEach(id => { shares[id] = paNum(exp.splitCustom[id]); });
+  } else {
+    // 'equal' e 'some' dividem igualmente entre os participantes escolhidos
+    const per = amount / among.length;
+    among.forEach(id => { shares[id] = per; });
+  }
+  return shares;
+}
+
+// Saldo líquido de cada membro (positivo = tem a receber; negativo = deve)
+function computeBalances(breakdown, members) {
+  const bal = {};
+  members.forEach(m => { bal[m.id] = 0; });
+  (breakdown || []).forEach(exp => {
+    const amount = paNum(exp.amount);
+    if (bal[exp.paidBy] !== undefined) bal[exp.paidBy] += amount;
+    const shares = expenseShares(exp, members);
+    Object.entries(shares).forEach(([id, owed]) => { if (bal[id] !== undefined) bal[id] -= owed; });
+  });
+  // arredonda a cêntimos
+  Object.keys(bal).forEach(id => { bal[id] = Math.round(bal[id] * 100) / 100; });
+  // Corrige o resíduo de arredondamento para os saldos somarem EXATAMENTE 0
+  // (caso contrário alguém perderia/ganharia 1-2 cêntimos no acerto de contas).
+  const ids = Object.keys(bal);
+  if (ids.length) {
+    const residual = Math.round(ids.reduce((s, id) => s + bal[id], 0) * 100) / 100;
+    if (Math.abs(residual) >= 0.01) {
+      // Absorve o resíduo no maior saldo em valor absoluto
+      let target = ids[0];
+      ids.forEach(id => { if (Math.abs(bal[id]) > Math.abs(bal[target])) target = id; });
+      bal[target] = Math.round((bal[target] - residual) * 100) / 100;
+    }
+  }
+  return bal;
+}
+
+// Minimiza o número de transferências para acertar as contas (greedy)
+function simplifyDebts(balances) {
+  const creditors = [], debtors = [];
+  Object.entries(balances).forEach(([id, b]) => {
+    if (b > 0.01) creditors.push({ id, amount: b });
+    else if (b < -0.01) debtors.push({ id, amount: -b });
+  });
+  creditors.sort((a,b) => b.amount - a.amount);
+  debtors.sort((a,b) => b.amount - a.amount);
+  const tx = [];
+  let i = 0, j = 0;
+  while (i < debtors.length && j < creditors.length) {
+    const d = debtors[i], c = creditors[j];
+    const pay = Math.round(Math.min(d.amount, c.amount) * 100) / 100;
+    if (pay > 0) tx.push({ from: d.id, to: c.id, amount: pay });
+    d.amount = Math.round((d.amount - pay) * 100) / 100;
+    c.amount = Math.round((c.amount - pay) * 100) / 100;
+    if (d.amount <= 0.01) i++;
+    if (c.amount <= 0.01) j++;
+  }
+  return tx;
+}
+
 function PlanCustos({ me }) {
   const appData = useAppStore();
-  const plan = appData.planData || { costs:{ breakdown:[], paid:{} } };
-  const breakdown = plan.costs?.breakdown || [];
+  const plan = appData.planData || {};
+  const costs = plan.costs || {};
+  const breakdown = costs.breakdown || [];
   const inMembers = (typeof getInMembers === 'function') ? getInMembers(appData) : [];
-  const peopleCount = Math.max(inMembers.length, 1);
+  const accWinner = appData.accWinner;
+  const accSuggs = appData.accSuggs || [];
+  const winnerAcc = accSuggs.find(a => a.id === accWinner);
 
+  const [open, setOpen] = React.useState(false);
   const [desc, setDesc] = React.useState('');
   const [amount, setAmount] = React.useState('');
   const [payer, setPayer] = React.useState(me?.id || '');
+  const [splitMode, setSplitMode] = React.useState('equal');
+  const [among, setAmong] = React.useState(inMembers.map(m => m.id));
+  const [custom, setCustom] = React.useState({});
 
-  React.useEffect(() => { if (!payer && me?.id) setPayer(me.id); }, [me?.id]);
+  // Garante que o pagador é sempre um membro válido (evita créditos perdidos
+  // se o pagador não estiver entre os participantes, p.ex. admin sem RSVP 'in').
+  React.useEffect(() => {
+    if (inMembers.length && !inMembers.some(m => m.id === payer)) {
+      setPayer(inMembers.some(m => m.id === me?.id) ? me.id : inMembers[0].id);
+    }
+    // eslint-disable-next-line
+  }, [inMembers.length, payer]);
+  React.useEffect(() => { if (among.length === 0) setAmong(inMembers.map(m => m.id)); /* eslint-disable-next-line */ }, [inMembers.length]);
 
-  const total = breakdown.reduce((s, e) => s + (parseFloat(e.amount) || 0), 0);
-  const perPerson = total / peopleCount;
+  const total = breakdown.reduce((s, e) => s + paNum(e.amount), 0);
+  // Inclui no cálculo todos os que pagaram ou participam numa despesa, mesmo que já
+  // não estejam 'in' — para ninguém perder reembolsos por ter mudado o RSVP.
+  const involvedIds = new Set(inMembers.map(m => m.id));
+  breakdown.forEach(e => {
+    if (e.paidBy) involvedIds.add(e.paidBy);
+    (e.splitAmong || []).forEach(id => involvedIds.add(id));
+  });
+  const calcMembers = Array.from(involvedIds).map(id => memberById(id)).filter(Boolean);
+  const balances = computeBalances(breakdown, calcMembers);
+  const settlements = simplifyDebts(balances);
+
+  const resetForm = () => { setDesc(''); setAmount(''); setSplitMode('equal'); setAmong(inMembers.map(m=>m.id)); setCustom({}); };
 
   const addExpense = async () => {
-    const v = parseFloat(amount);
+    const v = paNum(amount);
     if (!desc.trim() || !v || v <= 0) return;
-    const newE = { id:'exp_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6), desc:desc.trim(), amount:v, paidBy:payer || me.id, at:Date.now() };
-    await AppStore.updatePlanning(p => ({ ...p, costs:{ ...(p.costs||{}), breakdown:[...((p.costs&&p.costs.breakdown)||[]), newE] } }));
-    setDesc(''); setAmount('');
+    // 'equal' e 'custom' usam todos os membros; só 'some' usa a seleção
+    let finalAmong = splitMode === 'some' ? among : inMembers.map(m=>m.id);
+    if (finalAmong.length === 0) finalAmong = inMembers.map(m=>m.id);
+    const exp = {
+      id: 'exp_' + Date.now().toString(36) + Math.random().toString(36).slice(2,6),
+      desc: desc.trim(), amount: v, paidBy: payer || me.id,
+      splitMode, splitAmong: finalAmong,
+      splitCustom: splitMode === 'custom' ? { ...custom } : undefined,
+      at: Date.now(),
+    };
+    await AppStore.updatePlanning(p => ({ ...p, costs:{ ...(p.costs||{}), breakdown:[...((p.costs&&p.costs.breakdown)||[]), exp] } }));
+    resetForm(); setOpen(false);
+    if (window._paToast) window._paToast('Despesa adicionada!', 'success');
   };
 
   const remove = async (id) => {
@@ -5757,62 +6026,141 @@ function PlanCustos({ me }) {
     await AppStore.updatePlanning(p => ({ ...p, costs:{ ...(p.costs||{}), breakdown:((p.costs&&p.costs.breakdown)||[]).filter(e=>e.id!==id) } }));
   };
 
-  // Saldo por pessoa: pagou - quota
-  const paidByPerson = {};
-  inMembers.forEach(m => { paidByPerson[m.id] = 0; });
-  breakdown.forEach(e => { if (paidByPerson[e.paidBy] !== undefined) paidByPerson[e.paidBy] += parseFloat(e.amount)||0; });
-  const balances = inMembers.map(m => ({ member:m, paid:paidByPerson[m.id], owes: paidByPerson[m.id] - perPerson }));
+  // Atalho: criar despesa do alojamento vencedor
+  const addAccommodation = () => {
+    setOpen(true);
+    setDesc(winnerAcc ? ('Alojamento — ' + (winnerAcc.area || winnerAcc.type || 'Airbnb')) : 'Alojamento (Airbnb)');
+    setSplitMode('equal'); setAmong(inMembers.map(m=>m.id));
+  };
+
+  const toggleAmong = (id) => setAmong(a => a.includes(id) ? a.filter(x=>x!==id) : [...a, id]);
+  const customTotal = Object.values(custom).reduce((s,v)=>s+paNum(v),0);
+  const customOk = splitMode !== 'custom' || Math.abs(customTotal - paNum(amount)) < 0.01;
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(140px, 1fr))', gap:10 }}>
+      {/* Resumo */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
         <div style={{ background:'#fff', border:'1px solid var(--pa-line)', borderRadius:14, padding:'14px 16px' }}>
-          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>Total</div>
+          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>Total do grupo</div>
           <div style={{ fontFamily:'var(--pa-display)', fontSize:24, fontWeight:600, marginTop:4 }}>{total.toFixed(2)}€</div>
         </div>
         <div style={{ background:'#fff', border:'1px solid var(--pa-line)', borderRadius:14, padding:'14px 16px' }}>
-          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>Por pessoa</div>
-          <div style={{ fontFamily:'var(--pa-display)', fontSize:24, fontWeight:600, marginTop:4 }}>{perPerson.toFixed(2)}€</div>
-        </div>
-        <div style={{ background:'#fff', border:'1px solid var(--pa-line)', borderRadius:14, padding:'14px 16px' }}>
-          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>Pessoas</div>
-          <div style={{ fontFamily:'var(--pa-display)', fontSize:24, fontWeight:600, marginTop:4 }}>{peopleCount}</div>
+          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>Despesas</div>
+          <div style={{ fontFamily:'var(--pa-display)', fontSize:24, fontWeight:600, marginTop:4 }}>{breakdown.length}</div>
         </div>
       </div>
 
-      {/* Form */}
-      <div style={{ background:'#fff', border:'1px solid var(--pa-line)', borderRadius:14, padding:16, display:'flex', flexDirection:'column', gap:10 }}>
-        <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>Nova despesa</div>
-        <Field placeholder="Ex: Combustível, Supermercado..." value={desc} onChange={setDesc} />
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
-          <Field placeholder="Valor (€)" value={amount} onChange={setAmount} prefix="€" />
-          <label style={{ display:'block', minWidth:0, width:'100%' }}>
-            <div style={{ padding:'12px 14px', borderRadius:12, background:'#fff', border:'1px solid var(--pa-line)', boxSizing:'border-box', width:'100%', minWidth:0, display:'flex', alignItems:'center', height:'100%' }}>
+      {/* Atalhos / adicionar */}
+      {!open && (
+        <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+          <Btn variant="accent" onClick={()=>{ resetForm(); setOpen(true); }} style={{ flex:1 }}>+ Nova despesa</Btn>
+          <Btn variant="soft" onClick={addAccommodation} style={{ flex:1 }}>🏠 Alojamento</Btn>
+        </div>
+      )}
+
+      {/* Form de despesa (Splitwise) */}
+      {open && (
+        <div className="pa-scale" style={{ background:'#fff', border:'1px solid var(--pa-line)', borderRadius:14, padding:16, display:'flex', flexDirection:'column', gap:12 }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+            <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>Nova despesa</div>
+            <button onClick={()=>{ setOpen(false); resetForm(); }} style={{ border:'none', background:'transparent', cursor:'pointer', color:'var(--pa-muted)', fontSize:18, padding:0 }}>×</button>
+          </div>
+          <Field placeholder="Ex: Combustível, Supermercado, Airbnb..." value={desc} onChange={setDesc} />
+          <Field placeholder="Valor total (€)" value={amount} onChange={setAmount} prefix="€" />
+
+          <div>
+            <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:6 }}>Quem pagou</div>
+            <div style={{ padding:'12px 14px', borderRadius:12, background:'#fff', border:'1px solid var(--pa-line)', display:'flex', alignItems:'center' }}>
               <select value={payer} onChange={(e)=>setPayer(e.target.value)} style={{ width:'100%', minWidth:0, border:'none', outline:'none', background:'transparent', fontFamily:'var(--pa-body)', fontSize:16, color:'var(--pa-ink)' }}>
-                {inMembers.map(m => <option key={m.id} value={m.id}>{m.name} pagou</option>)}
+                {inMembers.map(m => <option key={m.id} value={m.id}>{m.id===me?.id ? 'Eu ('+m.name+')' : m.name}</option>)}
               </select>
             </div>
-          </label>
+          </div>
+
+          <div>
+            <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:6 }}>Como dividir</div>
+            <div style={{ display:'flex', gap:6 }}>
+              {[{k:'equal',l:'Igual (todos)'},{k:'some',l:'Só alguns'},{k:'custom',l:'Valores'}].map(o => (
+                <button key={o.k} onClick={()=>{ setSplitMode(o.k); if (o.k==='some') setAmong(inMembers.map(m=>m.id)); }} style={{
+                  flex:1, padding:'9px 6px', borderRadius:10, cursor:'pointer', fontFamily:'var(--pa-body)', fontSize:12.5, fontWeight:600,
+                  background: splitMode===o.k ? 'var(--pa-ink)' : '#fff', color: splitMode===o.k ? '#fff':'var(--pa-ink)',
+                  border: splitMode===o.k ? 'none':'1px solid var(--pa-line)' }}>{o.l}</button>
+              ))}
+            </div>
+          </div>
+
+          {/* Seleção de participantes (some) */}
+          {splitMode === 'some' && (
+            <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+              {inMembers.map(m => (
+                <button key={m.id} onClick={()=>toggleAmong(m.id)} style={{
+                  display:'flex', alignItems:'center', gap:10, padding:'8px 12px', borderRadius:10, cursor:'pointer', textAlign:'left',
+                  background: among.includes(m.id) ? 'rgba(217,119,87,0.10)' : '#fff', border:'1px solid '+(among.includes(m.id)?'var(--pa-accent)':'var(--pa-line)') }}>
+                  <Avatar member={m} size={26} />
+                  <span style={{ flex:1, fontFamily:'var(--pa-body)', fontSize:13, fontWeight:600 }}>{m.name}</span>
+                  <span style={{ fontSize:14 }}>{among.includes(m.id) ? '✓' : ''}</span>
+                </button>
+              ))}
+              {paNum(amount)>0 && among.length>0 && (
+                <div style={{ fontSize:11.5, color:'var(--pa-muted)', textAlign:'center' }}>{(paNum(amount)/among.length).toFixed(2)}€ por pessoa ({among.length})</div>
+              )}
+            </div>
+          )}
+
+          {/* Valores personalizados (custom) */}
+          {splitMode === 'custom' && (
+            <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+              {inMembers.map(m => (
+                <div key={m.id} style={{ display:'flex', alignItems:'center', gap:10 }}>
+                  <Avatar member={m} size={26} />
+                  <span style={{ flex:1, fontFamily:'var(--pa-body)', fontSize:13, fontWeight:600 }}>{m.name}</span>
+                  <div style={{ width:110, padding:'8px 10px', borderRadius:10, background:'#fff', border:'1px solid var(--pa-line)', display:'flex', alignItems:'center', gap:4 }}>
+                    <span style={{ color:'var(--pa-muted)', fontSize:14 }}>€</span>
+                    <input value={custom[m.id]||''} onChange={(e)=>setCustom(c=>({...c,[m.id]:e.target.value}))} placeholder="0" inputMode="decimal" maxLength={8}
+                      style={{ width:'100%', minWidth:0, border:'none', outline:'none', background:'transparent', fontFamily:'var(--pa-body)', fontSize:16 }} />
+                  </div>
+                </div>
+              ))}
+              <div style={{ fontSize:11.5, textAlign:'center', color: customOk ? 'var(--pa-muted)' : '#8a4220', fontWeight:600 }}>
+                Soma: {customTotal.toFixed(2)}€ / {paNum(amount).toFixed(2)}€ {customOk ? '✓' : '(tem de bater certo)'}
+              </div>
+            </div>
+          )}
+
+          <Btn variant="accent" onClick={addExpense} disabled={!desc.trim() || !(paNum(amount)>0) || !customOk}>Adicionar despesa</Btn>
         </div>
-        <Btn variant="accent" onClick={addExpense} disabled={!desc.trim() || !(parseFloat(amount)>0)}>+ Adicionar</Btn>
-      </div>
+      )}
+
+      {/* Estado vazio */}
+      {breakdown.length === 0 && !open && (
+        <div style={{ textAlign:'center', padding:'24px 16px', color:'var(--pa-muted)' }}>
+          <div style={{ fontSize:28, marginBottom:8, opacity:0.5 }}>🧾</div>
+          <div style={{ fontFamily:'var(--pa-body)', fontSize:13.5, fontWeight:600, color:'var(--pa-ink)' }}>Ainda sem despesas</div>
+          <div style={{ fontFamily:'var(--pa-body)', fontSize:12, marginTop:2, lineHeight:1.5, maxWidth:300, margin:'2px auto 0' }}>
+            Adiciona o alojamento, combustível, jantares... e a app divide tudo e diz quem paga a quem.
+          </div>
+        </div>
+      )}
 
       {/* Lista de despesas */}
       {breakdown.length > 0 && (
-        <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>Despesas ({breakdown.length})</div>
+        <div className="pa-stagger" style={{ display:'flex', flexDirection:'column', gap:8 }}>
           {breakdown.slice().reverse().map(e => {
             const by = memberById(e.paidBy);
+            const shares = expenseShares(e, inMembers);
+            const nShare = Object.keys(shares).length;
+            const modeLabel = e.splitMode === 'custom' ? 'valores' : (e.splitMode === 'some' ? nShare+' pessoas' : 'todos');
             return (
               <div key={e.id} style={{ background:'#fff', border:'1px solid var(--pa-line)', borderRadius:12, padding:'10px 14px', display:'flex', alignItems:'center', gap:12 }}>
-                <Avatar member={by || {initials:'?',color:'var(--pa-muted)'}} size={28} />
+                <Avatar member={by || {initials:'?',color:'var(--pa-muted)'}} size={30} />
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ fontFamily:'var(--pa-body)', fontSize:13.5, fontWeight:600, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{e.desc}</div>
-                  <div style={{ fontFamily:'var(--pa-mono)', fontSize:10.5, color:'var(--pa-muted)' }}>{by?.name || '?'} pagou</div>
+                  <div style={{ fontFamily:'var(--pa-mono)', fontSize:10.5, color:'var(--pa-muted)' }}>{by?.name || '?'} pagou · dividido por {modeLabel}</div>
                 </div>
-                <div style={{ fontFamily:'var(--pa-display)', fontSize:16, fontWeight:600 }}>{parseFloat(e.amount).toFixed(2)}€</div>
+                <div style={{ fontFamily:'var(--pa-display)', fontSize:16, fontWeight:600 }}>{paNum(e.amount).toFixed(2)}€</div>
                 {(me?.isAdmin || e.paidBy === me?.id) && (
-                  <button onClick={()=>remove(e.id)} style={{ width:24, height:24, border:'none', background:'transparent', cursor:'pointer', color:'var(--pa-muted)', fontSize:16, padding:0 }}>×</button>
+                  <button onClick={()=>remove(e.id)} aria-label="Apagar" style={{ width:24, height:24, border:'none', background:'transparent', cursor:'pointer', color:'var(--pa-muted)', fontSize:16, padding:0 }}>×</button>
                 )}
               </div>
             );
@@ -5820,29 +6168,42 @@ function PlanCustos({ me }) {
         </div>
       )}
 
-      {/* Saldos */}
-      {balances.length > 0 && total > 0 && (
+      {/* Acerto de contas (settlement) */}
+      {settlements.length > 0 && (
         <div style={{ background:'var(--pa-ink)', color:'#fff', borderRadius:14, padding:16 }}>
-          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, opacity:0.6, textTransform:'uppercase', marginBottom:10 }}>Saldos</div>
-          <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-            {balances.map(b => (
-              <div key={b.member.id} style={{ display:'flex', alignItems:'center', gap:10 }}>
-                <Avatar member={b.member} size={26} ringColor="var(--pa-ink)" />
-                <div style={{ flex:1, fontFamily:'var(--pa-body)', fontSize:13, fontWeight:600 }}>{b.member.name}</div>
-                <div style={{ fontFamily:'var(--pa-display)', fontSize:14, fontWeight:600, color: b.owes >= 0 ? '#a3d9a5' : '#ffa07a' }}>
-                  {b.owes >= 0 ? '+' : ''}{b.owes.toFixed(2)}€
+          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, opacity:0.6, textTransform:'uppercase', marginBottom:12 }}>Acertar contas</div>
+          <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+            {settlements.map((t, i) => {
+              const from = memberById(t.from), to = memberById(t.to);
+              return (
+                <div key={i} style={{ background:'rgba(255,255,255,0.07)', borderRadius:12, padding:'10px 12px' }}>
+                  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                    <Avatar member={from||{initials:'?'}} size={24} ringColor="var(--pa-ink)" />
+                    <span style={{ fontFamily:'var(--pa-body)', fontSize:13, fontWeight:600 }}>{from?.name||'?'}</span>
+                    <svg width="16" height="10" viewBox="0 0 16 10" style={{ opacity:0.6 }}><path d="M1 5h13M10 1l4 4-4 4" stroke="#fff" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                    <Avatar member={to||{initials:'?'}} size={24} ringColor="var(--pa-ink)" />
+                    <span style={{ fontFamily:'var(--pa-body)', fontSize:13, fontWeight:600, flex:1 }}>{to?.name||'?'}</span>
+                    <span style={{ fontFamily:'var(--pa-display)', fontSize:16, fontWeight:700, color:'#ffb89c' }}>{t.amount.toFixed(2)}€</span>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
-          <div style={{ fontSize:11, opacity:0.6, marginTop:10, lineHeight:1.4 }}>
-            Verde = recebe · Vermelho = deve
+          <div style={{ fontSize:11, opacity:0.55, marginTop:12, lineHeight:1.4 }}>
+            Transferências mínimas para todos ficarem quites.
           </div>
+        </div>
+      )}
+
+      {total > 0 && settlements.length === 0 && (
+        <div style={{ background:'rgba(107,142,111,0.15)', borderRadius:14, padding:16, textAlign:'center', fontFamily:'var(--pa-body)', fontSize:13.5, fontWeight:600, color:'#3d5e44' }}>
+          ✓ Está tudo acertado — ninguém deve nada.
         </div>
       )}
     </div>
   );
 }
+
 
 // ─────────────────────────────────────────────────────────────
 // PlanItinerario — paragens/atividades organizadas por dia
@@ -5946,7 +6307,7 @@ function PlanAtividades({ me }) {
     <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
       <div style={{ background:'#fff', border:'1px solid var(--pa-line)', borderRadius:14, padding:16, display:'flex', gap:8 }}>
         <input value={text} onChange={(e)=>setText(e.target.value)} onKeyDown={(e)=>{ if(e.key==='Enter'){ e.preventDefault(); add(); } }}
-          placeholder="Surf ao pôr do sol, restaurante X..." style={{ flex:1, minWidth:0, boxSizing:'border-box', padding:'10px 14px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:16, outline:'none' }} />
+          placeholder="Surf ao pôr do sol, restaurante X..." maxLength={100} style={{ flex:1, minWidth:0, boxSizing:'border-box', padding:'10px 14px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:16, outline:'none' }} />
         <Btn variant="accent" onClick={add} disabled={!text.trim()} style={{ flexShrink:0 }}>+</Btn>
       </div>
 
@@ -6026,8 +6387,8 @@ function PlanCompras({ me }) {
     <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
       <div style={{ background:'#fff', border:'1px solid var(--pa-line)', borderRadius:14, padding:16, display:'flex', gap:8 }}>
         <input value={text} onChange={(e)=>setText(e.target.value)} onKeyDown={(e)=>{ if(e.key==='Enter'){ e.preventDefault(); add(); } }}
-          placeholder="Protetor solar..." style={{ flex:1, minWidth:0, boxSizing:'border-box', padding:'10px 14px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:16, outline:'none' }} />
-        <input value={qty} onChange={(e)=>setQty(e.target.value)} placeholder="Qtd" style={{ width:56, flexShrink:0, boxSizing:'border-box', padding:'10px 8px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:16, outline:'none', textAlign:'center' }} />
+          placeholder="Protetor solar..." maxLength={100} style={{ flex:1, minWidth:0, boxSizing:'border-box', padding:'10px 14px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:16, outline:'none' }} />
+        <input value={qty} onChange={(e)=>setQty(e.target.value)} placeholder="Qtd" maxLength={8} style={{ width:56, flexShrink:0, boxSizing:'border-box', padding:'10px 8px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:16, outline:'none', textAlign:'center' }} />
         <Btn variant="accent" onClick={add} disabled={!text.trim()} style={{ flexShrink:0 }}>+</Btn>
       </div>
 
@@ -6109,7 +6470,9 @@ function DesktopShell({ viewAs = 'admin', phase: initialPhase, liveUser, onLogou
         <div style={{ flex:1, display:'flex', overflow:'hidden' }}>
           <DLeftRail phase={phase} me={me} />
           <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', background:'#fcf9f3' }}>
-            <PhaseView me={me} />
+            <div key={phase} className="pa-phase-enter" style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
+              <PhaseView me={me} />
+            </div>
             {initialPhase === undefined && (
               <div style={{ padding:'12px 36px 16px', background:'#fcf9f3', borderTop:'1px solid var(--pa-line)' }}>
                 <PhaseProgressBanner phase={phase} me={me} />
@@ -6354,10 +6717,10 @@ function MPhase2({ me, onLogout, onOpenChat }) {
 
         {adding && (
           <div style={{ background:'#fff', borderRadius:14, padding:16, border:'2px solid var(--pa-accent)' }}>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nome do sítio"
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nome do sítio" maxLength={80}
               style={{ width:'100%', padding:'10px 12px', borderRadius:10, border:'1px solid var(--pa-line)',
                 fontFamily:'var(--pa-body)', fontSize:14, outline:'none', boxSizing:'border-box', marginBottom:8 }} />
-            <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Cidade, País"
+            <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Cidade, País" maxLength={80}
               style={{ width:'100%', padding:'10px 12px', borderRadius:10, border:'1px solid var(--pa-line)',
                 fontFamily:'var(--pa-body)', fontSize:14, outline:'none', boxSizing:'border-box', marginBottom:12 }} />
             <div style={{ display:'flex', gap:8 }}>
@@ -6428,6 +6791,7 @@ function MPhase3({ me, onLogout, onOpenChat }) {
       <MHeader phase={3} onLogout={onLogout} onOpenChat={onOpenChat} />
       <MPhaseTitle kicker="Voto secreto" title={<>Onde queres<br/><span style={{ color:'var(--pa-accent)' }}>passar este?</span></>} />
       <div style={{ padding:'6px 16px 14px', flex:1, overflow:'auto', display:'flex', flexDirection:'column', gap:10 }}>
+        <VotersRow doneIds={Object.keys(votes)} allMembers={inMembers} label="Já votaram" />
         {suggestions.map((s) => {
           const sel = vote === s.id;
           const by = memberById(s.by) || { name:s.by, initials:'?' };
@@ -6607,6 +6971,7 @@ function MPhase5({ me, onLogout, onOpenChat }) {
         sub="Um por pessoa, secreto até fechar." />
 
       <div style={{ padding:'6px 16px 14px', flex:1, overflow:'auto', display:'flex', flexDirection:'column', gap:10 }}>
+        {!appData.accWinner && <VotersRow doneIds={Object.keys(votes)} allMembers={inMembers} label="Já votaram" />}
         {suggestions.map((s) => {
           const sel = vote === s.id;
           return (
@@ -6674,7 +7039,7 @@ function MPhase6({ me, onLogout, onOpenChat }) {
             );
           }} />
         </div>
-        <button onClick={() => { AppStore.setAvailability(me.id, days); alert('Guardado!'); }}
+        <button onClick={() => { AppStore.setAvailability(me.id, days); if (window._paToast) window._paToast('Disponibilidade guardada!', 'success'); }}
           style={{ marginTop:16, width:'100%', padding:'14px', borderRadius:999, border:'none',
             background:'var(--pa-accent)', color:'#fff', cursor:'pointer',
             fontFamily:'var(--pa-body)', fontSize:14, fontWeight:600 }}>
@@ -6841,7 +7206,9 @@ function MobileApp({ viewAs = 'member', liveUser, onLogout, phase: initialPhase,
     <MNavCtx.Provider value={{ onBackToHub, onEditProfile, me }}>
       <div style={{ position:'relative', width:'100%', height:'100%', display:'flex', flexDirection:'column' }}>
         <div style={{ flex:1, overflow:'hidden', position:'relative' }}>
-          <View me={me} onLogout={onLogout} onOpenChat={() => setChatOpen(true)} />
+          <div key={phase} className="pa-phase-enter" style={{ width:'100%', height:'100%' }}>
+            <View me={me} onLogout={onLogout} onOpenChat={() => setChatOpen(true)} />
+          </div>
         </div>
         {initialPhase === undefined && (
           <div style={{ padding:'8px 14px 12px', background:'var(--pa-bg)', borderTop:'1px solid var(--pa-line)', flexShrink:0 }}>
@@ -7142,6 +7509,15 @@ function PhaseProgressBanner({ phase, me, narrow }) {
         )}
       </div>
       <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+        {me.isAdmin && p.pending.length > 0 && (
+          <Btn variant="soft" size="sm" onClick={() => {
+            const names = p.pending.map(m => m.name).join(', ');
+            if (typeof pushChatMessage === 'function') {
+              pushChatMessage({ id: Date.now(), who: me.id, text: `📣 ${names} — faltam vocês nesta fase! 🙌`, when: 'agora' });
+              if (window._paToast) window._paToast('Lembrete enviado no chat!', 'success');
+            }
+          }}>Lembrar quem falta</Btn>
+        )}
         {p.iVoted
           ? <Btn variant="soft" size="sm" onClick={p.cancelMySkip}>Cancelar voto</Btn>
           : <Btn variant="accent" size="sm" onClick={p.voteSkip}>Vamos avançar</Btn>}
@@ -7200,54 +7576,73 @@ function CoinFlip({ tiedItems, me, onResolve, onCancel }) {
   const result = sharedResultId ? (tiedItems.find(t => t.id === sharedResultId) || null) : null;
 
   const [flipping, setFlipping] = tbUseState2(false);
-  const [highlight, setHighlight] = tbUseState2(0);
+  const [highlight, setHighlight] = tbUseState2(-1);
+  const timerRef = tbUseRef2 ? tbUseRef2(null) : { current: null };
 
-  // Quando o resultado partilhado aparece e este cliente NÃO é admin (não tem animação local),
-  // sincroniza o highlight para destacar o vencedor
+  // Para não-admin: quando o resultado partilhado chega, faz uma animação curta
+  // e depois fixa no vencedor (sincroniza visualmente sem decidir nada localmente)
   tbUseEffect2(() => {
-    if (!isAdmin && sharedResultId) {
-      const idx = tiedItems.findIndex(t => t.id === sharedResultId);
-      if (idx >= 0) setHighlight(idx);
-    }
+    if (isAdmin) return;
+    if (!sharedResultId) { setHighlight(-1); setFlipping(false); return; }
+    const winnerIdx = tiedItems.findIndex(t => t.id === sharedResultId);
+    if (winnerIdx < 0) return;
+    runAnimation(winnerIdx, false);
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+    // eslint-disable-next-line
   }, [sharedResultId, isAdmin]);
 
-  // Animação local do admin: cycle através das opções e termina no winner persistido
-  const flip = async () => {
-    if (!isAdmin || flipping) return;
+  // Animação partilhada: percorre as opções, dá voltas completas, desacelera e
+  // termina exatamente no vencedor. Só revela o resultado (laranja) quando para.
+  function runAnimation(winnerIdx, persistFirst) {
+    const n = tiedItems.length;
     setFlipping(true);
-    const winnerIdx = Math.floor(Math.random() * tiedItems.length);
-
-    // Persiste o resultado IMEDIATAMENTE para todos os clientes verem
-    await AppStore._set('coinFlipResult', tiedItems[winnerIdx].id);
-
-    // Animação local apenas para o admin
-    const totalSteps = 24 + winnerIdx;
-    let step = 0;
+    setHighlight(0);
+    const loops = 3; // voltas completas antes de abrandar
+    const seq = [];
+    for (let i = 0; i < loops * n + winnerIdx; i++) seq.push(i % n);
+    seq.push(winnerIdx); // garante terminar no vencedor
+    let k = 0;
     const tick = () => {
-      step++;
-      setHighlight(step % tiedItems.length);
-      if (step < totalSteps) {
-        const delay = 50 + Math.pow(step / totalSteps, 3) * 400;
-        setTimeout(tick, delay);
+      setHighlight(seq[k]);
+      k++;
+      if (k < seq.length) {
+        const progress = k / seq.length;
+        const delay = 55 + Math.pow(progress, 2.4) * 340; // abranda no fim
+        timerRef.current = setTimeout(tick, delay);
       } else {
         setHighlight(winnerIdx);
-        setFlipping(false);
+        setFlipping(false); // só agora o resultado é revelado
       }
     };
     tick();
+  }
+
+  // Admin lança: escolhe vencedor justo, persiste, e anima
+  const flip = async () => {
+    if (!isAdmin || flipping) return;
+    const winnerIdx = Math.floor(Math.random() * tiedItems.length);
+    const winnerId = tiedItems[winnerIdx].id;
+    // Persiste primeiro para os outros clientes começarem a animação em sincronia
+    await AppStore._set('coinFlipResult', winnerId);
+    runAnimation(winnerIdx, true);
   };
 
   const repeat = async () => {
     if (!isAdmin || flipping) return;
+    if (timerRef.current) clearTimeout(timerRef.current);
     await AppStore.clearKey('coinFlipResult');
-    setHighlight(0);
+    setHighlight(-1);
+    setFlipping(false);
   };
 
   const accept = async () => {
-    if (!isAdmin || !result) return;
+    if (!isAdmin || !result || flipping) return;
     await AppStore.clearKey('coinFlipResult');
     onResolve(result.id);
   };
+
+  // O resultado (laranja) só aparece quando a animação parou
+  const revealed = result && !flipping;
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:18, padding:'8px 0' }}>
@@ -7265,8 +7660,8 @@ function CoinFlip({ tiedItems, me, onResolve, onCancel }) {
       {/* Lista vertical com destaque animado/sincronizado */}
       <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
         {tiedItems.map((item, i) => {
-          const isHighlight = (flipping || result) && highlight === i;
-          const isResult = result && result.id === item.id;
+          const isHighlight = flipping && highlight === i;
+          const isResult = revealed && result.id === item.id;
           return (
             <div key={item.id} style={{
               padding:'14px 16px', borderRadius:14,
@@ -7274,8 +7669,8 @@ function CoinFlip({ tiedItems, me, onResolve, onCancel }) {
               color: (isResult || isHighlight) ? '#fff' : 'var(--pa-ink)',
               border: '1px solid ' + ((isResult || isHighlight) ? 'transparent' : 'var(--pa-line)'),
               fontFamily:'var(--pa-display)', fontSize:18, fontWeight:600,
-              transition: 'all 0.15s ease',
-              transform: isHighlight && !result ? 'scale(1.02)' : 'scale(1)',
+              transition: 'all 0.12s ease',
+              transform: isHighlight ? 'scale(1.03)' : 'scale(1)',
               boxShadow: isResult ? '0 6px 20px rgba(217,119,87,0.35)' : 'none',
               display:'flex', alignItems:'center', justifyContent:'space-between' }}>
               <span>{item.name || item.area || '?'}</span>
@@ -7288,10 +7683,10 @@ function CoinFlip({ tiedItems, me, onResolve, onCancel }) {
       {/* Controlos: só admin */}
       {isAdmin ? (
         <div style={{ display:'flex', gap:8 }}>
-          {!result
+          {!revealed
             ? <>
                 <Btn variant="ghost" onClick={onCancel} style={{ flex:1 }} disabled={flipping}>Cancelar</Btn>
-                <Btn variant="accent" onClick={flip} disabled={flipping} style={{ flex:1 }}>{flipping ? 'A sortear...' : '🎲 Lançar'}</Btn>
+                <Btn variant="accent" onClick={flip} disabled={flipping} style={{ flex:1 }}>{flipping ? 'A girar...' : '🎲 Lançar'}</Btn>
               </>
             : <>
                 <Btn variant="ghost" onClick={repeat} style={{ flex:1 }}>Repetir</Btn>
@@ -7299,9 +7694,9 @@ function CoinFlip({ tiedItems, me, onResolve, onCancel }) {
               </>}
         </div>
       ) : (
-        result && (
+        sharedResultId && (
           <div style={{ padding:'10px 12px', background:'rgba(31,26,20,0.04)', borderRadius:10, textAlign:'center', fontFamily:'var(--pa-body)', fontSize:13, color:'var(--pa-muted)' }}>
-            Aguarda o admin aceitar o vencedor...
+            {flipping ? 'A girar a roleta...' : 'Aguarda o admin confirmar o vencedor...'}
           </div>
         )
       )}
@@ -7361,7 +7756,9 @@ function PointsVote({ tiedItems, me, onResolve, onCancel, voteKey }) {
     });
     const sorted = Object.entries(score).sort((a,b) => b[1] - a[1]);
     if (sorted.length === 0) return null;
-    return { winnerId: sorted[0][0], scores: score };
+    const topScore = sorted[0][1];
+    const tiedAtTop = sorted.filter(([,v]) => v === topScore).length > 1;
+    return { winnerId: sorted[0][0], scores: score, tied: tiedAtTop };
   };
 
   const accept = async () => {
@@ -7419,14 +7816,21 @@ function PointsVote({ tiedItems, me, onResolve, onCancel, voteKey }) {
       </div>
 
       {result && me?.isAdmin && (
-        <div style={{ padding:'12px 14px', borderRadius:12, background:'var(--pa-ink)', color:'#fff' }}>
-          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, opacity:0.6, textTransform:'uppercase' }}>Resultado</div>
+        <div style={{ padding:'12px 14px', borderRadius:12, background: result.tied ? 'var(--pa-accent)' : 'var(--pa-ink)', color:'#fff' }}>
+          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, opacity:0.6, textTransform:'uppercase' }}>{result.tied ? 'Ainda empatado' : 'Resultado'}</div>
           <div style={{ fontFamily:'var(--pa-display)', fontSize:18, fontWeight:600, marginTop:4 }}>
-            {(tiedItems.find(t=>t.id===result.winnerId) || {}).name || (tiedItems.find(t=>t.id===result.winnerId) || {}).area} ganha
+            {result.tied
+              ? 'Empate nos pontos!'
+              : <>{(tiedItems.find(t=>t.id===result.winnerId) || {}).name || (tiedItems.find(t=>t.id===result.winnerId) || {}).area} ganha</>}
           </div>
-          <div style={{ fontFamily:'var(--pa-body)', fontSize:11, opacity:0.7, marginTop:4 }}>
+          <div style={{ fontFamily:'var(--pa-body)', fontSize:11, opacity:0.8, marginTop:4 }}>
             {Object.entries(result.scores).map(([id,s]) => `${(tiedItems.find(t=>t.id===id)||{}).name||(tiedItems.find(t=>t.id===id)||{}).area}: ${s}`).join(' · ')}
           </div>
+          {result.tied && (
+            <div style={{ fontFamily:'var(--pa-body)', fontSize:12, marginTop:8, opacity:0.95 }}>
+              Os pontos empataram. Volta atrás e usa a roleta para desempatar à sorte.
+            </div>
+          )}
         </div>
       )}
 
@@ -7435,7 +7839,9 @@ function PointsVote({ tiedItems, me, onResolve, onCancel, voteKey }) {
         {!myVoteSubmitted
           ? <Btn variant="accent" onClick={submit} style={{ flex:1 }}>Submeter voto</Btn>
           : (me?.isAdmin && result
-              ? <Btn variant="accent" onClick={accept} style={{ flex:1 }}>Aceitar vencedor</Btn>
+              ? (result.tied
+                  ? <Btn variant="soft" disabled style={{ flex:1 }}>Empate — usa a roleta</Btn>
+                  : <Btn variant="accent" onClick={accept} style={{ flex:1 }}>Aceitar vencedor</Btn>)
               : <Btn variant="soft" disabled style={{ flex:1 }}>Voto submetido · aguarda outros</Btn>)}
       </div>
     </div>
@@ -7524,11 +7930,11 @@ const { useState: hUseState, useEffect: hUseEffect, useRef: hUseRef } = React;
 function PAModal({ open, onClose, title, children, maxWidth = 460 }) {
   if (!open) return null;
   return (
-    <div onClick={onClose} style={{
+    <div onClick={onClose} className="pa-fade" style={{
       position:'fixed', inset:0, zIndex:1000, background:'rgba(31,26,20,0.45)',
       display:'flex', alignItems:'center', justifyContent:'center', padding:16,
       backdropFilter:'blur(2px)' }}>
-      <div onClick={(e)=>e.stopPropagation()} style={{
+      <div onClick={(e)=>e.stopPropagation()} className="pa-scale" style={{
         width:'100%', maxWidth, maxHeight:'90vh', overflow:'auto',
         background:'var(--pa-bg)', borderRadius:20, padding:'24px 22px',
         boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
@@ -7568,7 +7974,7 @@ function ProfileEditor({ open, onClose, auth }) {
 
   const save = async () => {
     setBusy(true); setErr(null);
-    try { await auth.updateProfile({ displayName, photoDataUrl: photo }); onClose(); }
+    try { await auth.updateProfile({ displayName, photoDataUrl: photo }); if (window._paToast) window._paToast('Perfil atualizado!', 'success'); onClose(); }
     catch (ex) { setErr(ex.message); }
     finally { setBusy(false); }
   };
@@ -7627,6 +8033,7 @@ function EditionEditor({ open, onClose, edition }) {
       const num = parseInt(number) || EditionStore.nextNumber();
       if (isNew) await EditionStore.create({ number:num, title:title.trim()||'Nova Aventura', subtitle:subtitle.trim() });
       else await EditionStore.update(edition.id, { number:num, title:title.trim()||'Nova Aventura', subtitle:subtitle.trim() });
+      if (window._paToast) window._paToast(isNew ? 'Edição criada!' : 'Edição atualizada!', 'success');
       onClose();
     } catch (ex) { setErr(ex.message); }
     finally { setBusy(false); }
@@ -7635,6 +8042,25 @@ function EditionEditor({ open, onClose, edition }) {
   return (
     <PAModal open={open} onClose={onClose} title={isNew ? 'Nova edição' : 'Editar edição'}>
       <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+        {isNew && (
+          <div>
+            <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:8 }}>Modelos rápidos</div>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8 }}>
+              {[
+                { emoji:'🏖️', label:'Praia', title:'Fim-de-semana de praia', sub:'Sol, mar e descanso.' },
+                { emoji:'🚗', label:'Roadtrip', title:'Roadtrip', sub:'Estrada fora, sem pressas.' },
+                { emoji:'🏙️', label:'Citytrip', title:'Citytrip', sub:'Cidade nova para explorar.' },
+              ].map(t => (
+                <button key={t.label} onClick={()=>{ setTitle(t.title); setSubtitle(t.sub); }} style={{
+                  padding:'12px 8px', borderRadius:12, border:'1px solid var(--pa-line)', background:'#fff', cursor:'pointer',
+                  display:'flex', flexDirection:'column', alignItems:'center', gap:4 }}>
+                  <span style={{ fontSize:22 }}>{t.emoji}</span>
+                  <span style={{ fontFamily:'var(--pa-body)', fontSize:12, fontWeight:600 }}>{t.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <Field label="Número" value={number} onChange={setNumber} placeholder="1" />
         <Field label="Nome da edição" value={title} onChange={setTitle} placeholder="Nova Aventura" />
         <Field label="Subtítulo" value={subtitle} onChange={setSubtitle} placeholder="Algures no mundo." />
@@ -7663,7 +8089,7 @@ function EditionCard({ edition, isAdmin, onEnter, onEdit, onAction, narrow }) {
   })();
 
   return (
-    <div style={{
+    <div className="pa-card-hover" style={{
       background:'#fff', borderRadius:18, border:'1px solid var(--pa-line)',
       padding:narrow?'16px':'20px', position:'relative', opacity:archived?0.72:1,
       display:'flex', flexDirection:'column', gap:14 }}>
@@ -7761,7 +8187,7 @@ function EditionHub({ auth, onEnterEdition, narrow }) {
       else if (act === 'reset') { if (window.confirm(`Recomeçar a "${ed.title}"? Todos os dados (RSVP, votos, sugestões) serão apagados.`)) await EditionStore.reset(ed.id); }
       else if (act === 'duplicate') { const copyData = window.confirm('Copiar também os dados (RSVP, votos, etc.)?\n\nOK = copiar tudo · Cancelar = só a estrutura'); await EditionStore.duplicate(ed.id, { copyData }); }
       else if (act === 'delete') { if (window.confirm(`Eliminar a "${ed.title}" para sempre? Esta ação não pode ser desfeita.`)) await EditionStore.remove(ed.id); }
-    } catch (ex) { alert(ex.message); }
+    } catch (ex) { if (window._paToast) window._paToast(ex.message || 'Algo correu mal.'); }
   };
 
   const enter = (ed) => { EditionStore.setActive(ed.id); onEnterEdition(ed); };
@@ -7817,7 +8243,7 @@ function EditionHub({ auth, onEnterEdition, narrow }) {
           </div>
         )}
 
-        <div style={{ display:'grid', gridTemplateColumns: narrow ? '1fr' : 'repeat(auto-fill, minmax(320px, 1fr))', gap:16 }}>
+        <div className="pa-stagger" style={{ display:'grid', gridTemplateColumns: narrow ? '1fr' : 'repeat(auto-fill, minmax(320px, 1fr))', gap:16 }}>
           {active.map((ed) => (
             <EditionCard key={ed.id} edition={ed} isAdmin={isAdmin} narrow={narrow}
               onEnter={enter} onEdit={(e)=>{ setEditingEdition(e); setEditorOpen(true); }} onAction={handleAction} />
@@ -7892,6 +8318,37 @@ function sessionToMember(session) {
   };
 }
 
+function OnboardingModal({ onClose }) {
+  const [step, setStep] = lUseState(0);
+  const steps = [
+    { emoji:'🧭', title:'Bem-vindo ao Perdidos Algures', body:'A app para o teu grupo decidir uma viagem em conjunto — sem confusão no chat de sempre.' },
+    { emoji:'✅', title:'Tudo por fases', body:'Primeiro dizem quem entra, depois sugerem e votam o destino e o alojamento, marcam disponibilidade e trancam as datas.' },
+    { emoji:'🎲', title:'Empates? À sorte ou por pontos', body:'Se houver empate, o admin desempata com uma roleta justa ou uma votação por pontos.' },
+    { emoji:'💸', title:'Contas tipo Splitwise', body:'No fim, registam as despesas (incluindo o Airbnb), e a app diz exatamente quem paga quanto a quem.' },
+  ];
+  const s = steps[step];
+  const last = step === steps.length - 1;
+  const finish = () => { try { localStorage.setItem('pa-onboarded', '1'); } catch {} onClose(); };
+  return (
+    <PAModal open={true} onClose={finish} title="">
+      <div style={{ textAlign:'center', padding:'4px 0' }}>
+        <div key={step} className="pa-scale" style={{ fontSize:48, marginBottom:14 }}>{s.emoji}</div>
+        <div style={{ fontFamily:'var(--pa-display)', fontSize:22, fontWeight:600, letterSpacing:-0.4, marginBottom:10 }}>{s.title}</div>
+        <div style={{ fontFamily:'var(--pa-body)', fontSize:14.5, color:'var(--pa-muted)', lineHeight:1.55, maxWidth:340, margin:'0 auto' }}>{s.body}</div>
+        <div style={{ display:'flex', justifyContent:'center', gap:6, margin:'20px 0' }}>
+          {steps.map((_, i) => (
+            <div key={i} style={{ width: i===step?20:7, height:7, borderRadius:7, background: i===step?'var(--pa-accent)':'var(--pa-line)', transition:'all .25s' }} />
+          ))}
+        </div>
+        <div style={{ display:'flex', gap:8 }}>
+          <Btn variant="ghost" onClick={finish} style={{ flex:1 }}>Saltar</Btn>
+          <Btn variant="accent" onClick={()=> last ? finish() : setStep(step+1)} style={{ flex:2 }}>{last ? 'Começar!' : 'Seguinte'}</Btn>
+        </div>
+      </div>
+    </PAModal>
+  );
+}
+
 function LiveApp() {
   const auth = useAuth();
   const w = useViewport();
@@ -7900,6 +8357,14 @@ function LiveApp() {
   const editions = useEditions();
   const [inEdition, setInEdition] = lUseState(() => !!EditionStore.activeId() && !!EditionStore.active());
   const [profileOpen, setProfileOpen] = lUseState(false);
+  const [showOnboarding, setShowOnboarding] = lUseState(false);
+
+  // Mostra onboarding na primeira visita (após login)
+  lUseEffect(() => {
+    if (auth.user) {
+      try { if (!localStorage.getItem('pa-onboarded')) setShowOnboarding(true); } catch {}
+    }
+  }, [auth.user]);
 
   // Se a edição ativa desaparece (eliminada), volta automaticamente ao hub
   lUseEffect(() => {
@@ -7924,6 +8389,7 @@ function LiveApp() {
     return (
       <div style={{ width:'100vw', height:'100vh', overflow:'auto' }}>
         <EditionHub auth={auth} narrow={!isDesktop} onEnterEdition={() => setInEdition(true)} />
+        {showOnboarding && <OnboardingModal onClose={()=>setShowOnboarding(false)} />}
       </div>
     );
   }
@@ -8099,13 +8565,32 @@ Object.assign(window, { LiveApp, useViewport, sessionToMember });
 
   const RootComp = isCanvasMode ? CanvasRoot : LiveRoot;
 
+  // Error Boundary: se um componente rebentar, mostra um ecrã de recuperação
+  // em vez de deixar a app em branco (estabilidade).
+  class PAErrorBoundary extends React.Component {
+    constructor(props) { super(props); this.state = { hasError: false }; }
+    static getDerivedStateFromError() { return { hasError: true }; }
+    componentDidCatch(err, info) { console.error('[PA] erro de runtime apanhado:', err, info); }
+    render() {
+      if (this.state.hasError) {
+        return React.createElement('div', { style:{ position:'fixed', inset:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:16, background:'#fcf9f3', padding:24, textAlign:'center', fontFamily:'system-ui,-apple-system,sans-serif' } },
+          React.createElement('div', { style:{ fontSize:40 } }, '🧭'),
+          React.createElement('div', { style:{ fontFamily:"'Bricolage Grotesque',system-ui,sans-serif", fontSize:22, fontWeight:600, color:'#1f1a14' } }, 'Algo encravou'),
+          React.createElement('div', { style:{ fontSize:14, color:'#8a7e6e', maxWidth:320, lineHeight:1.5 } }, 'Houve um problema a mostrar esta parte. Os teus dados estão guardados — é só recarregar.'),
+          React.createElement('button', { onClick:()=>location.reload(), style:{ marginTop:8, padding:'12px 24px', borderRadius:999, border:'none', background:'#d97757', color:'#fff', cursor:'pointer', fontSize:14, fontWeight:600 } }, 'Recarregar')
+        );
+      }
+      return this.props.children;
+    }
+  }
+
+  const renderApp = () => ReactDOM.createRoot(document.getElementById('root'))
+    .render(React.createElement(PAErrorBoundary, null, React.createElement(RootComp)));
+
   // Inicializa Supabase (AppStore + ChatStore) antes de renderizar
-  initSupabase().then(() => {
-    ReactDOM.createRoot(document.getElementById('root')).render(<RootComp />);
-  }).catch(err => {
+  initSupabase().then(renderApp).catch(err => {
     console.error('[PA] Erro ao iniciar Supabase:', err);
-    // Renderiza mesmo assim para não bloquear a app
-    ReactDOM.createRoot(document.getElementById('root')).render(<RootComp />);
+    renderApp(); // Renderiza mesmo assim para não bloquear a app
   });
 </script>
 </body>
