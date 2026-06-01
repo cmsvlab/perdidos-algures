@@ -2368,7 +2368,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r7';
+window.PA_VERSION = '2026.06.01-r9';
 
 // Regista o service worker (PWA instalável + cache offline). Falha em silêncio se não suportado.
 if ('serviceWorker' in navigator) {
@@ -4865,7 +4865,8 @@ function DPhaseHeader({ phase, title, sub, status, statusTone = 'accent' }) {
 }
 
 function DAdminBar({ children, hint, showNext = true }) {
-  const { phase, setPhase } = dUseContext(PhaseCtx);
+  const { phase, setPhase, canEdit } = dUseContext(PhaseCtx);
+  if (!canEdit) return null; // ações de admin: invisíveis para os restantes participantes
   const total = D.phases.length;
   return (
     <div style={{ marginTop:'auto', paddingTop:24, borderTop:'1px dashed var(--pa-line)',
@@ -5695,7 +5696,7 @@ function DPhase7({ me }) {
       <div style={{ display:'grid', gridTemplateColumns:'1.6fr 1fr', gap:22, alignItems:'flex-start', flex:1 }}>
         <div style={{ background:'#fff', borderRadius:18, padding:22, border:'1px solid var(--pa-line)' }}>
           <div style={{ fontFamily:'var(--pa-mono)', fontSize:11, letterSpacing:1, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:14 }}>{monthLabel}</div>
-          <Calendar renderCell={(d) => {
+          <Calendar onCellClick={me.isAdmin ? pickDay : undefined} renderCell={(d) => {
             const n = heat[d] || 0;
             const inRange = selFrom && d >= selFrom && d <= selTo;
             const isLocked = locked && d >= locked.from && d <= locked.to;
@@ -5706,8 +5707,7 @@ function DPhase7({ me }) {
                 color: isLocked||inRange ? '#fff' : 'var(--pa-ink)',
                 border: intensity===0&&!inRange&&!isLocked ? '1px solid var(--pa-line)' : 'none',
                 display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
-                cursor: me.isAdmin?'pointer':'default', transition:'background 0.12s' }}
-                onClick={() => pickDay(d)}>
+                transition:'background 0.12s' }}>
                 <div style={{ fontFamily:'var(--pa-body)', fontSize:14, fontWeight:600 }}>{d}</div>
                 {n > 0 && <div style={{ fontFamily:'var(--pa-mono)', fontSize:9, marginTop:1, color: isLocked||inRange?'rgba(255,255,255,0.7)':'var(--pa-muted)', fontWeight:600 }}>{n}/{totalIn}</div>}
               </div>
@@ -5787,7 +5787,7 @@ function DPhase8({ me }) {
   const locked = appData.locked;
   const [tab, setTab] = dUseState2('estadia');
   const tabs = [
-    { id:'estadia', label:'Estadia', icon:'🏡' },
+    { id:'estadia', label:'Resumo', icon:'🧭' },
     { id:'custos',  label:'Contas',  icon:'€' },
     { id:'itin',    label:'Itinerário', icon:'📍' },
     { id:'ativ',    label:'Atividades', icon:'🎯' },
@@ -5840,45 +5840,84 @@ function PlanEstadia({ appData }) {
   const winnerId = appData.accWinner;
   const acc = winnerId ? accSuggs.find((s) => s.id === winnerId) : accSuggs[0];
 
-  if (!acc) {
-    return (
-      <div style={{ padding:'48px 0', textAlign:'center', color:'var(--pa-muted)', fontSize:14 }}>
-        Sem alojamento decidido ainda. Avança as fases anteriores primeiro.
-      </div>
-    );
-  }
+  // Resumo de todas as decisões da viagem
+  const locSuggs = appData.locSuggs || [];
+  const locWinner = appData.locWinner ? locSuggs.find(s => s.id === appData.locWinner) : null;
+  const locked = appData.locked || null;
+  const monthLabel = (locked && locked.monthLabel) || (typeof D !== 'undefined' && D.phase6 && D.phase6.monthLabel) || '';
+  const monthShort = monthLabel.split(' ')[0].slice(0,3);
+  const inMembers = (typeof getInMembers === 'function') ? getInMembers(appData) : [];
 
-  const by = memberById(acc.by) || { name: acc.by, color:'var(--pa-muted)', initials:'?' };
+  const by = acc ? (memberById(acc.by) || { name: acc.by, color:'var(--pa-muted)', initials:'?' }) : null;
+
   return (
-    <div style={{ background:'#fff', borderRadius:16, border:'1px solid var(--pa-line)', overflow:'hidden' }}>
-      <PhotoSlot accent="var(--pa-accent)" label={`alojamento decidido · ${acc.area}`} height={180} radius={0} />
-      <div style={{ padding:22 }}>
-        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:16 }}>
+    <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+      {/* Resumo do plano */}
+      <div style={{ background:'var(--pa-ink)', color:'#fff', borderRadius:18, padding:'22px 24px' }}>
+        <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.4, color:'rgba(255,255,255,0.55)', textTransform:'uppercase' }}>O plano · resumo</div>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:18, marginTop:16 }}>
           <div>
-            <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
-              <Pill tone="dark" size="sm">{acc.type}</Pill>
-              <Pill tone="accent" size="sm">★ Escolhido</Pill>
+            <div style={{ fontFamily:'var(--pa-mono)', fontSize:9.5, letterSpacing:1, color:'rgba(255,255,255,0.5)', textTransform:'uppercase' }}>Destino</div>
+            <div style={{ fontFamily:'var(--pa-display)', fontSize:20, fontWeight:600, marginTop:3 }}>{locWinner ? (locWinner.name || locWinner.area) : '—'}</div>
+          </div>
+          <div>
+            <div style={{ fontFamily:'var(--pa-mono)', fontSize:9.5, letterSpacing:1, color:'rgba(255,255,255,0.5)', textTransform:'uppercase' }}>Datas</div>
+            <div style={{ fontFamily:'var(--pa-display)', fontSize:20, fontWeight:600, marginTop:3 }}>
+              {locked ? (locked.from === locked.to ? `${locked.from} ${monthShort}` : `${locked.from}–${locked.to} ${monthShort}`) : '—'}
             </div>
-            <div style={{ fontFamily:'var(--pa-display)', fontSize:26, fontWeight:600, letterSpacing:-0.5 }}>{acc.area}</div>
-            {acc.note && <div style={{ marginTop:8, fontFamily:'var(--pa-body)', fontSize:14, color:'var(--pa-ink)', lineHeight:1.5, maxWidth:540 }}>{acc.note}</div>}
           </div>
-          <div style={{ textAlign:'right' }}>
-            <div style={{ fontFamily:'var(--pa-display)', fontSize:32, fontWeight:600 }}>{acc.price}€</div>
-            <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, color:'var(--pa-muted)' }}>/NOITE</div>
+          <div>
+            <div style={{ fontFamily:'var(--pa-mono)', fontSize:9.5, letterSpacing:1, color:'rgba(255,255,255,0.5)', textTransform:'uppercase' }}>Alojamento</div>
+            <div style={{ fontFamily:'var(--pa-display)', fontSize:20, fontWeight:600, marginTop:3 }}>{acc ? acc.area : '—'}</div>
           </div>
-        </div>
-        <div style={{ marginTop:18, paddingTop:14, borderTop:'1px solid var(--pa-line)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-            <Avatar member={by} size={22} />
-            <span style={{ fontSize:12, color:'var(--pa-muted)' }}>{by.name} sugeriu</span>
+          <div>
+            <div style={{ fontFamily:'var(--pa-mono)', fontSize:9.5, letterSpacing:1, color:'rgba(255,255,255,0.5)', textTransform:'uppercase' }}>Quem vai · {inMembers.length}</div>
+            <div style={{ display:'flex', marginTop:6 }}>
+              {inMembers.slice(0,8).map((m,i) => (
+                <div key={m.id} style={{ marginLeft:i===0?0:-8 }}><Avatar member={m} size={26} ring ringColor="var(--pa-ink)" /></div>
+              ))}
+            </div>
           </div>
-          {acc.link && (
-            <a href={acc.link} target="_blank" rel="noreferrer" style={{
-              padding:'8px 14px', borderRadius:999, background:'var(--pa-ink)', color:'#fff',
-              textDecoration:'none', fontFamily:'var(--pa-body)', fontSize:12.5, fontWeight:600 }}>Ver anúncio →</a>
-          )}
         </div>
       </div>
+
+      {/* Cartão do alojamento decidido */}
+      {acc ? (
+        <div style={{ background:'#fff', borderRadius:16, border:'1px solid var(--pa-line)', overflow:'hidden' }}>
+          <PhotoSlot accent="var(--pa-accent)" label={`alojamento decidido · ${acc.area}`} height={180} radius={0} />
+          <div style={{ padding:22 }}>
+            <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:16 }}>
+              <div>
+                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
+                  <Pill tone="dark" size="sm">{acc.type}</Pill>
+                  <Pill tone="accent" size="sm">★ Escolhido</Pill>
+                </div>
+                <div style={{ fontFamily:'var(--pa-display)', fontSize:26, fontWeight:600, letterSpacing:-0.5 }}>{acc.area}</div>
+                {acc.note && <div style={{ marginTop:8, fontFamily:'var(--pa-body)', fontSize:14, color:'var(--pa-ink)', lineHeight:1.5, maxWidth:540 }}>{acc.note}</div>}
+              </div>
+              <div style={{ textAlign:'right' }}>
+                <div style={{ fontFamily:'var(--pa-display)', fontSize:32, fontWeight:600 }}>{acc.price}€</div>
+                <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, color:'var(--pa-muted)' }}>/NOITE</div>
+              </div>
+            </div>
+            <div style={{ marginTop:18, paddingTop:14, borderTop:'1px solid var(--pa-line)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                <Avatar member={by} size={22} />
+                <span style={{ fontSize:12, color:'var(--pa-muted)' }}>{by.name} sugeriu</span>
+              </div>
+              {acc.link && (
+                <a href={acc.link} target="_blank" rel="noreferrer" style={{
+                  padding:'8px 14px', borderRadius:999, background:'var(--pa-ink)', color:'#fff',
+                  textDecoration:'none', fontFamily:'var(--pa-body)', fontSize:12.5, fontWeight:600 }}>Ver anúncio →</a>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div style={{ padding:'24px 0', textAlign:'center', color:'var(--pa-muted)', fontSize:14 }}>
+          Alojamento ainda não decidido.
+        </div>
+      )}
     </div>
   );
 }
@@ -6513,7 +6552,7 @@ const MNavCtx = React.createContext({ onBackToHub: null, onEditProfile: null, me
 function MPhaseNav({ phase }) {
   const [open, setOpen] = mUseState(false);
   const total = D.phases.length;
-  const go = (n) => { AppStore.setPhase(Math.max(1, Math.min(total, n))); AppStore.clearKey('skipVotes'); setOpen(false); };
+  const go = (n) => { AppStore.setPhase(Math.max(1, Math.min(total, n))); AppStore.clearKey('deadline'); setOpen(false); };
   return (
     <div style={{ position:'relative', display:'flex', alignItems:'center', gap:3 }}>
       <button onClick={() => go(phase - 1)} disabled={phase === 1} aria-label="Fase anterior"
@@ -7091,17 +7130,16 @@ function MPhase7({ me, onLogout, onOpenChat }) {
             sub="Toca num dia para começar a seleção." />
           <div style={{ padding:'6px 16px 14px', flex:1, overflow:'auto' }}>
             <div style={{ background:'#fff', borderRadius:16, padding:16, border:'1px solid var(--pa-line)' }}>
-              <Calendar dense renderCell={(d) => {
+              <Calendar dense onCellClick={(d) => { setRange({ from:d, to:Math.min(d+2,31) }); }} renderCell={(d) => {
                 const n = heat[d] || 0;
                 const inRange = range.from && range.to && d >= range.from && d <= range.to;
                 const intensity = totalIn > 0 ? n/totalIn : 0;
                 return (
-                  <div onClick={() => { setRange({ from:d, to:Math.min(d+2,31) }); }}
-                    style={{ width:'100%', height:'100%', borderRadius:7,
+                  <div style={{ width:'100%', height:'100%', borderRadius:7,
                     background: inRange ? 'var(--pa-ink)' : intensity > 0 ? `rgba(217,119,87,${0.10+intensity*0.6})` : '#fff',
                     color: inRange ? '#fff' : 'var(--pa-ink)',
                     border: intensity===0&&!inRange ? '1px solid var(--pa-line)' : 'none',
-                    display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', cursor:'pointer' }}>
+                    display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center' }}>
                     <div style={{ fontFamily:'var(--pa-body)', fontSize:12, fontWeight:600 }}>{d}</div>
                     {n > 0 && <div style={{ fontFamily:'var(--pa-mono)', fontSize:8, color: inRange?'rgba(255,255,255,0.7)':'var(--pa-muted)' }}>{n}/{totalIn}</div>}
                   </div>
@@ -7147,7 +7185,7 @@ function MPhase8({ me, onLogout, onOpenChat }) {
   const [tab, setTab] = mUseState('estadia');
 
   const tabs = [
-    { id:'estadia',    label:'Estadia',    icon:'🏠' },
+    { id:'estadia',    label:'Resumo',    icon:'🧭' },
     { id:'custos',     label:'Custos',     icon:'€' },
     { id:'itinerario', label:'Itinerário', icon:'📍' },
     { id:'atividades', label:'Atividades', icon:'🎯' },
@@ -7230,7 +7268,7 @@ Object.assign(window, {
 // - Auto-advance: quando todos os participantes "in" tiverem completado a fase,
 //   inicia countdown de 10s. Quando chega a 0, qualquer cliente avança a fase
 //   (idempotente, primeiro a chegar ganha; os outros notam e param).
-// - Voto para passar: botão "Vamos avançar"; se >50% dos "in" votarem, passa já.
+// - Só o admin avança a fase (botão "Avançar"). Prazo opcional com countdown.
 // Tudo guardado na edição ativa via AppStore.
 
 const { useState: pUseState, useEffect: pUseEffect, useRef: pUseRef } = React;
@@ -7323,54 +7361,20 @@ function phaseComplete(phase, appData) {
 // ─────────────────────────────────────────────────────────────
 // Hook: gere progresso da fase (SEM countdown automático).
 // - Quando todos os "in" estão prontos, admin pode avançar com botão
-// - Qualquer participante pode votar "Vamos avançar"; se >50% votar, avança
+// - Só o admin avança a fase; prazo opcional avança automaticamente quando expira
 // - Sem timer, sem auto-advance silencioso — sempre uma ação humana clara
 // ─────────────────────────────────────────────────────────────
 function usePhaseProgress(phase, me) {
   const appData = useAppStore();
-  const advanceFiredRef = pUseRef(false);
 
   const isLast = phase >= 8;
   const isComplete = phaseComplete(phase, appData);
-  const skipVotes = appData.skipVotes || {};
-  // Na fase 1 ainda ninguém é "in"; usar todos os membros registados como pool
   const allMembers = (typeof getAllMembers === 'function') ? getAllMembers() : [];
   const inMembers = (phase === 1) ? allMembers : getInMembers(appData);
-  const skipCount = Object.keys(skipVotes).filter(uid => inMembers.some(m => m.id === uid)).length;
-  const skipReached = inMembers.length > 0 && skipCount > inMembers.length / 2;
-  const iVoted = !!skipVotes[me?.id];
 
-  // Quando skip atinge >50%, avança automaticamente (imediato, sem countdown)
-  pUseEffect(() => {
-    if (isLast || advanceFiredRef.current) return;
-    if (skipReached && phase === (appData.currentPhase || 1)) {
-      advanceFiredRef.current = true;
-      Promise.resolve()
-        .then(() => AppStore.setPhase(phase + 1))
-        .then(() => AppStore.clearKey('skipVotes'))
-        .catch(()=>{});
-    }
-  }, [skipReached, phase, isLast, appData.currentPhase]);
-  pUseEffect(() => { advanceFiredRef.current = false; }, [phase]);
-
-  // Limpa phaseCompleteAt antigo (legacy) ao montar — caso edições ainda tenham
-  pUseEffect(() => {
-    if (appData.phaseCompleteAt && me?.isAdmin) AppStore.clearKey('phaseCompleteAt');
-  }, [appData.phaseCompleteAt, me?.isAdmin]);
-
-  const voteSkip = async () => {
-    if (!me || iVoted || isLast) return;
-    await AppStore._merge('skipVotes', { [me.id]: Date.now() });
-  };
-  const cancelMySkip = async () => {
-    if (!me || !iVoted) return;
-    // Para remoção de chave (não há _unset), usa _set com snapshot.
-    // Concorrência: se outro user adicionou skipVote ao mesmo tempo, fica overwrite.
-    // Aceitável aqui — é só skip vote, pode-se re-clicar.
-    const next = { ...skipVotes };
-    delete next[me.id];
-    await AppStore._set('skipVotes', next);
-  };
+  // Prazo opcional (countdown). Guardado em appData.deadline (ISO). Só o admin define.
+  const deadline = appData.deadline || null;
+  const expired = deadline ? (Date.now() >= new Date(deadline).getTime()) : false;
 
   // Quem ainda não completou (para mostrar quem falta)
   let pending = [];
@@ -7395,18 +7399,32 @@ function usePhaseProgress(phase, me) {
     }
   }
 
+  // Só o admin avança a fase. Avançar limpa qualquer prazo definido.
   const advanceNow = async () => {
     if (isLast) return;
     await AppStore.setPhase(phase + 1);
-    await AppStore.clearKey('skipVotes');
+    await AppStore.clearKey('deadline');
   };
+  const setDeadline = async (iso) => { await AppStore._set('deadline', iso); };
+  const clearDeadline = async () => { await AppStore.clearKey('deadline'); };
+
+  // Avanço automático quando o prazo expira: a votação fecha e passa à fase seguinte.
+  // Só o admin dispara (e o advanceNow limpa o prazo, parando a verificação).
+  pUseEffect(() => {
+    if (!deadline || isLast || !me?.isAdmin) return;
+    const check = () => { if (Date.now() >= new Date(deadline).getTime()) advanceNow(); };
+    check();
+    const iv = setInterval(check, 5000);
+    return () => clearInterval(iv);
+    // eslint-disable-next-line
+  }, [deadline, me?.isAdmin, phase]);
 
   return {
     isLast, isComplete,
-    skipCount, skipReached, iVoted,
     inCount: inMembers.length,
     pending,
-    voteSkip, cancelMySkip, advanceNow,
+    deadline, expired,
+    advanceNow, setDeadline, clearDeadline,
   };
 }
 
@@ -7417,6 +7435,74 @@ function usePhaseProgress(phase, me) {
 //   B) Fase completa: "Todos prontos!" + botão admin "Avançar fase →"
 //   C) Empate fase 3/5 não resolvido: avisa que admin tem de desempatar
 // ─────────────────────────────────────────────────────────────
+function CountdownBanner({ deadline, narrow }) {
+  const [now, setNow] = pUseState(Date.now());
+  pUseEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const ms = new Date(deadline).getTime() - now;
+  const expired = ms <= 0;
+  const d = Math.max(0, Math.floor(ms / 86400000));
+  const h = Math.max(0, Math.floor((ms % 86400000) / 3600000));
+  const m = Math.max(0, Math.floor((ms % 3600000) / 60000));
+  const s = Math.max(0, Math.floor((ms % 60000) / 1000));
+  const Unit = ({ v, l }) => (
+    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', minWidth:40 }}>
+      <div style={{ fontFamily:'var(--pa-display)', fontSize: narrow?22:26, fontWeight:700, lineHeight:1, fontVariantNumeric:'tabular-nums' }}>{String(v).padStart(2,'0')}</div>
+      <div style={{ fontFamily:'var(--pa-mono)', fontSize:9, letterSpacing:1, opacity:0.6, textTransform:'uppercase', marginTop:3 }}>{l}</div>
+    </div>
+  );
+  if (expired) {
+    return (
+      <div style={{ background:'var(--pa-ink)', color:'#fff', borderRadius:14, padding: narrow?'12px 14px':'14px 18px', textAlign:'center' }}>
+        <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, opacity:0.6, textTransform:'uppercase' }}>Prazo terminado</div>
+        <div style={{ fontFamily:'var(--pa-display)', fontSize:16, fontWeight:600, marginTop:3 }}>O tempo de votação acabou ⏱</div>
+      </div>
+    );
+  }
+  return (
+    <div style={{ background:'var(--pa-ink)', color:'#fff', borderRadius:14, padding: narrow?'12px 14px':'14px 18px' }}>
+      <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, opacity:0.6, textTransform:'uppercase', marginBottom:8, textAlign:'center' }}>Tempo para votar</div>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap: narrow?6:10 }}>
+        <Unit v={d} l="dias" />
+        <span style={{ opacity:0.4, fontSize:20, fontWeight:700 }}>:</span>
+        <Unit v={h} l="horas" />
+        <span style={{ opacity:0.4, fontSize:20, fontWeight:700 }}>:</span>
+        <Unit v={m} l="min" />
+        <span style={{ opacity:0.4, fontSize:20, fontWeight:700 }}>:</span>
+        <Unit v={s} l="seg" />
+      </div>
+    </div>
+  );
+}
+
+// Controlo de admin para definir/limpar o prazo de votação
+function DeadlineControl({ deadline, onSet, onClear, narrow }) {
+  const [open, setOpen] = pUseState(false);
+  const [val, setVal] = pUseState('');
+  if (deadline) {
+    return (
+      <Btn variant="soft" size="sm" onClick={onClear}>Remover prazo</Btn>
+    );
+  }
+  if (!open) {
+    return <Btn variant="soft" size="sm" onClick={() => setOpen(true)}>⏱ Definir prazo</Btn>;
+  }
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+      <input type="datetime-local" value={val} onChange={(e)=>setVal(e.target.value)}
+        style={{ padding:'7px 10px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:13, color:'var(--pa-ink)' }} />
+      <Btn variant="accent" size="sm" disabled={!val} onClick={() => {
+        const iso = new Date(val).toISOString();
+        if (new Date(iso).getTime() > Date.now()) { onSet(iso); setOpen(false); }
+        else if (window._paToast) window._paToast('Escolhe uma data no futuro.');
+      }}>Definir</Btn>
+      <Btn variant="ghost" size="sm" onClick={() => setOpen(false)}>✕</Btn>
+    </div>
+  );
+}
+
 function PhaseProgressBanner({ phase, me, narrow }) {
   const p = usePhaseProgress(phase, me);
   if (p.isLast || !me) return null;
@@ -7439,12 +7525,13 @@ function PhaseProgressBanner({ phase, me, narrow }) {
   })() : null;
   const hasUnresolvedTie = tieIn3 || tieIn5;
 
+  const pendingNames = p.pending.slice(0, 3).map(m => m.name).join(', ');
+  const extraPending = p.pending.length > 3 ? ` +${p.pending.length - 3}` : '';
+
+  let statusContent = null;
   if (hasUnresolvedTie) {
-    return (
-      <div style={{
-        background:'#fff', border:'1px solid var(--pa-accent)', borderRadius:14,
-        padding: narrow ? '10px 14px' : '12px 18px',
-        display:'flex', alignItems:'center', gap:12 }}>
+    statusContent = (
+      <div style={{ background:'#fff', border:'1px solid var(--pa-accent)', borderRadius:14, padding: narrow ? '10px 14px' : '12px 18px', display:'flex', alignItems:'center', gap:12 }}>
         <div style={{ fontSize:22 }}>🎯</div>
         <div style={{ flex:1 }}>
           <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-accent)', textTransform:'uppercase' }}>Empate</div>
@@ -7454,15 +7541,9 @@ function PhaseProgressBanner({ phase, me, narrow }) {
         </div>
       </div>
     );
-  }
-
-  // Estado B: fase completa — admin avança
-  if (p.isComplete) {
-    return (
-      <div style={{
-        background:'#3d5e44', color:'#fff', borderRadius:14,
-        padding: narrow ? '12px 14px' : '14px 18px',
-        display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, flexWrap:'wrap' }}>
+  } else if (p.isComplete) {
+    statusContent = (
+      <div style={{ background:'#3d5e44', color:'#fff', borderRadius:14, padding: narrow ? '12px 14px' : '14px 18px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, flexWrap:'wrap' }}>
         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
           <div style={{ fontSize:18 }}>✓</div>
           <div>
@@ -7473,58 +7554,54 @@ function PhaseProgressBanner({ phase, me, narrow }) {
           </div>
         </div>
         {me.isAdmin && (
-          <button onClick={p.advanceNow} style={{
-            background:'#fff', color:'#3d5e44', border:'none', padding:'8px 16px', borderRadius:999,
-            fontFamily:'var(--pa-body)', fontSize:13, fontWeight:700, cursor:'pointer' }}>
+          <button onClick={p.advanceNow} style={{ background:'#fff', color:'#3d5e44', border:'none', padding:'8px 16px', borderRadius:999, fontFamily:'var(--pa-body)', fontSize:13, fontWeight:700, cursor:'pointer' }}>
             Avançar fase →
           </button>
         )}
       </div>
     );
+  } else if (p.inCount > 0) {
+    statusContent = (
+      <div style={{ background:'#fff', border:'1px solid var(--pa-line)', borderRadius:14, padding: narrow ? '10px 14px' : '12px 18px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, flexWrap:'wrap' }}>
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>A aguardar</div>
+          <div style={{ fontFamily:'var(--pa-body)', fontSize:13.5, color:'var(--pa-ink)', marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+            {p.pending.length > 0
+              ? <>Faltam: <strong>{pendingNames}{extraPending}</strong></>
+              : <>Quando quiseres, avança a fase.</>}
+          </div>
+        </div>
+        <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+          {me.isAdmin && p.pending.length > 0 && (
+            <Btn variant="soft" size="sm" onClick={() => {
+              const names = p.pending.map(m => m.name).join(', ');
+              if (typeof pushChatMessage === 'function') {
+                pushChatMessage({ id: Date.now(), who: me.id, text: `📣 ${names} — faltam vocês nesta fase! 🙌`, when: 'agora' });
+                if (window._paToast) window._paToast('Lembrete enviado no chat!', 'success');
+              }
+            }}>Lembrar quem falta</Btn>
+          )}
+          {me.isAdmin && (
+            <Btn variant="accent" size="sm" onClick={p.advanceNow}>Avançar →</Btn>
+          )}
+        </div>
+      </div>
+    );
   }
 
-  // Estado A: fase incompleta
-  if (p.inCount === 0) return null;
-  const pendingNames = p.pending.slice(0, 3).map(m => m.name).join(', ');
-  const extraPending = p.pending.length > 3 ? ` +${p.pending.length - 3}` : '';
+  const showCountdown = !!p.deadline;
+  const showDeadlineCtrl = me.isAdmin && !p.isComplete && !hasUnresolvedTie;
+  if (!statusContent && !showCountdown && !showDeadlineCtrl) return null;
 
   return (
-    <div style={{
-      background:'#fff', border:'1px solid var(--pa-line)', borderRadius:14,
-      padding: narrow ? '10px 14px' : '12px 18px',
-      display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, flexWrap:'wrap' }}>
-      <div style={{ flex:1, minWidth:0 }}>
-        <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>
-          {p.pending.length > 0 ? 'A aguardar' : 'Voto para avançar'}
+    <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+      {showCountdown && <CountdownBanner deadline={p.deadline} narrow={narrow} />}
+      {statusContent}
+      {showDeadlineCtrl && (
+        <div style={{ display:'flex', justifyContent:'flex-end' }}>
+          <DeadlineControl deadline={p.deadline} onSet={p.setDeadline} onClear={p.clearDeadline} narrow={narrow} />
         </div>
-        <div style={{ fontFamily:'var(--pa-body)', fontSize:13.5, color:'var(--pa-ink)', marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-          {p.pending.length > 0
-            ? <>Faltam: <strong>{pendingNames}{extraPending}</strong></>
-            : <>Já podem forçar o avanço.</>}
-        </div>
-        {p.skipCount > 0 && (
-          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10.5, color:'var(--pa-muted)', marginTop:3 }}>
-            {p.skipCount}/{p.inCount} querem avançar (precisa de mais de metade)
-          </div>
-        )}
-      </div>
-      <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-        {me.isAdmin && p.pending.length > 0 && (
-          <Btn variant="soft" size="sm" onClick={() => {
-            const names = p.pending.map(m => m.name).join(', ');
-            if (typeof pushChatMessage === 'function') {
-              pushChatMessage({ id: Date.now(), who: me.id, text: `📣 ${names} — faltam vocês nesta fase! 🙌`, when: 'agora' });
-              if (window._paToast) window._paToast('Lembrete enviado no chat!', 'success');
-            }
-          }}>Lembrar quem falta</Btn>
-        )}
-        {p.iVoted
-          ? <Btn variant="soft" size="sm" onClick={p.cancelMySkip}>Cancelar voto</Btn>
-          : <Btn variant="accent" size="sm" onClick={p.voteSkip}>Vamos avançar</Btn>}
-        {me.isAdmin && (
-          <Btn variant="ghost" size="sm" onClick={p.advanceNow}>Avançar →</Btn>
-        )}
-      </div>
+      )}
     </div>
   );
 }
