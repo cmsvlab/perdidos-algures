@@ -1,4 +1,6 @@
 # Perdidos Algures
+Olá amigo, vejo que és curioso por isso aqui vai:
+
 
 App para o teu grupo do WhatsApp escolher viagens. Oito fases:
 
@@ -23,7 +25,7 @@ O admin (Miguel) pode navegar entre fases a qualquer momento, reabrir submissõe
 
 ## Contas
 
-- **Admin**: nome `Miguel`, password `7415963a` — só tu vês as acções de admin (fechar fases, trancar datas)
+- **Admin**: nome `Miguel`, - só tu vês as acções de admin (fechar fases, trancar datas)
 - **Membros**: registam-se com nome + foto + password no primeiro acesso. O nome "Miguel" está reservado
 
 Por agora os dados ficam guardados no `localStorage` do browser de cada um (não atravessa entre computadores nem é partilhado entre o grupo). Para passar a ser partilhado, ver secção [Base de dados real](#base-de-dados-real) abaixo.
