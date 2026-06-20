@@ -2368,7 +2368,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r9';
+window.PA_VERSION = '2026.06.01-r10';
 
 // Regista o service worker (PWA instalável + cache offline). Falha em silêncio se não suportado.
 if ('serviceWorker' in navigator) {
@@ -3190,6 +3190,9 @@ Object.assign(window, {
 const { useState: aUseState, useRef: aUseRef } = React;
 
 function AuthLayout({ children, narrow }) {
+  const editions = useEditions();
+  const activeEd = (editions || []).find(e => e && e.status === 'active') || null;
+  const edName = activeEd ? `${activeEd.number}ª edição${activeEd.title ? ` · ${activeEd.title}` : ''}` : null;
   return (
     <div style={{
       width: '100%', height: '100%', minHeight: 700,
@@ -3216,27 +3219,27 @@ function AuthLayout({ children, narrow }) {
           <Logo size={16} color="#fff" />
         </div>
         <div style={{ position: 'relative' }}>
-          <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 11, letterSpacing: 1.4, color: 'rgba(255,255,255,0.55)', textTransform: 'uppercase' }}>
-            em curso
-          </div>
+          {activeEd && (
+            <div style={{ fontFamily: 'var(--pa-mono)', fontSize: 11, letterSpacing: 1.4, color: 'rgba(255,255,255,0.55)', textTransform: 'uppercase' }}>
+              em curso
+            </div>
+          )}
           <div style={{
-            marginTop: 10,
+            marginTop: activeEd ? 10 : 0,
             fontFamily: 'var(--pa-display)', fontSize: narrow ? 32 : 52, fontWeight: 600,
             letterSpacing: -1.5, lineHeight: 0.98,
           }}>
             Perdidos<br/><span style={{ color: 'var(--pa-accent)' }}>Algures.</span>
           </div>
-          {!narrow && <div style={{
-            marginTop: 16, fontSize: 15, color: 'rgba(255,255,255,0.7)', maxWidth: 340, lineHeight: 1.5,
-          }}>
-            Algures entre o sol e o vinho. Entra com a tua conta para votar, sugerir e planear.
-          </div>}
+          {!narrow && (
+            <div style={{ marginTop: 16, fontSize: 15, color: 'rgba(255,255,255,0.7)', maxWidth: 360, lineHeight: 1.5 }}>
+              {activeEd
+                ? <>A decorrer agora: <strong style={{ color:'#fff' }}>{edName}</strong>. Entra com a tua conta para votar, sugerir e planear.</>
+                : <>Algures entre o sol e o vinho. Entra com a tua conta para votar, sugerir e planear.</>}
+            </div>
+          )}
         </div>
-        {!narrow && (
-          <div style={{ position: 'relative', fontFamily: 'var(--pa-mono)', fontSize: 11, color: 'rgba(255,255,255,0.5)', letterSpacing: 1 }}>
-            Só para o grupo · sem partilha pública
-          </div>
-        )}
+        <div style={{ position: 'relative' }} />
       </div>
 
       {/* form panel */}
@@ -5656,7 +5659,8 @@ function DPhase7({ me }) {
   const appData = useAppStore();
   const allAvail = appData.avail || {};
   const allMembers = getAllMembers();
-  const totalIn = allMembers.length;
+  const inMembers = (typeof getInMembers === 'function') ? getInMembers(appData) : allMembers;
+  const totalIn = inMembers.length || allMembers.length;
   const monthLabel = (D.phase6 && D.phase6.monthLabel) || 'Este mês';
   const monthShort = monthLabel.split(' ')[0].slice(0,3);
 
@@ -5665,6 +5669,16 @@ function DPhase7({ me }) {
     Object.values(allAvail).forEach((arr) => { (arr||[]).forEach((d) => { h[d] = (h[d]||0) + 1; }); });
     return h;
   }, [allAvail]);
+
+  // Mapa dia → pessoas que marcaram esse dia (para mostrar os nomes)
+  const peopleByDay = dUseMemo2(() => {
+    const map = {};
+    Object.entries(allAvail).forEach(([mid, days]) => {
+      (days||[]).forEach((d) => { (map[d] = map[d] || []).push(memberById(mid) || { id:mid, name:'?', initials:'?', color:'var(--pa-muted)' }); });
+    });
+    return map;
+  }, [allAvail]);
+  const namesFor = (d) => (peopleByDay[d] || []).map(p => p.name).join(', ');
 
   const locked = appData.locked || null;
   const [range, setRange] = dUseState2({ from: null, to: null });
@@ -5702,7 +5716,7 @@ function DPhase7({ me }) {
             const isLocked = locked && d >= locked.from && d <= locked.to;
             const intensity = totalIn > 0 ? n/totalIn : 0;
             return (
-              <div style={{ width:'100%', height:'100%', borderRadius:8,
+              <div title={n > 0 ? namesFor(d) : undefined} style={{ width:'100%', height:'100%', borderRadius:8,
                 background: isLocked ? 'var(--pa-accent)' : inRange ? 'var(--pa-ink)' : intensity > 0 ? `rgba(217,119,87,${0.10+intensity*0.6})` : '#fff',
                 color: isLocked||inRange ? '#fff' : 'var(--pa-ink)',
                 border: intensity===0&&!inRange&&!isLocked ? '1px solid var(--pa-line)' : 'none',
@@ -5757,19 +5771,22 @@ function DPhase7({ me }) {
 
           {ranked.length > 0 && (
             <div style={{ background:'#fff', borderRadius:16, padding:16, border:'1px solid var(--pa-line)' }}>
-              <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:10 }}>Dias com mais gente</div>
-              {ranked.map((r) => (
-                <div key={r.day} style={{ display:'flex', alignItems:'center', gap:10, padding:'4px 0' }}>
-                  <div style={{ width:32, height:28, borderRadius:6,
+              <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:10 }}>Quem está livre em cada dia</div>
+              {ranked.map((r, idx) => (
+                <div key={r.day} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'8px 0', borderTop: idx===0?'none':'1px solid var(--pa-line)' }}>
+                  <div style={{ width:34, height:30, borderRadius:8, flexShrink:0,
                     background:`rgba(217,119,87,${0.15+(r.count/totalIn)*0.6})`,
-                    fontFamily:'var(--pa-body)', fontSize:12, fontWeight:600, color:'var(--pa-ink)',
-                    display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>{r.day}</div>
-                  <div style={{ flex:1 }}>
-                    <div style={{ height:4, borderRadius:4, background:'rgba(31,26,20,0.06)' }}>
-                      <div style={{ width:`${(r.count/totalIn)*100}%`, height:'100%', background:'var(--pa-accent)', borderRadius:4, transition:'width .5s cubic-bezier(0.16,1,0.3,1)' }} />
-                    </div>
+                    fontFamily:'var(--pa-body)', fontSize:13, fontWeight:700, color:'var(--pa-ink)',
+                    display:'flex', alignItems:'center', justifyContent:'center' }}>{r.day}</div>
+                  <div style={{ flex:1, display:'flex', flexWrap:'wrap', gap:5, minWidth:0 }}>
+                    {(peopleByDay[r.day]||[]).map(p => (
+                      <div key={p.id} style={{ display:'flex', alignItems:'center', gap:5, background:'rgba(31,26,20,0.04)', borderRadius:999, padding:'2px 9px 2px 2px' }}>
+                        <Avatar member={p} size={18} />
+                        <span style={{ fontFamily:'var(--pa-body)', fontSize:11.5, fontWeight:500, color:'var(--pa-ink)' }}>{p.name}</span>
+                      </div>
+                    ))}
                   </div>
-                  <span style={{ fontFamily:'var(--pa-mono)', fontSize:11, color:'var(--pa-ink)', fontWeight:600 }}>{r.count}/{totalIn}</span>
+                  <span style={{ fontFamily:'var(--pa-mono)', fontSize:11, color:'var(--pa-muted)', fontWeight:600, flexShrink:0, marginTop:6 }}>{r.count}/{totalIn}</span>
                 </div>
               ))}
             </div>
@@ -5874,7 +5891,7 @@ function PlanEstadia({ appData }) {
             <div style={{ fontFamily:'var(--pa-mono)', fontSize:9.5, letterSpacing:1, color:'rgba(255,255,255,0.5)', textTransform:'uppercase' }}>Quem vai · {inMembers.length}</div>
             <div style={{ display:'flex', marginTop:6 }}>
               {inMembers.slice(0,8).map((m,i) => (
-                <div key={m.id} style={{ marginLeft:i===0?0:-8 }}><Avatar member={m} size={26} ring ringColor="var(--pa-ink)" /></div>
+                <div key={m.id} style={{ marginLeft:i===0?0:-8, borderRadius:'50%', boxShadow:'0 0 0 2px var(--pa-ink)' }}><Avatar member={m} size={26} /></div>
               ))}
             </div>
           </div>
@@ -7094,12 +7111,19 @@ function MPhase7({ me, onLogout, onOpenChat }) {
   const appData = useAppStore();
   const locked = appData.locked;
   const allAvail = appData.avail || {};
-  const totalIn = (typeof getInMembers === 'function') ? getInMembers(appData).length : 0;
+  const totalIn = ((typeof getInMembers === 'function') ? getInMembers(appData).length : 0) || getAllMembers().length;
   const [range, setRange] = mUseState({ from: null, to: null });
 
   // Heat map dos dias
   const heat = {};
   Object.values(allAvail).forEach(arr => (arr||[]).forEach(d => { heat[d] = (heat[d]||0) + 1; }));
+  // Quem marcou cada dia (nomes)
+  const peopleByDay = {};
+  Object.entries(allAvail).forEach(([mid, days]) => {
+    (days||[]).forEach(d => { (peopleByDay[d] = peopleByDay[d] || []).push(memberById(mid) || { id:mid, name:'?', initials:'?', color:'var(--pa-muted)' }); });
+  });
+  const namesFor = (d) => (peopleByDay[d] || []).map(p => p.name).join(', ');
+  const rankedDays = Object.keys(peopleByDay).map(Number).sort((a,b) => (heat[b]||0) - (heat[a]||0)).slice(0,6);
 
   return (
     <MShell>
@@ -7146,6 +7170,27 @@ function MPhase7({ me, onLogout, onOpenChat }) {
                 );
               }} />
             </div>
+            {rankedDays.length > 0 && (
+              <div style={{ background:'#fff', borderRadius:14, padding:14, marginTop:12, border:'1px solid var(--pa-line)' }}>
+                <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:8 }}>Quem está livre em cada dia</div>
+                {rankedDays.map((day, idx) => (
+                  <div key={day} style={{ display:'flex', alignItems:'flex-start', gap:8, padding:'7px 0', borderTop: idx===0?'none':'1px solid var(--pa-line)' }}>
+                    <div style={{ width:30, height:26, borderRadius:7, flexShrink:0,
+                      background:`rgba(217,119,87,${0.15+((heat[day]||0)/Math.max(1,totalIn))*0.6})`,
+                      fontFamily:'var(--pa-body)', fontSize:12, fontWeight:700, color:'var(--pa-ink)',
+                      display:'flex', alignItems:'center', justifyContent:'center' }}>{day}</div>
+                    <div style={{ flex:1, display:'flex', flexWrap:'wrap', gap:4, minWidth:0 }}>
+                      {(peopleByDay[day]||[]).map(p => (
+                        <div key={p.id} style={{ display:'flex', alignItems:'center', gap:4, background:'rgba(31,26,20,0.04)', borderRadius:999, padding:'2px 8px 2px 2px' }}>
+                          <Avatar member={p} size={16} />
+                          <span style={{ fontFamily:'var(--pa-body)', fontSize:11, fontWeight:500, color:'var(--pa-ink)' }}>{p.name}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
             {range.from && (
               <div style={{ background:'#fff', borderRadius:14, padding:14, marginTop:12, border:'1px solid var(--pa-line)' }}>
                 <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>Seleção</div>
