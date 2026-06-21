@@ -32,6 +32,8 @@
   body { font-family: var(--pa-body); color: var(--pa-ink); background: var(--pa-bg); overscroll-behavior-y: contain; }
   /* Scroll suave com inércia no iOS para todos os contentores roláveis */
   * { -webkit-overflow-scrolling: touch; }
+  /* Altura total que respeita a barra do browser no mobile (dvh) com fallback */
+  .pa-vh { height: 100vh; height: 100dvh; }
   button, input, textarea { font-family: inherit; }
   /* Sensação nativa em mobile: sem flash ao tocar, sem delay de 300ms, sem seleção acidental */
   button, a, [role="button"], label, .pa-tap { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
@@ -2379,7 +2381,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r14';
+window.PA_VERSION = '2026.06.01-r16';
 
 // Regista o service worker (PWA instalável + cache offline). Falha em silêncio se não suportado.
 if ('serviceWorker' in navigator) {
@@ -8629,7 +8631,7 @@ function LiveApp() {
 
   if (!auth.user) {
     return (
-      <div style={{ width: '100vw', height: '100vh' }}>
+      <div className="pa-vh" style={{ width: '100vw' }}>
         <AuthGate auth={auth} narrow={!isDesktop} />
       </div>
     );
@@ -8641,7 +8643,7 @@ function LiveApp() {
   // Hub de edições (landing após login OU se edição ativa desapareceu)
   if (!inEdition || !EditionStore.active()) {
     return (
-      <div style={{ width:'100vw', height:'100vh', overflow:'auto' }}>
+      <div className="pa-vh" style={{ width:'100vw', overflow:'auto' }}>
         <EditionHub auth={auth} narrow={!isDesktop} onEnterEdition={() => setInEdition(true)} />
         {showOnboarding && <OnboardingModal onClose={()=>setShowOnboarding(false)} />}
       </div>
@@ -8652,7 +8654,7 @@ function LiveApp() {
 
   if (isDesktop) {
     return (
-      <div style={{ width: '100vw', height: '100vh' }}>
+      <div className="pa-vh" style={{ width: '100vw' }}>
         <DesktopShell viewAs={viewAs} liveUser={me} onLogout={auth.logout} onBackToHub={backToHub} onEditProfile={()=>setProfileOpen(true)} />
         <ProfileEditor open={profileOpen} onClose={()=>setProfileOpen(false)} auth={auth} />
       </div>
@@ -8660,7 +8662,7 @@ function LiveApp() {
   }
 
   return (
-    <div style={{ width: '100vw', height: '100vh', background: 'var(--pa-ink)', display: 'flex', alignItems: 'stretch', justifyContent: 'center' }}>
+    <div className="pa-vh" style={{ width: '100vw', background: 'var(--pa-ink)', display: 'flex', alignItems: 'stretch', justifyContent: 'center' }}>
       <div style={{ width: '100%', maxWidth: 520, background: 'var(--pa-bg)', display: 'flex', flexDirection: 'column', boxShadow: '0 0 60px rgba(0,0,0,0.3)' }}>
         <MobileApp viewAs={viewAs} liveUser={me} onLogout={auth.logout} onBackToHub={backToHub} onEditProfile={()=>setProfileOpen(true)} />
         <ProfileEditor open={profileOpen} onClose={()=>setProfileOpen(false)} auth={auth} />
