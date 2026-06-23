@@ -73,6 +73,10 @@
   /* Transições por defeito — fluidez global */
   button { transition: transform 0.15s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.2s ease, background 0.2s ease, opacity 0.2s ease, border-color 0.2s ease; }
   button:active:not(:disabled) { transform: scale(0.96); }
+  /* Foco visível por teclado (acessibilidade desktop) — não aparece em toques/cliques */
+  button:focus-visible, a:focus-visible, [role="button"]:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+    outline: 2px solid var(--pa-accent); outline-offset: 2px;
+  }
   input, textarea, select { transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease; }
 
   /* Cartões com hover suave */
@@ -3595,7 +3599,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r16';
+window.PA_VERSION = '2026.06.01-r19';
 
 // Regista o service worker (PWA instalável + cache offline). Falha em silêncio se não suportado.
 if ('serviceWorker' in navigator) {
@@ -9311,6 +9315,44 @@ function DPhase6({
   const toggle = d => setDays(arr => arr.includes(d) ? arr.filter(x => x !== d) : [...arr, d]);
   const allAvail = appData.avail || {};
   const submittedIds = Object.keys(allAvail);
+
+  // Mapa de calor do grupo em tempo real: outros (já guardado) + a minha seleção atual (local).
+  // Conta APENAS quem está "in" — se alguém marcou e depois saiu, a disponibilidade não conta.
+  const inMembers = typeof getInMembers === 'function' ? getInMembers(appData) : allMembers;
+  const totalIn = inMembers.length || allMembers.length;
+  const inIds = dUseMemo2(() => new Set(inMembers.map(m => m.id)), [inMembers]);
+  const meIsIn = inIds.has(me.id);
+  const heat = dUseMemo2(() => {
+    const h = {};
+    Object.entries(allAvail).forEach(([mid, arr]) => {
+      if (mid === me.id || !inIds.has(mid)) return;
+      (arr || []).forEach(d => {
+        h[d] = (h[d] || 0) + 1;
+      });
+    });
+    if (meIsIn) days.forEach(d => {
+      h[d] = (h[d] || 0) + 1;
+    });
+    return h;
+  }, [allAvail, days, me.id, inIds, meIsIn]);
+  const peopleByDay = dUseMemo2(() => {
+    const map = {};
+    Object.entries(allAvail).forEach(([mid, arr]) => {
+      if (mid === me.id || !inIds.has(mid)) return;
+      (arr || []).forEach(d => {
+        (map[d] = map[d] || []).push(memberById(mid) || {
+          name: '?'
+        });
+      });
+    });
+    if (meIsIn) days.forEach(d => {
+      (map[d] = map[d] || []).push({
+        name: me.name + ' (tu)'
+      });
+    });
+    return map;
+  }, [allAvail, days, me.id, inIds, meIsIn]);
+  const namesFor = d => (peopleByDay[d] || []).map(p => p.name).join(', ');
   return /*#__PURE__*/React.createElement("div", {
     style: {
       flex: 1,
@@ -9328,7 +9370,7 @@ function DPhase6({
         color: 'var(--pa-accent)'
       }
     }, "podes ir.")),
-    sub: "Marca generoso. Quanto mais opções, melhor o consenso."
+    sub: "Marca generoso. As células mais escuras já têm mais gente — o teu contorno laranja marca os teus dias."
   }), winnerLoc && /*#__PURE__*/React.createElement("div", {
     style: {
       background: 'var(--pa-ink)',
@@ -9386,26 +9428,90 @@ function DPhase6({
     onCellClick: toggle,
     renderCell: d => {
       const sel = days.includes(d);
+      const n = heat[d] || 0;
+      const intensity = totalIn > 0 ? n / totalIn : 0;
       return /*#__PURE__*/React.createElement("div", {
+        title: n > 0 ? namesFor(d) : undefined,
         style: {
           width: '100%',
           height: '100%',
           borderRadius: 8,
-          background: sel ? 'var(--pa-accent)' : '#fff',
-          color: sel ? '#fff' : 'var(--pa-ink)',
-          border: sel ? '2px solid var(--pa-accent)' : '1px solid var(--pa-line)',
+          background: intensity > 0 ? `rgba(217,119,87,${0.10 + intensity * 0.55})` : '#fff',
+          color: 'var(--pa-ink)',
+          border: sel ? '2.5px solid var(--pa-accent)' : intensity === 0 ? '1px solid var(--pa-line)' : '1px solid transparent',
+          boxShadow: sel ? '0 0 0 2px rgba(217,119,87,0.22), 0 2px 8px rgba(217,119,87,0.28)' : 'none',
           display: 'flex',
+          flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
           fontFamily: 'var(--pa-body)',
-          fontSize: 14,
-          fontWeight: sel ? 700 : 500,
           cursor: 'pointer',
-          boxShadow: sel ? '0 2px 8px rgba(217,119,87,0.3)' : 'none'
+          transition: 'background 0.12s, box-shadow 0.12s'
         }
-      }, d);
+      }, /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontSize: 14,
+          fontWeight: sel ? 700 : 600
+        }
+      }, d), n > 0 && /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontFamily: 'var(--pa-mono)',
+          fontSize: 9,
+          marginTop: 1,
+          color: 'var(--pa-muted)',
+          fontWeight: 600
+        }
+      }, n, "/", totalIn));
     }
-  })), /*#__PURE__*/React.createElement("div", {
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 16,
+      marginTop: 14,
+      flexWrap: 'wrap'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 16,
+      height: 16,
+      borderRadius: 4,
+      background: 'rgba(217,119,87,0.5)',
+      display: 'inline-block'
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: 'var(--pa-muted)'
+    }
+  }, "mais escuro = mais gente")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 16,
+      height: 16,
+      borderRadius: 4,
+      background: '#fff',
+      border: '2.5px solid var(--pa-accent)',
+      display: 'inline-block',
+      boxSizing: 'border-box'
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 11,
+      color: 'var(--pa-muted)'
+    }
+  }, "os teus dias")))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
       flexDirection: 'column',
@@ -9510,20 +9616,25 @@ function DPhase7({
   const totalIn = inMembers.length || allMembers.length;
   const monthLabel = D.phase6 && D.phase6.monthLabel || 'Este mês';
   const monthShort = monthLabel.split(' ')[0].slice(0, 3);
+
+  // Conta apenas a disponibilidade de quem está "in" (ignora quem marcou e depois saiu)
+  const inIds = dUseMemo2(() => new Set(inMembers.map(m => m.id)), [inMembers]);
   const heat = dUseMemo2(() => {
     const h = {};
-    Object.values(allAvail).forEach(arr => {
+    Object.entries(allAvail).forEach(([mid, arr]) => {
+      if (!inIds.has(mid)) return;
       (arr || []).forEach(d => {
         h[d] = (h[d] || 0) + 1;
       });
     });
     return h;
-  }, [allAvail]);
+  }, [allAvail, inIds]);
 
-  // Mapa dia → pessoas que marcaram esse dia (para mostrar os nomes)
+  // Mapa dia → pessoas que marcaram esse dia (só "in", para mostrar os nomes)
   const peopleByDay = dUseMemo2(() => {
     const map = {};
     Object.entries(allAvail).forEach(([mid, days]) => {
+      if (!inIds.has(mid)) return;
       (days || []).forEach(d => {
         (map[d] = map[d] || []).push(memberById(mid) || {
           id: mid,
@@ -9534,7 +9645,7 @@ function DPhase7({
       });
     });
     return map;
-  }, [allAvail]);
+  }, [allAvail, inIds]);
   const namesFor = d => (peopleByDay[d] || []).map(p => p.name).join(', ');
   const locked = appData.locked || null;
   const [range, setRange] = dUseState2({
@@ -11606,7 +11717,8 @@ function DesktopShell({
     style: {
       flex: 1,
       display: 'flex',
-      overflow: 'hidden'
+      overflow: 'hidden',
+      minHeight: 0
     }
   }, /*#__PURE__*/React.createElement(DLeftRail, {
     phase: phase,
@@ -11617,6 +11729,7 @@ function DesktopShell({
       display: 'flex',
       flexDirection: 'column',
       overflow: 'hidden',
+      minHeight: 0,
       background: '#fcf9f3'
     }
   }, /*#__PURE__*/React.createElement("div", {
@@ -11626,7 +11739,8 @@ function DesktopShell({
       flex: 1,
       display: 'flex',
       flexDirection: 'column',
-      overflow: 'hidden'
+      overflow: 'hidden',
+      minHeight: 0
     }
   }, /*#__PURE__*/React.createElement(PhaseView, {
     me: me
@@ -13176,6 +13290,41 @@ function MPhase6({
   const toggle = d => setDays(arr => arr.includes(d) ? arr.filter(x => x !== d) : [...arr, d]);
   const allAvail = appData.avail || {};
   const submittedIds = Object.keys(allAvail);
+  const inMembers = typeof getInMembers === 'function' ? getInMembers(appData) : allMembers;
+  const totalIn = inMembers.length || allMembers.length;
+  const inIds = mUseMemo(() => new Set(inMembers.map(m => m.id)), [inMembers]);
+  const meIsIn = inIds.has(me.id);
+  const heat = mUseMemo(() => {
+    const h = {};
+    Object.entries(allAvail).forEach(([mid, arr]) => {
+      if (mid === me.id || !inIds.has(mid)) return;
+      (arr || []).forEach(d => {
+        h[d] = (h[d] || 0) + 1;
+      });
+    });
+    if (meIsIn) days.forEach(d => {
+      h[d] = (h[d] || 0) + 1;
+    });
+    return h;
+  }, [allAvail, days, me.id, inIds, meIsIn]);
+  const peopleByDay = mUseMemo(() => {
+    const map = {};
+    Object.entries(allAvail).forEach(([mid, arr]) => {
+      if (mid === me.id || !inIds.has(mid)) return;
+      (arr || []).forEach(d => {
+        (map[d] = map[d] || []).push(memberById(mid) || {
+          name: '?'
+        });
+      });
+    });
+    if (meIsIn) days.forEach(d => {
+      (map[d] = map[d] || []).push({
+        name: me.name + ' (tu)'
+      });
+    });
+    return map;
+  }, [allAvail, days, me.id, inIds, meIsIn]);
+  const namesFor = d => (peopleByDay[d] || []).map(p => p.name).join(', ');
   return /*#__PURE__*/React.createElement(MShell, null, /*#__PURE__*/React.createElement(MHeader, {
     phase: 6,
     onLogout: onLogout,
@@ -13248,24 +13397,89 @@ function MPhase6({
     onCellClick: toggle,
     renderCell: d => {
       const sel = days.includes(d);
+      const n = heat[d] || 0;
+      const intensity = totalIn > 0 ? n / totalIn : 0;
       return /*#__PURE__*/React.createElement("div", {
+        title: n > 0 ? namesFor(d) : undefined,
         style: {
           width: '100%',
           height: '100%',
           borderRadius: 6,
-          background: sel ? 'var(--pa-accent)' : '#fff',
-          color: sel ? '#fff' : 'var(--pa-ink)',
-          border: sel ? 'none' : '1px solid var(--pa-line)',
+          background: intensity > 0 ? `rgba(217,119,87,${0.10 + intensity * 0.55})` : '#fff',
+          color: 'var(--pa-ink)',
+          border: sel ? '2px solid var(--pa-accent)' : intensity === 0 ? '1px solid var(--pa-line)' : '1px solid transparent',
+          boxShadow: sel ? '0 0 0 1.5px rgba(217,119,87,0.25)' : 'none',
           display: 'flex',
+          flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          fontFamily: 'var(--pa-body)',
-          fontSize: 12,
-          fontWeight: sel ? 700 : 500
+          fontFamily: 'var(--pa-body)'
         }
-      }, d);
+      }, /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontSize: 12,
+          fontWeight: sel ? 700 : 600,
+          lineHeight: 1
+        }
+      }, d), n > 0 && /*#__PURE__*/React.createElement("div", {
+        style: {
+          fontFamily: 'var(--pa-mono)',
+          fontSize: 7.5,
+          marginTop: 1,
+          color: 'var(--pa-muted)',
+          fontWeight: 700,
+          lineHeight: 1
+        }
+      }, n, "/", totalIn));
     }
-  })), /*#__PURE__*/React.createElement("button", {
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 14,
+      marginTop: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 5
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 13,
+      height: 13,
+      borderRadius: 3,
+      background: 'rgba(217,119,87,0.5)',
+      display: 'inline-block'
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 10.5,
+      color: 'var(--pa-muted)'
+    }
+  }, "mais gente")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 5
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      width: 13,
+      height: 13,
+      borderRadius: 3,
+      background: '#fff',
+      border: '2px solid var(--pa-accent)',
+      display: 'inline-block',
+      boxSizing: 'border-box'
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 10.5,
+      color: 'var(--pa-muted)'
+    }
+  }, "os teus dias")))), /*#__PURE__*/React.createElement("button", {
     onClick: () => {
       AppStore.setAvailability(me.id, days);
       if (window._paToast) window._paToast('Disponibilidade guardada!', 'success');
@@ -13343,20 +13557,26 @@ function MPhase7({
   const appData = useAppStore();
   const locked = appData.locked;
   const allAvail = appData.avail || {};
-  const totalIn = (typeof getInMembers === 'function' ? getInMembers(appData).length : 0) || getAllMembers().length;
+  const inMembers = typeof getInMembers === 'function' ? getInMembers(appData) : getAllMembers();
+  const totalIn = inMembers.length || getAllMembers().length;
+  const inIds = new Set(inMembers.map(m => m.id));
   const [range, setRange] = mUseState({
     from: null,
     to: null
   });
 
-  // Heat map dos dias
+  // Heat map dos dias — conta apenas quem está "in" (ignora quem marcou e depois saiu)
   const heat = {};
-  Object.values(allAvail).forEach(arr => (arr || []).forEach(d => {
-    heat[d] = (heat[d] || 0) + 1;
-  }));
-  // Quem marcou cada dia (nomes)
+  Object.entries(allAvail).forEach(([mid, arr]) => {
+    if (!inIds.has(mid)) return;
+    (arr || []).forEach(d => {
+      heat[d] = (heat[d] || 0) + 1;
+    });
+  });
+  // Quem marcou cada dia (nomes, só "in")
   const peopleByDay = {};
   Object.entries(allAvail).forEach(([mid, days]) => {
+    if (!inIds.has(mid)) return;
     (days || []).forEach(d => {
       (peopleByDay[d] = peopleByDay[d] || []).push(memberById(mid) || {
         id: mid,
@@ -14397,7 +14617,9 @@ function PhaseProgressBanner({
     }, "Avançar →")));
   }
   const showCountdown = !!p.deadline;
-  const showDeadlineCtrl = me.isAdmin && !p.isComplete && !hasUnresolvedTie;
+  // Timer sempre acessível ao admin (mesmo com a fase completa, para poder
+  // dar uma margem antes de avançar ou remover um prazo já definido).
+  const showDeadlineCtrl = me.isAdmin && !hasUnresolvedTie;
   if (!statusContent && !showCountdown && !showDeadlineCtrl) return null;
   return /*#__PURE__*/React.createElement("div", {
     style: {
@@ -15641,14 +15863,23 @@ function EditionCard({
   }, item.label)))))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
-      alignItems: 'center',
-      gap: 16,
+      alignItems: 'flex-start',
+      gap: 18,
       flexWrap: 'wrap'
     }
-  }, /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: 'var(--pa-mono)',
+      fontSize: 9.5,
+      letterSpacing: 1,
+      color: 'var(--pa-muted)',
+      textTransform: 'uppercase',
+      marginBottom: 3
+    }
+  }, "Fase do plano"), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
-      alignItems: 'center',
+      alignItems: 'baseline',
       gap: 6
     }
   }, /*#__PURE__*/React.createElement("span", {
@@ -15657,53 +15888,61 @@ function EditionCard({
       fontSize: 18,
       fontWeight: 600
     }
-  }, edition.current_phase), /*#__PURE__*/React.createElement("span", {
+  }, edition.current_phase, /*#__PURE__*/React.createElement("span", {
     style: {
-      fontFamily: 'var(--pa-mono)',
-      fontSize: 10,
       color: 'var(--pa-muted)',
-      textTransform: 'uppercase',
-      letterSpacing: 0.8
+      fontSize: 13,
+      fontWeight: 400
     }
-  }, "/ 8 · ", phaseName)), /*#__PURE__*/React.createElement("div", {
+  }, "/8")), /*#__PURE__*/React.createElement("span", {
     style: {
-      width: 1,
-      height: 20,
-      background: 'var(--pa-line)'
-    }
-  }), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: 6
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontFamily: 'var(--pa-display)',
-      fontSize: 18,
-      fontWeight: 600
-    }
-  }, inCount), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontFamily: 'var(--pa-mono)',
-      fontSize: 10,
-      color: 'var(--pa-muted)',
-      textTransform: 'uppercase',
-      letterSpacing: 0.8
-    }
-  }, "a bordo")), createdLabel && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-    style: {
-      width: 1,
-      height: 20,
-      background: 'var(--pa-line)'
-    }
-  }), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontFamily: 'var(--pa-mono)',
-      fontSize: 10.5,
+      fontFamily: 'var(--pa-body)',
+      fontSize: 12.5,
       color: 'var(--pa-muted)'
     }
-  }, createdLabel))), /*#__PURE__*/React.createElement(Btn, {
+  }, phaseName))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 1,
+      height: 32,
+      background: 'var(--pa-line)'
+    }
+  }), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: 'var(--pa-mono)',
+      fontSize: 9.5,
+      letterSpacing: 1,
+      color: 'var(--pa-muted)',
+      textTransform: 'uppercase',
+      marginBottom: 3
+    }
+  }, "A bordo"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: 'var(--pa-display)',
+      fontSize: 18,
+      fontWeight: 600
+    }
+  }, inCount)), createdLabel && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 1,
+      height: 32,
+      background: 'var(--pa-line)'
+    }
+  }), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: 'var(--pa-mono)',
+      fontSize: 9.5,
+      letterSpacing: 1,
+      color: 'var(--pa-muted)',
+      textTransform: 'uppercase',
+      marginBottom: 3
+    }
+  }, "Criada"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: 'var(--pa-body)',
+      fontSize: 12.5,
+      color: 'var(--pa-ink)'
+    }
+  }, createdLabel)))), /*#__PURE__*/React.createElement(Btn, {
     variant: archived ? 'soft' : 'primary',
     onClick: () => onEnter(edition),
     style: {
