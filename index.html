@@ -3599,7 +3599,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r19';
+window.PA_VERSION = '2026.06.01-r20';
 
 // Regista o service worker (PWA instalável + cache offline). Falha em silêncio se não suportado.
 if ('serviceWorker' in navigator) {
@@ -7601,7 +7601,8 @@ function DActivityList({
       flexDirection: 'column',
       gap: 14,
       overflow: 'auto',
-      flex: 1
+      flex: 1,
+      minHeight: 0
     }
   }, feed.length === 0 && /*#__PURE__*/React.createElement("div", {
     style: {
@@ -7799,9 +7800,7 @@ function DAdminBar({
     variant: "ghost",
     size: "sm",
     onClick: () => setPhase(phase - 1)
-  }, "← Voltar"), children, showNext && phase < total && /*#__PURE__*/React.createElement(Btn, {
-    onClick: () => setPhase(phase + 1)
-  }, "Próxima fase →")));
+  }, "← Voltar"), children));
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -7835,6 +7834,7 @@ function DPhase1({
   return /*#__PURE__*/React.createElement("div", {
     style: {
       flex: 1,
+      minHeight: 0,
       padding: '32px 36px',
       display: 'flex',
       flexDirection: 'column',
@@ -8059,6 +8059,7 @@ function DPhase2({
   return /*#__PURE__*/React.createElement("div", {
     style: {
       flex: 1,
+      minHeight: 0,
       padding: '32px 36px',
       display: 'flex',
       flexDirection: 'column',
@@ -8407,6 +8408,7 @@ function DPhase3({
     return /*#__PURE__*/React.createElement("div", {
       style: {
         flex: 1,
+        minHeight: 0,
         padding: '32px 36px',
         display: 'flex',
         flexDirection: 'column',
@@ -8429,6 +8431,7 @@ function DPhase3({
   return /*#__PURE__*/React.createElement("div", {
     style: {
       flex: 1,
+      minHeight: 0,
       padding: '32px 36px',
       display: 'flex',
       flexDirection: 'column',
@@ -8693,6 +8696,7 @@ function DPhase4({
   return /*#__PURE__*/React.createElement("div", {
     style: {
       flex: 1,
+      minHeight: 0,
       padding: '32px 36px',
       display: 'flex',
       flexDirection: 'column',
@@ -9095,6 +9099,7 @@ function DPhase5({
     return /*#__PURE__*/React.createElement("div", {
       style: {
         flex: 1,
+        minHeight: 0,
         padding: '32px 36px',
         display: 'flex',
         flexDirection: 'column',
@@ -9119,6 +9124,7 @@ function DPhase5({
   return /*#__PURE__*/React.createElement("div", {
     style: {
       flex: 1,
+      minHeight: 0,
       padding: '32px 36px',
       display: 'flex',
       flexDirection: 'column',
@@ -9356,6 +9362,7 @@ function DPhase6({
   return /*#__PURE__*/React.createElement("div", {
     style: {
       flex: 1,
+      minHeight: 0,
       padding: '32px 36px',
       display: 'flex',
       flexDirection: 'column',
@@ -9683,6 +9690,7 @@ function DPhase7({
   return /*#__PURE__*/React.createElement("div", {
     style: {
       flex: 1,
+      minHeight: 0,
       padding: '32px 36px',
       display: 'flex',
       flexDirection: 'column',
@@ -9968,6 +9976,7 @@ function DPhase8({
   return /*#__PURE__*/React.createElement("div", {
     style: {
       flex: 1,
+      minHeight: 0,
       padding: '32px 36px 28px',
       display: 'flex',
       flexDirection: 'column',
@@ -11818,6 +11827,31 @@ function MPhaseNav({
     AppStore.clearKey('deadline');
     setOpen(false);
   };
+  // Reiniciar a fase atual (paridade com o desktop): cada fase limpa a sua chave
+  const resetKey = {
+    1: 'rsvp',
+    2: 'locSuggs',
+    3: 'locVotes',
+    4: 'accSuggs',
+    5: 'accVotes',
+    6: 'avail',
+    7: 'locked'
+  }[phase];
+  const resetLabel = {
+    1: 'as respostas',
+    2: 'as sugestões de local',
+    3: 'os votos de local',
+    4: 'as sugestões de alojamento',
+    5: 'os votos de alojamento',
+    6: 'as disponibilidades',
+    7: 'as datas trancadas'
+  }[phase];
+  const doReset = () => {
+    if (window.confirm(`Reiniciar ${resetLabel} desta fase?`)) {
+      AppStore.clearKey(resetKey);
+      setOpen(false);
+    }
+  };
   return /*#__PURE__*/React.createElement("div", {
     style: {
       position: 'relative',
@@ -11954,7 +11988,33 @@ function MPhaseNav({
       fontSize: 10,
       opacity: 0.7
     }
-  }, String(p.n).padStart(2, '0')), p.name)))));
+  }, String(p.n).padStart(2, '0')), p.name)), resetKey && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      borderTop: '1px solid var(--pa-line)',
+      margin: '4px 0'
+    }
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: doReset,
+    style: {
+      width: '100%',
+      textAlign: 'left',
+      padding: '8px 10px',
+      borderRadius: 8,
+      border: 'none',
+      cursor: 'pointer',
+      background: 'transparent',
+      color: '#8a4220',
+      fontFamily: 'var(--pa-body)',
+      fontSize: 12.5,
+      display: 'flex',
+      gap: 8,
+      alignItems: 'center'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13
+    }
+  }, "🔄"), " Reiniciar esta fase")))));
 }
 function MHeader({
   phase,
@@ -12210,6 +12270,7 @@ function MPhase1({
     style: {
       padding: '6px 22px',
       flex: 1,
+      minHeight: 0,
       overflow: 'auto'
     }
   }, /*#__PURE__*/React.createElement("div", {
@@ -12469,6 +12530,7 @@ function MPhase2({
     style: {
       padding: '6px 16px',
       flex: 1,
+      minHeight: 0,
       overflow: 'auto',
       display: 'flex',
       flexDirection: 'column',
@@ -12741,6 +12803,7 @@ function MPhase3({
     style: {
       padding: '6px 16px 14px',
       flex: 1,
+      minHeight: 0,
       overflow: 'auto',
       display: 'flex',
       flexDirection: 'column',
@@ -12898,6 +12961,7 @@ function MPhase4({
     style: {
       padding: '6px 16px 14px',
       flex: 1,
+      minHeight: 0,
       overflow: 'auto',
       display: 'flex',
       flexDirection: 'column',
@@ -13177,6 +13241,7 @@ function MPhase5({
     style: {
       padding: '6px 16px 14px',
       flex: 1,
+      minHeight: 0,
       overflow: 'auto',
       display: 'flex',
       flexDirection: 'column',
@@ -13340,6 +13405,7 @@ function MPhase6({
     style: {
       padding: '6px 16px 14px',
       flex: 1,
+      minHeight: 0,
       overflow: 'auto'
     }
   }, winnerLoc && /*#__PURE__*/React.createElement("div", {
@@ -13604,6 +13670,7 @@ function MPhase7({
     style: {
       padding: '6px 16px 14px',
       flex: 1,
+      minHeight: 0,
       overflow: 'auto'
     }
   }, /*#__PURE__*/React.createElement("div", {
@@ -13655,6 +13722,7 @@ function MPhase7({
     style: {
       padding: '6px 16px 14px',
       flex: 1,
+      minHeight: 0,
       overflow: 'auto'
     }
   }, /*#__PURE__*/React.createElement("div", {
@@ -13941,6 +14009,7 @@ function MPhase8({
     style: {
       padding: '4px 16px 12px',
       flex: 1,
+      minHeight: 0,
       overflow: 'auto'
     }
   }, tab === 'estadia' && /*#__PURE__*/React.createElement(PlanEstadia, {
@@ -15345,7 +15414,7 @@ function PAModal({
     style: {
       width: '100%',
       maxWidth,
-      maxHeight: '90vh',
+      maxHeight: '90dvh',
       overflow: 'auto',
       background: 'var(--pa-bg)',
       borderRadius: 20,
@@ -16073,6 +16142,7 @@ function EditionHub({
   }))))), /*#__PURE__*/React.createElement("div", {
     style: {
       flex: 1,
+      minHeight: 0,
       overflow: 'auto',
       padding: narrow ? '24px 18px 40px' : '40px 48px 60px',
       maxWidth: 1100,

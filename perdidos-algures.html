@@ -2385,7 +2385,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r19';
+window.PA_VERSION = '2026.06.01-r20';
 
 // Regista o service worker (PWA instalável + cache offline). Falha em silêncio se não suportado.
 if ('serviceWorker' in navigator) {
@@ -4832,7 +4832,7 @@ function DRightRail({ phase, me }) {
 function DActivityList({ phase }) {
   const feed = useActivityFeed(phase);
   return (
-    <div style={{ display:'flex', flexDirection:'column', gap:14, overflow:'auto', flex:1 }}>
+    <div style={{ display:'flex', flexDirection:'column', gap:14, overflow:'auto', flex:1, minHeight:0 }}>
       {feed.length === 0 && (
         <div style={{ padding:'20px 0', textAlign:'center', fontSize:12, color:'var(--pa-muted)' }}>
           Sem atividade ainda.
@@ -4918,7 +4918,6 @@ function DAdminBar({ children, hint, showNext = true }) {
       <div style={{ display:'flex', gap:8 }}>
         {phase > 1 && <Btn variant="ghost" size="sm" onClick={() => setPhase(phase - 1)}>← Voltar</Btn>}
         {children}
-        {showNext && phase < total && <Btn onClick={() => setPhase(phase + 1)}>Próxima fase →</Btn>}
       </div>
     </div>
   );
@@ -4946,7 +4945,7 @@ function DPhase1({ me }) {
   };
 
   return (
-    <div style={{ flex:1, padding:'32px 36px', display:'flex', flexDirection:'column', overflow:'auto' }}>
+    <div style={{ flex:1, minHeight:0, padding:'32px 36px', display:'flex', flexDirection:'column', overflow:'auto' }}>
       <DPhaseHeader phase={1} status="Em curso" statusTone="accent"
         title={<>Quem entra na <span style={{ color:'var(--pa-accent)' }}>{(appData.editionNumber||1)}ª edição</span> — <span style={{ color:'var(--pa-accent)' }}>{appData.editionTitle || 'Nova Aventura'}</span>?</>}
         sub={<>O {memberById(D.adminId)?.name || 'admin'} iniciou esta edição. Diz se estás dentro.</>} />
@@ -5046,7 +5045,7 @@ function DPhase2({ me }) {
   };
 
   return (
-    <div style={{ flex:1, padding:'32px 36px', display:'flex', flexDirection:'column', overflow:'auto' }}>
+    <div style={{ flex:1, minHeight:0, padding:'32px 36px', display:'flex', flexDirection:'column', overflow:'auto' }}>
       <DPhaseHeader phase={2} status="Em curso" statusTone="accent"
         title={<>Cada um lança<br/><span style={{ color:'var(--pa-accent)' }}>até {limit} sítios.</span></>}
         sub="Sem censura. Convencer o grupo é com o nome e os argumentos." />
@@ -5194,7 +5193,7 @@ function DPhase3({ me }) {
 
   if (suggestions.length === 0) {
     return (
-      <div style={{ flex:1, padding:'32px 36px', display:'flex', flexDirection:'column', overflow:'auto' }}>
+      <div style={{ flex:1, minHeight:0, padding:'32px 36px', display:'flex', flexDirection:'column', overflow:'auto' }}>
         <DPhaseHeader phase={3} status="Sem destinos" statusTone="muted"
           title={<>Ainda não há<br/><span style={{ color:'var(--pa-accent)' }}>destinos para votar.</span></>}
           sub="Volta à fase 2 e pede ao grupo para sugerir sítios primeiro." />
@@ -5204,7 +5203,7 @@ function DPhase3({ me }) {
   }
 
   return (
-    <div style={{ flex:1, padding:'32px 36px', display:'flex', flexDirection:'column', overflow:'auto' }}>
+    <div style={{ flex:1, minHeight:0, padding:'32px 36px', display:'flex', flexDirection:'column', overflow:'auto' }}>
       <DPhaseHeader phase={3} status="A decorrer" statusTone="accent"
         title={<>Vota no teu<br/><span style={{ color:'var(--pa-accent)' }}>sítio favorito.</span></>}
         sub="Voto secreto. Um por pessoa." />
@@ -5320,7 +5319,7 @@ function DPhase4({ me }) {
   };
 
   return (
-    <div style={{ flex:1, padding:'32px 36px', display:'flex', flexDirection:'column', overflow:'auto' }}>
+    <div style={{ flex:1, minHeight:0, padding:'32px 36px', display:'flex', flexDirection:'column', overflow:'auto' }}>
       <DPhaseHeader phase={4} status="Em curso" statusTone="accent"
         title={<>Onde é que <span style={{ color:'var(--pa-accent)' }}>dormimos?</span></>}
         sub="Cada um pode lançar quantos alojamentos quiser. Aprende a vender — o teu favorito merece argumentos." />
@@ -5491,7 +5490,7 @@ function DPhase5({ me }) {
 
   if (suggestions.length === 0) {
     return (
-      <div style={{ flex:1, padding:'32px 36px', display:'flex', flexDirection:'column', overflow:'auto' }}>
+      <div style={{ flex:1, minHeight:0, padding:'32px 36px', display:'flex', flexDirection:'column', overflow:'auto' }}>
         <DPhaseHeader phase={5} status="Sem alojamentos" statusTone="muted"
           title={<>Ainda não há<br/><span style={{ color:'var(--pa-accent)' }}>alojamentos para votar.</span></>}
           sub="Volta à fase 4 e adiciona alojamentos primeiro." />
@@ -5504,7 +5503,7 @@ function DPhase5({ me }) {
   const winner = resolved ? suggestions.find((s) => s.id === resolved.id) : null;
 
   return (
-    <div style={{ flex:1, padding:'32px 36px', display:'flex', flexDirection:'column', overflow:'auto' }}>
+    <div style={{ flex:1, minHeight:0, padding:'32px 36px', display:'flex', flexDirection:'column', overflow:'auto' }}>
       <DPhaseHeader phase={5}
         status={winner ? 'Decidido' : 'A decorrer'}
         statusTone={winner ? 'success' : 'accent'}
@@ -5636,7 +5635,7 @@ function DPhase6({ me }) {
   const namesFor = (d) => (peopleByDay[d] || []).map((p) => p.name).join(', ');
 
   return (
-    <div style={{ flex:1, padding:'32px 36px', display:'flex', flexDirection:'column', overflow:'auto' }}>
+    <div style={{ flex:1, minHeight:0, padding:'32px 36px', display:'flex', flexDirection:'column', overflow:'auto' }}>
       <DPhaseHeader phase={6} status="A recolher disponibilidades" statusTone="accent"
         title={<>Toca nos dias<br/>em que <span style={{ color:'var(--pa-accent)' }}>podes ir.</span></>}
         sub="Marca generoso. As células mais escuras já têm mais gente — o teu contorno laranja marca os teus dias." />
@@ -5775,7 +5774,7 @@ function DPhase7({ me }) {
   const selFrom = range.from, selTo = range.to || range.from;
 
   return (
-    <div style={{ flex:1, padding:'32px 36px', display:'flex', flexDirection:'column', overflow:'auto' }}>
+    <div style={{ flex:1, minHeight:0, padding:'32px 36px', display:'flex', flexDirection:'column', overflow:'auto' }}>
       <DPhaseHeader phase={7} status={me.isAdmin ? 'Tu decides' : 'A aguardar'} statusTone={me.isAdmin?'accent':'muted'}
         title={<>O calendário falou.<br/><span style={{ color:'var(--pa-accent)' }}>{me.isAdmin ? 'Escolhe os dias.' : 'Admin está a escolher.'}</span></>}
         sub={hasData ? 'Quanto mais escura a célula, mais gente está disponível. Clica num dia (ou clica em dois para um intervalo).' : 'Ninguém marcou disponibilidade na fase 6, mas podes escolher os dias à mesma.'} />
@@ -5885,7 +5884,7 @@ function DPhase8({ me }) {
   ];
 
   return (
-    <div style={{ flex:1, padding:'32px 36px 28px', display:'flex', flexDirection:'column', overflow:'auto' }}>
+    <div style={{ flex:1, minHeight:0, padding:'32px 36px 28px', display:'flex', flexDirection:'column', overflow:'auto' }}>
       <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:24, gap:22 }}>
         <div>
           <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12 }}>
@@ -6645,6 +6644,10 @@ function MPhaseNav({ phase }) {
   const [open, setOpen] = mUseState(false);
   const total = D.phases.length;
   const go = (n) => { AppStore.setPhase(Math.max(1, Math.min(total, n))); AppStore.clearKey('deadline'); setOpen(false); };
+  // Reiniciar a fase atual (paridade com o desktop): cada fase limpa a sua chave
+  const resetKey = { 1:'rsvp', 2:'locSuggs', 3:'locVotes', 4:'accSuggs', 5:'accVotes', 6:'avail', 7:'locked' }[phase];
+  const resetLabel = { 1:'as respostas', 2:'as sugestões de local', 3:'os votos de local', 4:'as sugestões de alojamento', 5:'os votos de alojamento', 6:'as disponibilidades', 7:'as datas trancadas' }[phase];
+  const doReset = () => { if (window.confirm(`Reiniciar ${resetLabel} desta fase?`)) { AppStore.clearKey(resetKey); setOpen(false); } };
   return (
     <div style={{ position:'relative', display:'flex', alignItems:'center', gap:3 }}>
       <button onClick={() => go(phase - 1)} disabled={phase === 1} aria-label="Fase anterior"
@@ -6674,6 +6677,16 @@ function MPhaseNav({ phase }) {
                 {p.name}
               </button>
             ))}
+            {resetKey && (
+              <>
+                <div style={{ borderTop:'1px solid var(--pa-line)', margin:'4px 0' }} />
+                <button onClick={doReset} style={{
+                  width:'100%', textAlign:'left', padding:'8px 10px', borderRadius:8, border:'none', cursor:'pointer',
+                  background:'transparent', color:'#8a4220', fontFamily:'var(--pa-body)', fontSize:12.5, display:'flex', gap:8, alignItems:'center' }}>
+                  <span style={{ fontSize:13 }}>🔄</span> Reiniciar esta fase
+                </button>
+              </>
+            )}
           </div>
         </>
       )}
@@ -6778,7 +6791,7 @@ function MPhase1({ me, onLogout, onOpenChat }) {
         kicker={`${memberById(D.adminId)?.name || 'Admin'} chamou-te`}
         title={<>Quem entra<br/><span style={{ color:'var(--pa-accent)' }}>{appData.editionTitle || 'Nova Aventura'}</span>?</>}
         sub={`${appData.editionNumber || 1}ª edição`} />
-      <div style={{ padding:'6px 22px', flex:1, overflow:'auto' }}>
+      <div style={{ padding:'6px 22px', flex:1, minHeight:0, overflow:'auto' }}>
         {/* contadores */}
         <div style={{ display:'flex', gap:8, marginBottom:14 }}>
           {[
@@ -6871,7 +6884,7 @@ function MPhase2({ me, onLogout, onOpenChat }) {
       <MHeader phase={2} onLogout={onLogout} onOpenChat={onOpenChat} />
       <MPhaseTitle kicker={`${mine.length} de ${limit} usados`}
         title={<>Sugere até<br/><span style={{ color:'var(--pa-accent)' }}>{limit} sítios.</span></>} />
-      <div style={{ padding:'6px 16px', flex:1, overflow:'auto', display:'flex', flexDirection:'column', gap:10 }}>
+      <div style={{ padding:'6px 16px', flex:1, minHeight:0, overflow:'auto', display:'flex', flexDirection:'column', gap:10 }}>
         {mine.map((s) => (
           <div key={s.id} style={{ background:'#fff', borderRadius:14, padding:12, border:'1.5px solid var(--pa-accent)', display:'flex', alignItems:'center', justifyContent:'space-between', gap:10 }}>
             <div style={{ minWidth:0 }}>
@@ -6973,7 +6986,7 @@ function MPhase3({ me, onLogout, onOpenChat }) {
     <MShell>
       <MHeader phase={3} onLogout={onLogout} onOpenChat={onOpenChat} />
       <MPhaseTitle kicker="Voto secreto" title={<>Onde queres<br/><span style={{ color:'var(--pa-accent)' }}>passar este?</span></>} />
-      <div style={{ padding:'6px 16px 14px', flex:1, overflow:'auto', display:'flex', flexDirection:'column', gap:10 }}>
+      <div style={{ padding:'6px 16px 14px', flex:1, minHeight:0, overflow:'auto', display:'flex', flexDirection:'column', gap:10 }}>
         <VotersRow doneIds={Object.keys(votes)} allMembers={inMembers} label="Já votaram" />
         {suggestions.map((s) => {
           const sel = vote === s.id;
@@ -7046,7 +7059,7 @@ function MPhase4({ me, onLogout, onOpenChat }) {
       <MPhaseTitle kicker={`${suggestions.length} alojamentos`}
         title={<>Onde é que<br/><span style={{ color:'var(--pa-accent)' }}>dormimos?</span></>}
         sub="Sem limite — lança o que vires." />
-      <div style={{ padding:'6px 16px 14px', flex:1, overflow:'auto', display:'flex', flexDirection:'column', gap:8 }}>
+      <div style={{ padding:'6px 16px 14px', flex:1, minHeight:0, overflow:'auto', display:'flex', flexDirection:'column', gap:8 }}>
         {suggestions.map((s) => {
           const by = memberById(s.by) || { name:s.by, initials:'?' };
           const mine = s.by === me.id;
@@ -7153,7 +7166,7 @@ function MPhase5({ me, onLogout, onOpenChat }) {
       <MPhaseTitle title={<>Vota no <span style={{ color:'var(--pa-accent)' }}>alojamento.</span></>}
         sub="Um por pessoa, secreto até fechar." />
 
-      <div style={{ padding:'6px 16px 14px', flex:1, overflow:'auto', display:'flex', flexDirection:'column', gap:10 }}>
+      <div style={{ padding:'6px 16px 14px', flex:1, minHeight:0, overflow:'auto', display:'flex', flexDirection:'column', gap:10 }}>
         {!appData.accWinner && <VotersRow doneIds={Object.keys(votes)} allMembers={inMembers} label="Já votaram" />}
         {suggestions.map((s) => {
           const sel = vote === s.id;
@@ -7233,7 +7246,7 @@ function MPhase6({ me, onLogout, onOpenChat }) {
       <MHeader phase={6} onLogout={onLogout} onOpenChat={onOpenChat} />
       <MPhaseTitle kicker={`${days.length} dias marcados`}
         title={<>Em que dias<br/><span style={{ color:'var(--pa-accent)' }}>podes ir?</span></>} />
-      <div style={{ padding:'6px 16px 14px', flex:1, overflow:'auto' }}>
+      <div style={{ padding:'6px 16px 14px', flex:1, minHeight:0, overflow:'auto' }}>
         {winnerLoc && (
           <div style={{ background:'var(--pa-ink)', color:'#fff', borderRadius:14, padding:'12px 14px', display:'flex', alignItems:'center', gap:12, marginBottom:14 }}>
             <div style={{ width:38, height:38, borderRadius:9, flexShrink:0,
@@ -7334,7 +7347,7 @@ function MPhase7({ me, onLogout, onOpenChat }) {
           <MPhaseTitle kicker="Datas trancadas 🔒"
             title={<>Temos datas!<br/><span style={{ color:'var(--pa-accent)' }}>{locked.from}–{locked.to}.</span></>}
             sub={locked.monthLabel || D.phase6.monthLabel} />
-          <div style={{ padding:'6px 16px 14px', flex:1, overflow:'auto' }}>
+          <div style={{ padding:'6px 16px 14px', flex:1, minHeight:0, overflow:'auto' }}>
             <div style={{ background:'var(--pa-ink)', color:'#fff', borderRadius:16, padding:20, textAlign:'center' }}>
               <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'rgba(255,255,255,0.6)', textTransform:'uppercase', marginBottom:8 }}>Confirmado</div>
               <div style={{ fontFamily:'var(--pa-display)', fontSize:40, fontWeight:600, letterSpacing:-1 }}>{locked.from}–{locked.to}</div>
@@ -7353,7 +7366,7 @@ function MPhase7({ me, onLogout, onOpenChat }) {
           <MPhaseTitle kicker="Tu decides"
             title={<>Tranca os <br/><span style={{ color:'var(--pa-accent)' }}>melhores dias.</span></>}
             sub="Toca num dia para começar a seleção." />
-          <div style={{ padding:'6px 16px 14px', flex:1, overflow:'auto' }}>
+          <div style={{ padding:'6px 16px 14px', flex:1, minHeight:0, overflow:'auto' }}>
             <div style={{ background:'#fff', borderRadius:16, padding:16, border:'1px solid var(--pa-line)' }}>
               <Calendar dense onCellClick={(d) => { setRange({ from:d, to:Math.min(d+2,31) }); }} renderCell={(d) => {
                 const n = heat[d] || 0;
@@ -7467,7 +7480,7 @@ function MPhase8({ me, onLogout, onOpenChat }) {
         </div>
       </div>
 
-      <div style={{ padding:'4px 16px 12px', flex:1, overflow:'auto' }}>
+      <div style={{ padding:'4px 16px 12px', flex:1, minHeight:0, overflow:'auto' }}>
         {tab === 'estadia'    && <PlanEstadia appData={appData} />}
         {tab === 'custos'     && <PlanCustos me={me} />}
         {tab === 'itinerario' && <PlanItinerario me={me} />}
@@ -8273,7 +8286,7 @@ function PAModal({ open, onClose, title, children, maxWidth = 460 }) {
       display:'flex', alignItems:'center', justifyContent:'center', padding:16,
       backdropFilter:'blur(2px)' }}>
       <div onClick={(e)=>e.stopPropagation()} className="pa-scale" style={{
-        width:'100%', maxWidth, maxHeight:'90vh', overflow:'auto',
+        width:'100%', maxWidth, maxHeight:'90dvh', overflow:'auto',
         background:'var(--pa-bg)', borderRadius:20, padding:'24px 22px',
         boxShadow:'0 20px 60px rgba(0,0,0,0.3)' }}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:18 }}>
@@ -8561,7 +8574,7 @@ function EditionHub({ auth, onEnterEdition, narrow }) {
       </div>
 
       {/* Conteúdo */}
-      <div style={{ flex:1, overflow:'auto', padding:narrow?'24px 18px 40px':'40px 48px 60px', maxWidth:1100, width:'100%', margin:'0 auto', boxSizing:'border-box' }}>
+      <div style={{ flex:1, minHeight:0, overflow:'auto', padding:narrow?'24px 18px 40px':'40px 48px 60px', maxWidth:1100, width:'100%', margin:'0 auto', boxSizing:'border-box' }}>
         <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', gap:12, marginBottom:24, flexWrap:'wrap' }}>
           <div>
             <h1 style={{ fontFamily:'var(--pa-display)', fontSize:narrow?28:38, fontWeight:600, letterSpacing:-1, margin:0, lineHeight:1 }}>
