@@ -3602,7 +3602,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r22';
+window.PA_VERSION = '2026.06.01-r23';
 
 // Regista o service worker (PWA instalável + cache offline). Falha em silêncio se não suportado.
 if ('serviceWorker' in navigator) {
@@ -14301,7 +14301,7 @@ function usePhaseProgress(phase, me) {
     }
   }
 
-  // Só o admin avança a fase. Avançar limpa qualquer prazo definido.
+  // Só o admin avança a fase, sempre por clique. Avançar limpa qualquer prazo definido.
   const advanceNow = async () => {
     if (isLast) return;
     await AppStore.setPhase(phase + 1);
@@ -14314,18 +14314,10 @@ function usePhaseProgress(phase, me) {
     await AppStore.clearKey('deadline');
   };
 
-  // Avanço automático quando o prazo expira: a votação fecha e passa à fase seguinte.
-  // Só o admin dispara (e o advanceNow limpa o prazo, parando a verificação).
-  pUseEffect(() => {
-    if (!deadline || isLast || !me?.isAdmin) return;
-    const check = () => {
-      if (Date.now() >= new Date(deadline).getTime()) advanceNow();
-    };
-    check();
-    const iv = setInterval(check, 5000);
-    return () => clearInterval(iv);
-    // eslint-disable-next-line
-  }, [deadline, me?.isAdmin, phase]);
+  // NÃO há avanço automático. O prazo (deadline) é apenas um indicador visual de
+  // pressão ("os votos fecham às X"); quando expira, mostra-se "prazo terminado" e
+  // o admin decide avançar manualmente. Avançar é SEMPRE uma ação humana do admin.
+
   return {
     isLast,
     isComplete,
