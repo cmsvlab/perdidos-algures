@@ -1,15 +1,22 @@
-// Perdidos Algures — service worker (v2)
-// Estratégia: bibliotecas de CDN servidas da cache (re-arranque instantâneo no mobile),
-// app via network-first (para receber atualizações), Supabase sempre direto.
-const CACHE = 'perdidos-algures-v2';
+// Perdidos Algures — service worker
+// Atualização automática: o novo SW só assume quando a app manda (SKIP_WAITING),
+// num momento seguro. O nome da cache muda a cada versão (injetado no build),
+// para o browser detetar sempre que há uma versão nova.
+const CACHE = 'perdidos-algures-2026.06.01-r24';
 
-self.addEventListener('install', (e) => { self.skipWaiting(); });
+self.addEventListener('install', () => {
+  // NÃO faz skipWaiting automático — espera a ordem da app (evita recarregar a meio).
+});
+
+self.addEventListener('message', (e) => {
+  if (e.data === 'SKIP_WAITING') self.skipWaiting();
+});
 
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
 self.addEventListener('fetch', (e) => {
@@ -21,7 +28,7 @@ self.addEventListener('fetch', (e) => {
                 url.includes('fonts.googleapis.com') || url.includes('fonts.gstatic.com');
 
   if (isLib) {
-    // Cache-first: as bibliotecas têm versão fixa e nunca mudam → arranque instantâneo
+    // Bibliotecas (versão fixa): cache-first → arranque instantâneo.
     e.respondWith(
       caches.match(req).then((cached) => cached || fetch(req).then((res) => {
         const copy = res.clone();
@@ -32,7 +39,7 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // App e restantes GET: network-first com fallback à cache (offline)
+  // App e restantes GET: network-first (versão mais recente) com fallback à cache (offline).
   e.respondWith(
     fetch(req)
       .then((res) => {

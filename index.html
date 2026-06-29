@@ -3602,12 +3602,50 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r23';
+window.PA_VERSION = '2026.06.01-r24';
 
-// Regista o service worker (PWA instalável + cache offline). Falha em silêncio se não suportado.
+// Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
+// A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
+// nunca a meio de uma ação. Recarrega uma única vez para mostrar a versão nova.
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (refreshing) return;
+    refreshing = true;
+    window.location.reload();
+  });
+
+  window.addEventListener('load', async () => {
+    let reg;
+    try { reg = await navigator.serviceWorker.register('sw.js'); } catch { return; }
+
+    // Pede ao SW que está "à espera" para assumir já (isto dispara o reload acima).
+    const applyUpdate = () => { if (reg.waiting) reg.waiting.postMessage('SKIP_WAITING'); };
+
+    // Quando há uma nova versão a instalar, espera que fique pronta.
+    reg.addEventListener('updatefound', () => {
+      const nw = reg.installing;
+      if (!nw) return;
+      nw.addEventListener('statechange', () => {
+        if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+          // Versão nova pronta. Se o separador está oculto, aplica já (seguro);
+          // se está à vista, espera o utilizador sair e voltar.
+          if (document.hidden) applyUpdate();
+        }
+      });
+    });
+
+    // Ao (re)entrar no separador: procura versão nova e aplica a que estiver pronta.
+    // Momento seguro — o utilizador acabou de chegar, não está a meio de nada.
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) { reg.update().catch(() => {}); applyUpdate(); }
+    });
+
+    // Verificação periódica (apanha versões novas mesmo sem mudar de app).
+    setInterval(() => reg.update().catch(() => {}), 60000);
+
+    // Se ficou uma versão à espera de uma sessão anterior, aplica no arranque.
+    applyUpdate();
   });
 }
 
