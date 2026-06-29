@@ -2388,7 +2388,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r21';
+window.PA_VERSION = '2026.06.01-r22';
 
 // Regista o service worker (PWA instalável + cache offline). Falha em silêncio se não suportado.
 if ('serviceWorker' in navigator) {
@@ -8501,7 +8501,6 @@ function EditionCard({ edition, isAdmin, onEnter, onEdit, onAction, narrow }) {
           <span style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1, color:'var(--pa-muted)', textTransform:'uppercase' }}>
             Fase {edition.current_phase} de 8
           </span>
-          <span style={{ fontFamily:'var(--pa-body)', fontSize:13, fontWeight:600, color:'var(--pa-ink)' }}>{phaseName}</span>
         </div>
         <div style={{ height:6, background:'var(--pa-line)', borderRadius:999, overflow:'hidden' }}>
           <div style={{ width:`${Math.round((edition.current_phase/8)*100)}%`, height:'100%', background:'var(--pa-accent)', borderRadius:999, transition:'width 0.3s' }} />

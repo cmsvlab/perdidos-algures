@@ -3602,7 +3602,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r21';
+window.PA_VERSION = '2026.06.01-r22';
 
 // Regista o service worker (PWA instalável + cache offline). Falha em silêncio se não suportado.
 if ('serviceWorker' in navigator) {
@@ -15968,14 +15968,7 @@ function EditionCard({
       color: 'var(--pa-muted)',
       textTransform: 'uppercase'
     }
-  }, "Fase ", edition.current_phase, " de 8"), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontFamily: 'var(--pa-body)',
-      fontSize: 13,
-      fontWeight: 600,
-      color: 'var(--pa-ink)'
-    }
-  }, phaseName)), /*#__PURE__*/React.createElement("div", {
+  }, "Fase ", edition.current_phase, " de 8")), /*#__PURE__*/React.createElement("div", {
     style: {
       height: 6,
       background: 'var(--pa-line)',
