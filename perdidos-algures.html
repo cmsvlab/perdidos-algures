@@ -2388,7 +2388,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r24';
+window.PA_VERSION = '2026.06.01-r27';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -2441,6 +2441,9 @@ window._paToast = function(msg, type) {
   try {
     const el = document.createElement('div');
     el.textContent = msg;
+    // Acessibilidade: anuncia o feedback a leitores de ecrã (erros com prioridade).
+    el.setAttribute('role', type === 'error' ? 'alert' : 'status');
+    el.setAttribute('aria-live', type === 'error' ? 'assertive' : 'polite');
     el.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(16px);z-index:99999;' +
       'background:' + (type === 'error' ? '#8a4220' : '#3d5e44') + ';color:#fff;padding:12px 18px;' +
       'border-radius:12px;font-family:system-ui,sans-serif;font-size:14px;font-weight:600;' +
@@ -3044,6 +3047,25 @@ const AppStore = {
     } catch (e) {
       console.error('[PA AppStore] planning falhou:', e.message);
     }
+  },
+
+  // ── Anúncios do admin ──
+  getAnnouncements()            { return this._cache().announcements || []; },
+  async addAnnouncement(ann)    { await this._appendToArray('announcements', ann); },
+  async removeAnnouncement(id)  { await this._removeFromArray('announcements', id); },
+
+  // ── Gestão de membros da edição (admin) ──
+  // Editar estado: usa setRsvp. Remover: limpa tudo o que o membro tem nesta edição
+  // (RSVP, votos, disponibilidade, sugestões) sem apagar o perfil global.
+  async removeMember(uid) {
+    const d = this._cache();
+    const omit = (obj) => { const o = { ...(obj || {}) }; delete o[uid]; return o; };
+    await this._set('rsvp', omit(d.rsvp));
+    await this._set('locVotes', omit(d.locVotes));
+    await this._set('accVotes', omit(d.accVotes));
+    await this._set('avail', omit(d.avail));
+    await this._modifyArray('locSuggs', (arr) => (arr || []).filter((s) => s.by !== uid));
+    await this._modifyArray('accSuggs', (arr) => (arr || []).filter((s) => s.by !== uid));
   },
 
   // ── Reset da edição ativa ──
@@ -4956,7 +4978,9 @@ function DAdminBar({ children, hint, showNext = true }) {
           <div style={{ fontFamily:'var(--pa-body)', fontSize:12.5, color:'var(--pa-ink)' }}>{hint}</div>
         </div>
       </div>
-      <div style={{ display:'flex', gap:8 }}>
+      <div style={{ display:'flex', gap:8, flexWrap:'wrap', justifyContent:'flex-end' }}>
+        <Btn variant="ghost" size="sm" onClick={paOpenAnnounce}>📢 Anúncio</Btn>
+        <Btn variant="ghost" size="sm" onClick={paOpenMembers}>👥 Membros</Btn>
         {phase > 1 && <Btn variant="ghost" size="sm" onClick={() => setPhase(phase - 1)}>← Voltar</Btn>}
         {children}
       </div>
@@ -6639,7 +6663,8 @@ function DesktopShell({ viewAs = 'admin', phase: initialPhase, liveUser, onLogou
         <div style={{ flex:1, display:'flex', overflow:'hidden', minHeight:0 }}>
           <DLeftRail phase={phase} me={me} />
           <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', minHeight:0, background:'#fcf9f3' }}>
-            <div key={phase} className="pa-phase-enter" style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', minHeight:0 }}>
+            <AnnouncementBanner me={me} />
+            <div key={phase} className="pa-phase-enter" role="main" aria-label={`Fase ${phase} de ${D.phases.length}`} style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden', minHeight:0 }}>
               <PhaseView me={me} />
             </div>
             {initialPhase === undefined && (
@@ -6690,7 +6715,7 @@ function MPhaseNav({ phase }) {
   const resetLabel = { 1:'as respostas', 2:'as sugestões de local', 3:'os votos de local', 4:'as sugestões de alojamento', 5:'os votos de alojamento', 6:'as disponibilidades', 7:'as datas trancadas' }[phase];
   const doReset = () => { if (window.confirm(`Reiniciar ${resetLabel} desta fase?`)) { AppStore.clearKey(resetKey); setOpen(false); } };
   return (
-    <div style={{ position:'relative', display:'flex', alignItems:'center', gap:3 }}>
+    <div role="navigation" aria-label="Navegação de fases" style={{ position:'relative', display:'flex', alignItems:'center', gap:3 }}>
       <button onClick={() => go(phase - 1)} disabled={phase === 1} aria-label="Fase anterior"
         style={{ width:36, height:36, borderRadius:999, border:'1px solid var(--pa-line)', background:'#fff',
           cursor: phase===1?'default':'pointer', opacity: phase===1?0.4:1, padding:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
@@ -6718,6 +6743,17 @@ function MPhaseNav({ phase }) {
                 {p.name}
               </button>
             ))}
+            <div style={{ borderTop:'1px solid var(--pa-line)', margin:'4px 0' }} />
+            <button onClick={() => { paOpenAnnounce(); setOpen(false); }} style={{
+              width:'100%', textAlign:'left', padding:'8px 10px', borderRadius:8, border:'none', cursor:'pointer',
+              background:'transparent', color:'var(--pa-ink)', fontFamily:'var(--pa-body)', fontSize:12.5, display:'flex', gap:8, alignItems:'center' }}>
+              <span style={{ fontSize:13 }}>📢</span> Enviar anúncio
+            </button>
+            <button onClick={() => { paOpenMembers(); setOpen(false); }} style={{
+              width:'100%', textAlign:'left', padding:'8px 10px', borderRadius:8, border:'none', cursor:'pointer',
+              background:'transparent', color:'var(--pa-ink)', fontFamily:'var(--pa-body)', fontSize:12.5, display:'flex', gap:8, alignItems:'center' }}>
+              <span style={{ fontSize:13 }}>👥</span> Gerir membros
+            </button>
             {resetKey && (
               <>
                 <div style={{ borderTop:'1px solid var(--pa-line)', margin:'4px 0' }} />
@@ -7556,8 +7592,9 @@ function MobileApp({ viewAs = 'member', liveUser, onLogout, phase: initialPhase,
   return (
     <MNavCtx.Provider value={{ onBackToHub, onEditProfile, me, chatUnread: unread }}>
       <div style={{ position:'relative', width:'100%', height:'100%', display:'flex', flexDirection:'column' }}>
+        <AnnouncementBanner me={me} />
         <div style={{ flex:1, overflow:'hidden', position:'relative' }}>
-          <div key={phase} className="pa-phase-enter" style={{ width:'100%', height:'100%' }}>
+          <div key={phase} className="pa-phase-enter" role="main" aria-label={`Fase ${phase}`} style={{ width:'100%', height:'100%' }}>
             <View me={me} onLogout={onLogout} onOpenChat={openChat} />
           </div>
         </div>
@@ -8393,6 +8430,229 @@ function ProfileEditor({ open, onClose, auth }) {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Anúncios do admin — banner (vista de quem recebe) + modais de gestão
+// ─────────────────────────────────────────────────────────────
+
+// Banner que mostra ao utilizador os anúncios destinados a ele (todos ou individuais).
+// Pode dispensar cada um; os dispensados ficam guardados localmente.
+function AnnouncementBanner({ me }) {
+  const appData = useAppStore();
+  const [dismissed, setDismissed] = hUseState(() => {
+    try { return JSON.parse(localStorage.getItem('pa-ann-dismissed') || '[]'); } catch { return []; }
+  });
+  const anns = (appData.announcements || []).filter((a) =>
+    (a.target === 'all' || a.target === me?.id) && !dismissed.includes(a.id)
+  );
+  if (!anns.length) return null;
+  const dismiss = (id) => {
+    const next = [...dismissed, id];
+    setDismissed(next);
+    try { localStorage.setItem('pa-ann-dismissed', JSON.stringify(next)); } catch {}
+  };
+  return (
+    <div role="status" aria-live="polite" style={{ display:'flex', flexDirection:'column', gap:8, padding:'max(10px, env(safe-area-inset-top)) 14px 0', flexShrink:0 }}>
+      {anns.map((a) => (
+        <div key={a.id} style={{ display:'flex', alignItems:'flex-start', gap:10, background:'var(--pa-ink)', color:'#fff',
+          borderRadius:12, padding:'11px 12px', boxShadow:'0 3px 14px rgba(0,0,0,0.12)' }}>
+          <span style={{ fontSize:15, lineHeight:1.2, flexShrink:0 }}>📢</span>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontFamily:'var(--pa-mono)', fontSize:9, letterSpacing:1, opacity:0.55, textTransform:'uppercase' }}>
+              {a.target === 'all' ? 'Anúncio' : 'Mensagem para ti'} · {a.byName || 'Admin'}
+            </div>
+            <div style={{ fontFamily:'var(--pa-body)', fontSize:13.5, marginTop:2, lineHeight:1.4, whiteSpace:'pre-wrap', wordBreak:'break-word' }}>{a.text}</div>
+          </div>
+          <button onClick={() => dismiss(a.id)} aria-label="Dispensar" style={{ flexShrink:0, width:24, height:24, borderRadius:999,
+            border:'none', background:'rgba(255,255,255,0.15)', color:'#fff', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', padding:0 }}>
+            <svg width="10" height="10" viewBox="0 0 12 12"><path d="M3 3l6 6M9 3l-6 6" stroke="#fff" strokeWidth="1.6" strokeLinecap="round"/></svg>
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Modal do admin para criar anúncios (global ou para um membro) e remover os ativos.
+function AdminAnnounceModal({ open, onClose, me }) {
+  const appData = useAppStore();
+  const [text, setText] = hUseState('');
+  const [target, setTarget] = hUseState('all');
+  const [busy, setBusy] = hUseState(false);
+  hUseEffect(() => { if (open) { setText(''); setTarget('all'); } }, [open]);
+
+  const members = (typeof getAllMembers === 'function' ? getAllMembers() : []);
+  const anns = appData.announcements || [];
+
+  const send = async () => {
+    const t = text.trim();
+    if (!t) return;
+    setBusy(true);
+    try {
+      await AppStore.addAnnouncement({
+        id: 'ann_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        text: t, target, by: me?.id, byName: me?.displayName || me?.name || 'Admin', when: new Date().toISOString(),
+      });
+      if (window._paToast) window._paToast('Anúncio enviado!', 'success');
+      setText(''); setTarget('all');
+    } catch (e) { if (window._paToast) window._paToast('Falhou: ' + e.message, 'error'); }
+    finally { setBusy(false); }
+  };
+  const remove = async (id) => { try { await AppStore.removeAnnouncement(id); } catch {} };
+  const nameFor = (t) => t === 'all' ? 'Todos' : ((memberById(t) || {}).name || '—');
+
+  return (
+    <PAModal open={open} onClose={onClose} title="Anúncios" maxWidth={500}>
+      <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={3} maxLength={600}
+          placeholder="Escreve o anúncio... (ex: A votação fecha hoje às 22h!)"
+          style={{ width:'100%', boxSizing:'border-box', resize:'vertical', padding:'11px 13px', borderRadius:12,
+            border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:14, background:'#fff', color:'var(--pa-ink)' }} />
+        <div>
+          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:6 }}>Para quem</div>
+          <select value={target} onChange={(e) => setTarget(e.target.value)}
+            style={{ width:'100%', boxSizing:'border-box', padding:'10px 12px', borderRadius:12, border:'1px solid var(--pa-line)',
+              fontFamily:'var(--pa-body)', fontSize:14, background:'#fff', color:'var(--pa-ink)' }}>
+            <option value="all">📢 Todos (vista geral)</option>
+            {members.map((m) => <option key={m.id} value={m.id}>👤 {m.name}</option>)}
+          </select>
+        </div>
+        <div style={{ display:'flex', justifyContent:'flex-end' }}>
+          <Btn variant="accent" onClick={send} disabled={busy || !text.trim()}>{busy ? 'A enviar...' : 'Enviar anúncio'}</Btn>
+        </div>
+        {anns.length > 0 && (
+          <div style={{ borderTop:'1px solid var(--pa-line)', paddingTop:12 }}>
+            <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:8 }}>Anúncios ativos ({anns.length})</div>
+            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+              {anns.map((a) => (
+                <div key={a.id} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'9px 11px', borderRadius:10, background:'rgba(31,26,20,0.04)', border:'1px solid var(--pa-line)' }}>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontFamily:'var(--pa-mono)', fontSize:9, letterSpacing:0.8, color:'var(--pa-muted)', textTransform:'uppercase' }}>→ {nameFor(a.target)}</div>
+                    <div style={{ fontFamily:'var(--pa-body)', fontSize:13, marginTop:2, wordBreak:'break-word' }}>{a.text}</div>
+                  </div>
+                  <Btn variant="ghost" size="sm" onClick={() => remove(a.id)}>Remover</Btn>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </PAModal>
+  );
+}
+
+// Modal do admin para gerir membros: editar estado (Dentro/Fora/A pensar) e remover da edição.
+function AdminMembersModal({ open, onClose }) {
+  const appData = useAppStore();
+  const members = (typeof getAllMembers === 'function' ? getAllMembers() : []);
+  const rsvp = appData.rsvp || {};
+  const STATES = [
+    { k:'in', label:'Dentro', color:'#3d5e44' },
+    { k:'maybe', label:'A pensar', color:'#8a6d3b' },
+    { k:'out', label:'Fora', color:'#9a4b3b' },
+  ];
+  // "Na temporada" = quem já tem uma resposta. "Disponíveis" = perfis ainda fora desta edição.
+  const inSeason = members.filter((m) => rsvp[m.id]);
+  const available = members.filter((m) => !rsvp[m.id]);
+
+  const setState = async (uid, st) => { try { await AppStore.setRsvp(uid, st); } catch {} };
+  const addToSeason = async (m) => {
+    try { await AppStore.setRsvp(m.id, 'in'); if (window._paToast) window._paToast(`${m.name} adicionado à temporada`, 'success'); }
+    catch (e) { if (window._paToast) window._paToast('Falhou: ' + e.message, 'error'); }
+  };
+  const removeMember = async (m) => {
+    if (!window.confirm(`Remover ${m.name} desta edição? Apaga as respostas, votos, sugestões e disponibilidade desta temporada (o perfil mantém-se).`)) return;
+    try { await AppStore.removeMember(m.id); if (window._paToast) window._paToast(`${m.name} removido da temporada`, 'success'); }
+    catch (e) { if (window._paToast) window._paToast('Falhou: ' + e.message, 'error'); }
+  };
+
+  return (
+    <PAModal open={open} onClose={onClose} title="Gerir membros" maxWidth={560}>
+      <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+        <div style={{ fontFamily:'var(--pa-body)', fontSize:13, color:'var(--pa-muted)' }}>
+          Adiciona ou remove pessoas em qualquer fase — a temporada ajusta-se sozinha (quórum, votos e contagens recalculam). O perfil global nunca é apagado.
+        </div>
+
+        {/* ── Na temporada ── */}
+        <div>
+          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:8 }}>Na temporada ({inSeason.length})</div>
+          {inSeason.length === 0 && <div style={{ color:'var(--pa-muted)', fontSize:13.5 }}>Ainda ninguém. Adiciona pessoas abaixo.</div>}
+          <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+            {inSeason.map((m) => {
+              const cur = rsvp[m.id] || 'pending';
+              return (
+                <div key={m.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:12, background:'rgba(31,26,20,0.03)', border:'1px solid var(--pa-line)', flexWrap:'wrap' }}>
+                  <Avatar member={m} size={32} />
+                  <div style={{ flex:1, minWidth:80 }}>
+                    <div style={{ fontFamily:'var(--pa-body)', fontSize:14, fontWeight:600 }}>{m.name}{m.isAdmin ? ' ·admin' : ''}</div>
+                    <div style={{ fontFamily:'var(--pa-mono)', fontSize:9.5, color:'var(--pa-muted)', textTransform:'uppercase', letterSpacing:0.5 }}>
+                      {(STATES.find((s) => s.k === cur) || {}).label || cur}
+                    </div>
+                  </div>
+                  <div style={{ display:'flex', gap:4, alignItems:'center' }}>
+                    {STATES.map((s) => (
+                      <button key={s.k} onClick={() => setState(m.id, s.k)} style={{
+                        padding:'5px 9px', borderRadius:999, cursor:'pointer', fontFamily:'var(--pa-body)', fontSize:11.5, fontWeight:600,
+                        border: cur === s.k ? 'none' : '1px solid var(--pa-line)',
+                        background: cur === s.k ? s.color : '#fff', color: cur === s.k ? '#fff' : 'var(--pa-muted)' }}>
+                        {s.label}
+                      </button>
+                    ))}
+                    <button onClick={() => removeMember(m)} aria-label={`Remover ${m.name}`} title="Remover da temporada" style={{
+                      width:28, height:28, borderRadius:999, border:'1px solid var(--pa-line)', background:'#fff', color:'#9a4b3b',
+                      cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', padding:0, flexShrink:0 }}>
+                      <svg width="12" height="12" viewBox="0 0 14 14"><path d="M2 4h10M5.5 4V2.5h3V4M3.5 4l.5 8h6l.5-8" stroke="#9a4b3b" strokeWidth="1.2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ── Adicionar à temporada ── */}
+        {available.length > 0 && (
+          <div style={{ borderTop:'1px solid var(--pa-line)', paddingTop:12 }}>
+            <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:8 }}>Adicionar à temporada ({available.length})</div>
+            <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+              {available.map((m) => (
+                <div key={m.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', borderRadius:12, background:'rgba(31,26,20,0.02)', border:'1px dashed var(--pa-line)' }}>
+                  <Avatar member={m} size={30} />
+                  <div style={{ flex:1, minWidth:60, fontFamily:'var(--pa-body)', fontSize:14, fontWeight:600 }}>{m.name}</div>
+                  <Btn variant="accent" size="sm" onClick={() => addToSeason(m)}>+ Adicionar</Btn>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </PAModal>
+  );
+}
+
+// Host dos modais de admin: fica montado uma vez e abre os modais via eventos,
+// para que botões espalhados (barra de admin no desktop, menu no mobile) os possam abrir.
+function AdminModalsHost({ me }) {
+  const [announceOpen, setAnnounceOpen] = hUseState(false);
+  const [membersOpen, setMembersOpen] = hUseState(false);
+  hUseEffect(() => {
+    const oa = () => setAnnounceOpen(true);
+    const om = () => setMembersOpen(true);
+    window.addEventListener('pa-admin-announce', oa);
+    window.addEventListener('pa-admin-members', om);
+    return () => { window.removeEventListener('pa-admin-announce', oa); window.removeEventListener('pa-admin-members', om); };
+  }, []);
+  if (!me?.isAdmin) return null;
+  return (
+    <>
+      <AdminAnnounceModal open={announceOpen} onClose={() => setAnnounceOpen(false)} me={me} />
+      <AdminMembersModal open={membersOpen} onClose={() => setMembersOpen(false)} />
+    </>
+  );
+}
+// Helpers globais para abrir os modais de admin a partir de qualquer sítio.
+function paOpenAnnounce() { window.dispatchEvent(new CustomEvent('pa-admin-announce')); }
+function paOpenMembers() { window.dispatchEvent(new CustomEvent('pa-admin-members')); }
+
+// ─────────────────────────────────────────────────────────────
 // Editor de Edição — criar ou editar (número, título, subtítulo)
 // ─────────────────────────────────────────────────────────────
 function EditionEditor({ open, onClose, edition }) {
@@ -8672,7 +8932,8 @@ function EditionHub({ auth, onEnterEdition, narrow }) {
   );
 }
 
-Object.assign(window, { PAModal, ProfileEditor, EditionEditor, EditionCard, EditionHub });
+Object.assign(window, { PAModal, ProfileEditor, EditionEditor, EditionCard, EditionHub,
+  AnnouncementBanner, AdminAnnounceModal, AdminMembersModal, AdminModalsHost, paOpenAnnounce, paOpenMembers });
 </script>
 
 <script type="text/babel">// Perdidos Algures — Live app entry. Boots the auth gate and routes the
@@ -8790,6 +9051,7 @@ function LiveApp() {
       <div className="pa-vh" style={{ width: '100vw' }}>
         <DesktopShell viewAs={viewAs} liveUser={me} onLogout={auth.logout} onBackToHub={backToHub} onEditProfile={()=>setProfileOpen(true)} />
         <ProfileEditor open={profileOpen} onClose={()=>setProfileOpen(false)} auth={auth} />
+        <AdminModalsHost me={me} />
       </div>
     );
   }
@@ -8799,6 +9061,7 @@ function LiveApp() {
       <div style={{ width: '100%', maxWidth: 520, background: 'var(--pa-bg)', display: 'flex', flexDirection: 'column', boxShadow: '0 0 60px rgba(0,0,0,0.3)' }}>
         <MobileApp viewAs={viewAs} liveUser={me} onLogout={auth.logout} onBackToHub={backToHub} onEditProfile={()=>setProfileOpen(true)} />
         <ProfileEditor open={profileOpen} onClose={()=>setProfileOpen(false)} auth={auth} />
+        <AdminModalsHost me={me} />
       </div>
     </div>
   );
