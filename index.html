@@ -3682,7 +3682,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r33';
+window.PA_VERSION = '2026.06.01-r34';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -4354,6 +4354,15 @@ const AppStore = {
   async setLocWinner(id)        { await this._set('locWinner',id); },
   getLocVotes()                 { return this._cache().locVotes||{}; },
   async setLocVote(uid,id)      { await this._merge('locVotes', { [uid]:id }); },
+  // Reset pessoal: limpar a própria disponibilidade (remove a chave — sem
+  // resposta —, para todos os indicadores voltarem coerentemente a "a marcar").
+  async clearAvailability(uid) {
+    const avail = { ...(this._cache().avail || {}) };
+    if (!(uid in avail)) return;
+    delete avail[uid];
+    await this._set('avail', avail);
+  },
+
   // Reset pessoal: remover o próprio voto (volta a "por votar").
   async clearVote(uid, kind) {
     const key = kind === 'acc' ? 'accVotes' : 'locVotes';
@@ -9657,7 +9666,9 @@ function DPhase6({
   }, [appData.avail, me.id]);
   const toggle = k => setDays(arr => arr.includes(k) ? arr.filter(x => x !== k) : [...arr, k]);
   const allAvail = appData.avail || {};
-  const submittedIds = Object.keys(allAvail);
+  // "Pronto" = a MESMA métrica do quórum da fase: pelo menos 1 dia marcado.
+  // (A existência da chave não chega — uma lista vazia não é uma resposta.)
+  const submittedIds = Object.keys(allAvail).filter(id => Array.isArray(allAvail[id]) && allAvail[id].length > 0);
 
   // Mapa de calor do grupo em tempo real: outros (já guardado) + a minha seleção atual (local).
   // Conta APENAS quem está "in" — se alguém marcou e depois saiu, a disponibilidade não conta.
@@ -9959,7 +9970,7 @@ function DPhase6({
     onClick: () => {
       if (!window.confirm('Limpar todos os teus dias marcados?')) return;
       setDays([]);
-      AppStore.setAvailability(me.id, []);
+      AppStore.clearAvailability(me.id);
       if (window._paToast) window._paToast('Disponibilidade limpa — marca de novo quando quiseres.', 'success');
     }
   }, "Limpar os meus dias"))), me.isAdmin && /*#__PURE__*/React.createElement(DAdminBar, {
@@ -13864,7 +13875,9 @@ function MPhase6({
   }, [appData.avail, me.id]);
   const toggle = k => setDays(arr => arr.includes(k) ? arr.filter(x => x !== k) : [...arr, k]);
   const allAvail = appData.avail || {};
-  const submittedIds = Object.keys(allAvail);
+  // "Pronto" = a MESMA métrica do quórum da fase: pelo menos 1 dia marcado.
+  // (A existência da chave não chega — uma lista vazia não é uma resposta.)
+  const submittedIds = Object.keys(allAvail).filter(id => Array.isArray(allAvail[id]) && allAvail[id].length > 0);
   const inMembers = typeof getInMembers === 'function' ? getInMembers(appData) : allMembers;
   const totalIn = inMembers.length || allMembers.length;
   const inIds = mUseMemo(() => new Set(inMembers.map(m => m.id)), [inMembers]);
@@ -14083,7 +14096,7 @@ function MPhase6({
     onClick: () => {
       if (!window.confirm('Limpar todos os teus dias marcados?')) return;
       setDays([]);
-      AppStore.setAvailability(me.id, []);
+      AppStore.clearAvailability(me.id);
       if (window._paToast) window._paToast('Disponibilidade limpa.', 'success');
     },
     style: {
