@@ -3516,6 +3516,9 @@ function Calendar({
   const M = mi !== null && PA_MONTHS[mi] ? PA_MONTHS[mi] : null;
   const useGrid = M ? M.grid : grid;
   const useLabel = M ? M.label : monthLabel;
+  // "Hoje" como guia visual (pontinho discreto), sem interferir com a seleção.
+  const _now = new Date();
+  const isToday = d => M && M.y === _now.getFullYear() && M.m === _now.getMonth() && d === _now.getDate();
   const canPrev = M ? mi > 0 : false;
   const canNext = M ? mi < PA_MONTHS.length - 1 : false;
   return /*#__PURE__*/React.createElement("div", {
@@ -3611,7 +3614,21 @@ function Calendar({
         cursor: day && onCellClick ? 'pointer' : 'default',
         position: 'relative'
       }
-    }, !empty && (renderCell ? renderCell(day, i) : /*#__PURE__*/React.createElement("div", {
+    }, !empty && isToday(day) && /*#__PURE__*/React.createElement("div", {
+      title: "Hoje",
+      style: {
+        position: 'absolute',
+        top: 3,
+        right: 3,
+        width: 5,
+        height: 5,
+        borderRadius: 999,
+        background: 'var(--pa-accent)',
+        boxShadow: '0 0 0 1.5px #fff',
+        zIndex: 2,
+        pointerEvents: 'none'
+      }
+    }), !empty && (renderCell ? renderCell(day, i) : /*#__PURE__*/React.createElement("div", {
       style: {
         width: '100%',
         height: '100%',
@@ -3665,7 +3682,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r31';
+window.PA_VERSION = '2026.06.01-r33';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -4337,6 +4354,14 @@ const AppStore = {
   async setLocWinner(id)        { await this._set('locWinner',id); },
   getLocVotes()                 { return this._cache().locVotes||{}; },
   async setLocVote(uid,id)      { await this._merge('locVotes', { [uid]:id }); },
+  // Reset pessoal: remover o próprio voto (volta a "por votar").
+  async clearVote(uid, kind) {
+    const key = kind === 'acc' ? 'accVotes' : 'locVotes';
+    const votes = { ...(this._cache()[key] || {}) };
+    if (!(uid in votes)) return;
+    delete votes[uid];
+    await this._set(key, votes);
+  },
 
   // Depois de remover uma sugestão, limpa votos que apontavam para ela e o
   // vencedor se era ela (reabre a decisão). Só escreve se houver mesmo órfãos,
@@ -4501,6 +4526,7 @@ const VoteStore = {
   setVote(uid,phase,id)  {
     return (phase === 'acc') ? this.setAccVote(uid,id) : this.setLocVote(uid,id);
   },
+  clearVote(uid,phase)   { return AppStore.clearVote(uid, phase); },
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -8854,7 +8880,24 @@ function DPhase3({
       color: 'var(--pa-ink)',
       fontWeight: 600
     }
-  }, "Voto em ", suggestions.find(s => s.id === vote)?.name, ".") : 'Ainda não votaste.')), me.isAdmin && /*#__PURE__*/React.createElement(DAdminBar, {
+  }, "Voto em ", suggestions.find(s => s.id === vote)?.name, ".") : 'Ainda não votaste.', vote && !closed && /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      setVote(null);
+      VoteStore.clearVote(me.id, 'loc');
+      if (window._paToast) window._paToast('Voto removido — podes votar de novo.', 'success');
+    },
+    style: {
+      marginLeft: 10,
+      border: 'none',
+      background: 'transparent',
+      color: 'var(--pa-muted)',
+      textDecoration: 'underline',
+      cursor: 'pointer',
+      fontFamily: 'var(--pa-body)',
+      fontSize: 12.5,
+      padding: 0
+    }
+  }, "Remover o meu voto"))), me.isAdmin && /*#__PURE__*/React.createElement(DAdminBar, {
     hint: `${suggestions.length} destinos a votar. Quando fechar, avança.`
   }, /*#__PURE__*/React.createElement(Btn, {
     variant: "ghost",
@@ -8896,7 +8939,7 @@ function DLocationWinnerStrip() {
   const appData = useAppStore();
   const locSuggs = appData.locSuggs || [];
   const winnerId = appData.locWinner;
-  const w = winnerId ? locSuggs.find(s => s.id === winnerId) : locSuggs[0];
+  const w = winnerId ? locSuggs.find(s => s.id === winnerId) : null; // sem vencedor eleito → não fingir
   if (!w) return null;
   return /*#__PURE__*/React.createElement("div", {
     style: {
@@ -9413,7 +9456,7 @@ function DPhase5({
         color: 'var(--pa-accent)'
       }
     }, "dormimos mesmo?")),
-    sub: winner ? `${winner.price}€/noite · sugerido por ${memberById(winner.by)?.name || winner.by}` : 'Voto secreto. Cada um vota num alojamento.'
+    sub: winner ? `${winner.price}€/noite${appData.locked && paDaySpan(appData.locked.from, appData.locked.to) > 1 && paNum(winner.price) > 0 ? ` · ≈ ${Math.round(paNum(winner.price) * (paDaySpan(appData.locked.from, appData.locked.to) - 1))}€ p/ ${paDaySpan(appData.locked.from, appData.locked.to) - 1} noites` : ''} · sugerido por ${memberById(winner.by)?.name || winner.by}` : 'Voto secreto. Cada um vota num alojamento.'
   }), !winner && /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 18
@@ -9543,7 +9586,30 @@ function DPhase5({
       tone: saved ? 'success' : 'accent',
       size: "sm"
     }, saved ? '✓ Guardado' : '✓ Voto teu')));
-  })), me.isAdmin && !winner && /*#__PURE__*/React.createElement(DAdminBar, {
+  })), vote && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 10,
+      fontFamily: 'var(--pa-body)',
+      fontSize: 13,
+      color: 'var(--pa-muted)'
+    }
+  }, "O teu voto está guardado.", ' ', /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      setVote(null);
+      VoteStore.clearVote(me.id, 'acc');
+      if (window._paToast) window._paToast('Voto removido — podes votar de novo.', 'success');
+    },
+    style: {
+      border: 'none',
+      background: 'transparent',
+      color: 'var(--pa-muted)',
+      textDecoration: 'underline',
+      cursor: 'pointer',
+      fontFamily: 'var(--pa-body)',
+      fontSize: 12.5,
+      padding: 0
+    }
+  }, "Remover o meu voto")), me.isAdmin && !winner && /*#__PURE__*/React.createElement(DAdminBar, {
     hint: "Votação em curso. Declara o vencedor quando estiver pronto."
   }, suggestions.map(s => /*#__PURE__*/React.createElement(Btn, {
     key: s.id,
@@ -9580,11 +9646,11 @@ function DPhase6({
   const allMembers = getEditionMembers(appData);
   const locSuggs = appData.locSuggs || [];
   const locWinnerId = appData.locWinner;
-  const winnerLoc = locWinnerId ? locSuggs.find(s => s.id === locWinnerId) : locSuggs[0];
+  const winnerLoc = locWinnerId ? locSuggs.find(s => s.id === locWinnerId) : null;
   const accSuggs = appData.accSuggs || [];
   const accWinnerId = appData.accWinner;
-  const winnerAcc = accWinnerId ? accSuggs.find(s => s.id === accWinnerId) : accSuggs[0];
-  const [mi, setMi] = dUseState2(PA_DEFAULT_MI);
+  const winnerAcc = accWinnerId ? accSuggs.find(s => s.id === accWinnerId) : null;
+  const [mi, setMi] = dUseState2(0) /* mês corrente primeiro */;
   const [days, setDays] = dUseState2(() => (AppStore.getAvailability(me.id) || []).map(paNormDay));
   dUseEffect2(() => {
     setDays((AppStore.getAvailability(me.id) || []).map(paNormDay));
@@ -9883,7 +9949,20 @@ function DPhase6({
       AppStore.setAvailability(me.id, days);
       if (window._paToast) window._paToast('Disponibilidade guardada!', 'success');
     }
-  }, "Guardar disponibilidade"))), me.isAdmin && /*#__PURE__*/React.createElement(DAdminBar, {
+  }, "Guardar disponibilidade"), (days.length > 0 || (allAvail[me.id] || []).length > 0) && /*#__PURE__*/React.createElement(Btn, {
+    variant: "ghost",
+    size: "sm",
+    style: {
+      width: '100%',
+      marginTop: 8
+    },
+    onClick: () => {
+      if (!window.confirm('Limpar todos os teus dias marcados?')) return;
+      setDays([]);
+      AppStore.setAvailability(me.id, []);
+      if (window._paToast) window._paToast('Disponibilidade limpa — marca de novo quando quiseres.', 'success');
+    }
+  }, "Limpar os meus dias"))), me.isAdmin && /*#__PURE__*/React.createElement(DAdminBar, {
     hint: `${submittedIds.length} de ${allMembers.length} submeteram.`
   }));
 }
@@ -9899,7 +9978,7 @@ function DPhase7({
   const allMembers = getEditionMembers(appData);
   const inMembers = typeof getInMembers === 'function' ? getInMembers(appData) : allMembers;
   const totalIn = inMembers.length || allMembers.length;
-  const [mi, setMi] = dUseState2(PA_DEFAULT_MI);
+  const [mi, setMi] = dUseState2(0) /* mês corrente primeiro */;
 
   // Conta apenas a disponibilidade de quem está "in" (ignora quem marcou e depois saiu).
   // Chaves absolutas YYYY-MM-DD (dias antigos em número são normalizados).
@@ -10382,7 +10461,7 @@ function PlanEstadia({
 }) {
   const accSuggs = appData.accSuggs || [];
   const winnerId = appData.accWinner;
-  const acc = winnerId ? accSuggs.find(s => s.id === winnerId) : accSuggs[0];
+  const acc = winnerId ? accSuggs.find(s => s.id === winnerId) : null;
 
   // Resumo de todas as decisões da viagem
   const locSuggs = appData.locSuggs || [];
@@ -10558,7 +10637,14 @@ function PlanEstadia({
       fontSize: 10,
       color: 'var(--pa-muted)'
     }
-  }, "/NOITE"))), /*#__PURE__*/React.createElement("div", {
+  }, "/NOITE"), locked && paDaySpan(locked.from, locked.to) > 1 && paNum(acc.price) > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: 'var(--pa-body)',
+      fontSize: 11.5,
+      color: 'var(--pa-muted)',
+      marginTop: 4
+    }
+  }, "≈ ", Math.round(paNum(acc.price) * (paDaySpan(locked.from, locked.to) - 1)), "€ · ", paDaySpan(locked.from, locked.to) - 1, " noites"))), /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 18,
       paddingTop: 14,
@@ -13278,7 +13364,25 @@ function MPhase3({
       color: '#3d5e44',
       textAlign: 'center'
     }
-  }, saved ? 'Voto guardado ✓' : `Voto em ${suggestions.find(s => s.id === vote)?.name}`)), /*#__PURE__*/React.createElement(TiebreakModal, {
+  }, saved ? 'Voto guardado ✓' : `Voto em ${suggestions.find(s => s.id === vote)?.name}`, /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      setVote(null);
+      VoteStore.clearVote(me.id, 'loc');
+      if (window._paToast) window._paToast('Voto removido.', 'success');
+    },
+    style: {
+      display: 'block',
+      margin: '6px auto 0',
+      border: 'none',
+      background: 'transparent',
+      color: 'var(--pa-muted)',
+      textDecoration: 'underline',
+      cursor: 'pointer',
+      fontFamily: 'var(--pa-body)',
+      fontSize: 11.5,
+      padding: 0
+    }
+  }, "Remover o meu voto"))), /*#__PURE__*/React.createElement(TiebreakModal, {
     open: tieOpen && !!tie && !appData.locWinner,
     onClose: () => setTieOpen(false),
     tie: tie,
@@ -13713,7 +13817,25 @@ function MPhase5({
       color: '#3d5e44',
       textAlign: 'center'
     }
-  }, saved ? 'Voto guardado ✓' : `Voto em ${suggestions.find(s => s.id === vote)?.area || vote}`)), /*#__PURE__*/React.createElement(TiebreakModal, {
+  }, saved ? 'Voto guardado ✓' : `Voto em ${suggestions.find(s => s.id === vote)?.area || vote}`, /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      setVote(null);
+      VoteStore.clearVote(me.id, 'acc');
+      if (window._paToast) window._paToast('Voto removido.', 'success');
+    },
+    style: {
+      display: 'block',
+      margin: '6px auto 0',
+      border: 'none',
+      background: 'transparent',
+      color: 'var(--pa-muted)',
+      textDecoration: 'underline',
+      cursor: 'pointer',
+      fontFamily: 'var(--pa-body)',
+      fontSize: 11.5,
+      padding: 0
+    }
+  }, "Remover o meu voto"))), /*#__PURE__*/React.createElement(TiebreakModal, {
     open: tieOpen && !!tie && !appData.accWinner,
     onClose: () => setTieOpen(false),
     tie: tie,
@@ -13732,10 +13854,10 @@ function MPhase6({
   const appData = useAppStore();
   const allMembers = getEditionMembers(appData);
   const locSuggs = appData.locSuggs || [];
-  const winnerLoc = appData.locWinner ? locSuggs.find(s => s.id === appData.locWinner) : locSuggs[0];
+  const winnerLoc = appData.locWinner ? locSuggs.find(s => s.id === appData.locWinner) : null;
   const accSuggs = appData.accSuggs || [];
-  const winnerAcc = appData.accWinner ? accSuggs.find(s => s.id === appData.accWinner) : accSuggs[0];
-  const [mi, setMi] = mUseState(PA_DEFAULT_MI);
+  const winnerAcc = appData.accWinner ? accSuggs.find(s => s.id === appData.accWinner) : null;
+  const [mi, setMi] = mUseState(0) /* mês corrente primeiro */;
   const [days, setDays] = mUseState(() => (AppStore.getAvailability(me.id) || []).map(paNormDay));
   mUseEffect(() => {
     setDays((AppStore.getAvailability(me.id) || []).map(paNormDay));
@@ -13957,7 +14079,26 @@ function MPhase6({
       fontSize: 14,
       fontWeight: 600
     }
-  }, "Guardar disponibilidade"), /*#__PURE__*/React.createElement("div", {
+  }, "Guardar disponibilidade"), (days.length > 0 || (allAvail[me.id] || []).length > 0) && /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      if (!window.confirm('Limpar todos os teus dias marcados?')) return;
+      setDays([]);
+      AppStore.setAvailability(me.id, []);
+      if (window._paToast) window._paToast('Disponibilidade limpa.', 'success');
+    },
+    style: {
+      width: '100%',
+      marginTop: 8,
+      padding: '10px',
+      borderRadius: 12,
+      border: '1px solid var(--pa-line)',
+      background: '#fff',
+      color: 'var(--pa-muted)',
+      fontFamily: 'var(--pa-body)',
+      fontSize: 13,
+      cursor: 'pointer'
+    }
+  }, "Limpar os meus dias"), /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 18,
       background: '#fff',
@@ -14024,7 +14165,7 @@ function MPhase7({
     from: null,
     to: null
   });
-  const [mi, setMi] = mUseState(PA_DEFAULT_MI);
+  const [mi, setMi] = mUseState(0) /* mês corrente primeiro */;
 
   // Heat map — só quem está "in"; chaves absolutas YYYY-MM-DD (números antigos normalizados)
   const heat = {};
@@ -14633,8 +14774,9 @@ function phaseComplete(phase, appData) {
   if (phase === 4) {
     // sugestões de local
     if (inIds.length === 0) return false;
-    const suggs = appData.locSuggs || [];
-    return inIds.every(id => suggs.some(s => s.by === id));
+    // Sugerir é OPCIONAL: nem toda a gente tem ideias, e obrigar gera sugestões
+    // forçadas. A fase está pronta quando há escolha real (≥2 sugestões).
+    return (appData.locSuggs || []).length >= 2;
   }
   if (phase === 5) {
     // votar local
@@ -14660,8 +14802,8 @@ function phaseComplete(phase, appData) {
   if (phase === 6) {
     // sugestões de alojamento
     if (inIds.length === 0) return false;
-    const suggs = appData.accSuggs || [];
-    return inIds.every(id => suggs.some(s => s.by === id));
+    // Como na fase 4: opcional; pronta quando há escolha real (≥2 sugestões).
+    return (appData.accSuggs || []).length >= 2;
   }
   if (phase === 7) {
     // votar alojamento
@@ -15048,7 +15190,7 @@ function PhaseProgressBanner({
         opacity: 0.75,
         textTransform: 'uppercase'
       }
-    }, "Todos prontos"), /*#__PURE__*/React.createElement("div", {
+    }, phase === 4 || phase === 6 ? `${((phase === 4 ? appData.locSuggs : appData.accSuggs) || []).length} sugestões — já dá para votar` : 'Todos prontos'), /*#__PURE__*/React.createElement("div", {
       style: {
         fontFamily: 'var(--pa-display)',
         fontSize: narrow ? 14 : 16,
