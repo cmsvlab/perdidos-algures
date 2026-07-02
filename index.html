@@ -202,12 +202,12 @@ window.PA_DATA = {
 
   phases: [
     { n: 1, key: 'rsvp',    name: 'Quem entra',       hint: 'Estás dentro?' },
-    { n: 2, key: 'locSug',  name: 'Localizações',     hint: 'Até 3 por cabeça' },
-    { n: 3, key: 'locVote', name: 'Votar local',      hint: 'Voto secreto' },
-    { n: 4, key: 'accSug',  name: 'Alojamentos',      hint: 'Sem limite' },
-    { n: 5, key: 'accVote', name: 'Votar alojamento', hint: 'Voto secreto' },
-    { n: 6, key: 'avail',   name: 'Disponibilidade',  hint: 'Quando podes?' },
-    { n: 7, key: 'lock',    name: 'Datas finais',     hint: 'Admin tranca' },
+    { n: 2, key: 'avail',   name: 'Disponibilidade',  hint: 'Quando podes?' },
+    { n: 3, key: 'lock',    name: 'Datas finais',     hint: 'Admin tranca' },
+    { n: 4, key: 'locSug',  name: 'Localizações',     hint: 'Até 3 por cabeça' },
+    { n: 5, key: 'locVote', name: 'Votar local',      hint: 'Voto secreto' },
+    { n: 6, key: 'accSug',  name: 'Alojamentos',      hint: 'Sem limite' },
+    { n: 7, key: 'accVote', name: 'Votar alojamento', hint: 'Voto secreto' },
     { n: 8, key: 'plan',    name: 'Planeamento',      hint: 'Arrumar tudo' },
   ],
 
@@ -3665,7 +3665,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r30';
+window.PA_VERSION = '2026.06.01-r31';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -8331,7 +8331,7 @@ function DPhase2({
       overflow: 'auto'
     }
   }, /*#__PURE__*/React.createElement(DPhaseHeader, {
-    phase: 2,
+    phase: 4,
     status: "Em curso",
     statusTone: "accent",
     title: /*#__PURE__*/React.createElement(React.Fragment, null, "Cada um lança", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("span", {
@@ -8681,7 +8681,7 @@ function DPhase3({
         overflow: 'auto'
       }
     }, /*#__PURE__*/React.createElement(DPhaseHeader, {
-      phase: 3,
+      phase: 5,
       status: "Sem destinos",
       statusTone: "muted",
       title: /*#__PURE__*/React.createElement(React.Fragment, null, "Ainda não há", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("span", {
@@ -8689,7 +8689,7 @@ function DPhase3({
           color: 'var(--pa-accent)'
         }
       }, "destinos para votar.")),
-      sub: "Volta à fase 2 e pede ao grupo para sugerir sítios primeiro."
+      sub: "Volta à fase 4 e pede ao grupo para sugerir sítios primeiro."
     }), me.isAdmin && /*#__PURE__*/React.createElement(DAdminBar, {
       hint: "Sem sugestões ainda."
     }));
@@ -8705,7 +8705,7 @@ function DPhase3({
       overflow: 'auto'
     }
   }, /*#__PURE__*/React.createElement(DPhaseHeader, {
-    phase: 3,
+    phase: 5,
     status: "A decorrer",
     statusTone: "accent",
     title: /*#__PURE__*/React.createElement(React.Fragment, null, "Vota no teu", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("span", {
@@ -8971,7 +8971,7 @@ function DPhase4({
       overflow: 'auto'
     }
   }, /*#__PURE__*/React.createElement(DPhaseHeader, {
-    phase: 4,
+    phase: 6,
     status: "Em curso",
     statusTone: "accent",
     title: /*#__PURE__*/React.createElement(React.Fragment, null, "Onde é que ", /*#__PURE__*/React.createElement("span", {
@@ -9375,7 +9375,7 @@ function DPhase5({
         overflow: 'auto'
       }
     }, /*#__PURE__*/React.createElement(DPhaseHeader, {
-      phase: 5,
+      phase: 7,
       status: "Sem alojamentos",
       statusTone: "muted",
       title: /*#__PURE__*/React.createElement(React.Fragment, null, "Ainda não há", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("span", {
@@ -9383,7 +9383,7 @@ function DPhase5({
           color: 'var(--pa-accent)'
         }
       }, "alojamentos para votar.")),
-      sub: "Volta à fase 4 e adiciona alojamentos primeiro."
+      sub: "Volta à fase 6 e adiciona alojamentos primeiro."
     }), me.isAdmin && /*#__PURE__*/React.createElement(DAdminBar, {
       hint: "Sem alojamentos ainda."
     }));
@@ -9401,7 +9401,7 @@ function DPhase5({
       overflow: 'auto'
     }
   }, /*#__PURE__*/React.createElement(DPhaseHeader, {
-    phase: 5,
+    phase: 7,
     status: winner ? 'Decidido' : 'A decorrer',
     statusTone: winner ? 'success' : 'accent',
     title: winner ? /*#__PURE__*/React.createElement(React.Fragment, null, winner.type, " em ", /*#__PURE__*/React.createElement("span", {
@@ -9644,7 +9644,7 @@ function DPhase6({
       overflow: 'auto'
     }
   }, /*#__PURE__*/React.createElement(DPhaseHeader, {
-    phase: 6,
+    phase: 2,
     status: "A recolher disponibilidades",
     statusTone: "accent",
     title: /*#__PURE__*/React.createElement(React.Fragment, null, "Toca nos dias", /*#__PURE__*/React.createElement("br", null), "em que ", /*#__PURE__*/React.createElement("span", {
@@ -9979,7 +9979,7 @@ function DPhase7({
       overflow: 'auto'
     }
   }, /*#__PURE__*/React.createElement(DPhaseHeader, {
-    phase: 7,
+    phase: 3,
     status: me.isAdmin ? 'Tu decides' : 'A aguardar',
     statusTone: me.isAdmin ? 'accent' : 'muted',
     title: /*#__PURE__*/React.createElement(React.Fragment, null, "O calendário falou.", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("span", {
@@ -9987,7 +9987,7 @@ function DPhase7({
         color: 'var(--pa-accent)'
       }
     }, me.isAdmin ? 'Escolhe os dias.' : 'Admin está a escolher.')),
-    sub: hasData ? 'Quanto mais escura a célula, mais gente está disponível. Clica num dia (ou clica em dois para um intervalo).' : 'Ninguém marcou disponibilidade na fase 6, mas podes escolher os dias à mesma.'
+    sub: hasData ? 'Quanto mais escura a célula, mais gente está disponível. Clica num dia (ou clica em dois para um intervalo).' : 'Ninguém marcou disponibilidade na fase 2, mas podes escolher os dias à mesma.'
   }), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'grid',
@@ -11990,14 +11990,14 @@ function DesktopShell({
   };
   const phases = {
     1: DPhase1,
-    2: DPhase2,
-    3: DPhase3,
-    4: DPhase4,
-    5: DPhase5,
-    6: DPhase6,
-    7: DPhase7,
+    2: DPhase6,
+    3: DPhase7,
+    4: DPhase2,
+    5: DPhase3,
+    6: DPhase4,
+    7: DPhase5,
     8: DPhase8
-  };
+  }; // nova ordem: datas antes de local/alojamento
   const PhaseView = phases[phase] || DPhase1;
   return /*#__PURE__*/React.createElement(PhaseCtx.Provider, {
     value: ctx
@@ -12040,6 +12040,8 @@ function DesktopShell({
     }
   }, /*#__PURE__*/React.createElement(AnnouncementBanner, {
     me: me
+  }), /*#__PURE__*/React.createElement(DatesChip, {
+    phase: phase
   }), /*#__PURE__*/React.createElement("div", {
     key: phase,
     className: "pa-phase-enter",
@@ -12131,21 +12133,21 @@ function MPhaseNav({
   // Reiniciar a fase atual (paridade com o desktop): cada fase limpa a sua chave
   const resetKey = {
     1: 'rsvp',
-    2: 'locSuggs',
-    3: 'locVotes',
-    4: 'accSuggs',
-    5: 'accVotes',
-    6: 'avail',
-    7: 'locked'
+    2: 'avail',
+    3: 'locked',
+    4: 'locSuggs',
+    5: 'locVotes',
+    6: 'accSuggs',
+    7: 'accVotes'
   }[phase];
   const resetLabel = {
     1: 'as respostas',
-    2: 'as sugestões de local',
-    3: 'os votos de local',
-    4: 'as sugestões de alojamento',
-    5: 'os votos de alojamento',
-    6: 'as disponibilidades',
-    7: 'as datas trancadas'
+    2: 'as disponibilidades',
+    3: 'as datas trancadas',
+    4: 'as sugestões de local',
+    5: 'os votos de local',
+    6: 'as sugestões de alojamento',
+    7: 'os votos de alojamento'
   }[phase];
   const doReset = () => {
     if (window.confirm(`Reiniciar ${resetLabel} desta fase?`)) {
@@ -12897,7 +12899,7 @@ function MPhase2({
     setAdding(false);
   };
   return /*#__PURE__*/React.createElement(MShell, null, /*#__PURE__*/React.createElement(MHeader, {
-    phase: 2,
+    phase: 4,
     onLogout: onLogout,
     onOpenChat: onOpenChat
   }), /*#__PURE__*/React.createElement(MPhaseTitle, {
@@ -13162,7 +13164,7 @@ function MPhase3({
   }, [tie?.tiedIds?.join(','), appData.locWinner]);
   if (suggestions.length === 0) {
     return /*#__PURE__*/React.createElement(MShell, null, /*#__PURE__*/React.createElement(MHeader, {
-      phase: 3,
+      phase: 5,
       onLogout: onLogout,
       onOpenChat: onOpenChat
     }), /*#__PURE__*/React.createElement(MEmpty, {
@@ -13171,7 +13173,7 @@ function MPhase3({
     }));
   }
   return /*#__PURE__*/React.createElement(MShell, null, /*#__PURE__*/React.createElement(MHeader, {
-    phase: 3,
+    phase: 5,
     onLogout: onLogout,
     onOpenChat: onOpenChat
   }), /*#__PURE__*/React.createElement(MPhaseTitle, {
@@ -13315,7 +13317,7 @@ function MPhase4({
     setAdding(false);
   };
   return /*#__PURE__*/React.createElement(MShell, null, /*#__PURE__*/React.createElement(MHeader, {
-    phase: 4,
+    phase: 6,
     onLogout: onLogout,
     onOpenChat: onOpenChat
   }), winnerLoc && /*#__PURE__*/React.createElement("div", {
@@ -13595,7 +13597,7 @@ function MPhase5({
   };
   if (suggestions.length === 0) {
     return /*#__PURE__*/React.createElement(MShell, null, /*#__PURE__*/React.createElement(MHeader, {
-      phase: 5,
+      phase: 7,
       onLogout: onLogout,
       onOpenChat: onOpenChat
     }), /*#__PURE__*/React.createElement(MEmpty, {
@@ -13604,7 +13606,7 @@ function MPhase5({
     }));
   }
   return /*#__PURE__*/React.createElement(MShell, null, /*#__PURE__*/React.createElement(MHeader, {
-    phase: 5,
+    phase: 7,
     onLogout: onLogout,
     onOpenChat: onOpenChat
   }), /*#__PURE__*/React.createElement("div", {
@@ -13779,7 +13781,7 @@ function MPhase6({
   }, [allAvail, days, me.id, inIds, meIsIn]);
   const namesFor = k => (peopleByDay[k] || []).map(p => p.name).join(', ');
   return /*#__PURE__*/React.createElement(MShell, null, /*#__PURE__*/React.createElement(MHeader, {
-    phase: 6,
+    phase: 2,
     onLogout: onLogout,
     onOpenChat: onOpenChat
   }), /*#__PURE__*/React.createElement(MPhaseTitle, {
@@ -14065,7 +14067,7 @@ function MPhase7({
     };
   });
   return /*#__PURE__*/React.createElement(MShell, null, /*#__PURE__*/React.createElement(MHeader, {
-    phase: 7,
+    phase: 3,
     onLogout: onLogout,
     onOpenChat: onOpenChat
   }), locked ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(MPhaseTitle, {
@@ -14492,14 +14494,14 @@ function MobileApp({
   const phase = initialPhase !== undefined ? initialPhase : appData.currentPhase || D.edition.currentPhase || 1;
   const phases = {
     1: MPhase1,
-    2: MPhase2,
-    3: MPhase3,
-    4: MPhase4,
-    5: MPhase5,
-    6: MPhase6,
-    7: MPhase7,
+    2: MPhase6,
+    3: MPhase7,
+    4: MPhase2,
+    5: MPhase3,
+    6: MPhase4,
+    7: MPhase5,
     8: MPhase8
-  };
+  }; // nova ordem: datas antes de local/alojamento
   const View = phases[phase] || MPhase1;
   return /*#__PURE__*/React.createElement(MNavCtx.Provider, {
     value: {
@@ -14518,6 +14520,8 @@ function MobileApp({
     }
   }, /*#__PURE__*/React.createElement(AnnouncementBanner, {
     me: me
+  }), /*#__PURE__*/React.createElement(DatesChip, {
+    phase: phase
   }), /*#__PURE__*/React.createElement("div", {
     style: {
       flex: 1,
@@ -14607,16 +14611,33 @@ function phaseComplete(phase, appData) {
   const rsvp = appData.rsvp || {};
   const allMembers = typeof getEditionMembers === 'function' ? getEditionMembers(appData) : typeof getAllMembers === 'function' ? getAllMembers() : [];
   const inIds = allMembers.filter(m => rsvp[m.id] === 'in').map(m => m.id);
+
+  // Ordem das fases: 1 quem entra → 2 disponibilidade → 3 datas → 4 locais →
+  // 5 votar local → 6 alojamentos → 7 votar alojamento → 8 planeamento.
+  // (Datas primeiro: a disponibilidade é a restrição mais dura, e escolher
+  // alojamento sem datas é fictício — preço/vagas dependem das datas.)
   if (phase === 1) {
     if (allMembers.length === 0) return false;
     return allMembers.every(m => rsvp[m.id]); // todos têm uma resposta
   }
   if (phase === 2) {
+    // disponibilidade
+    if (inIds.length === 0) return false;
+    const avail = appData.avail || {};
+    return inIds.every(id => Array.isArray(avail[id]) && avail[id].length > 0);
+  }
+  if (phase === 3) {
+    // datas trancadas
+    return !!appData.locked;
+  }
+  if (phase === 4) {
+    // sugestões de local
     if (inIds.length === 0) return false;
     const suggs = appData.locSuggs || [];
     return inIds.every(id => suggs.some(s => s.by === id));
   }
-  if (phase === 3) {
+  if (phase === 5) {
+    // votar local
     if (inIds.length === 0) return false;
     const votes = appData.locVotes || {};
     const allVoted = inIds.every(id => votes[id]);
@@ -14636,12 +14657,14 @@ function phaseComplete(phase, appData) {
     if (sorted.length < 2) return true;
     return !(sorted[0] === sorted[1]);
   }
-  if (phase === 4) {
+  if (phase === 6) {
+    // sugestões de alojamento
     if (inIds.length === 0) return false;
     const suggs = appData.accSuggs || [];
     return inIds.every(id => suggs.some(s => s.by === id));
   }
-  if (phase === 5) {
+  if (phase === 7) {
+    // votar alojamento
     if (inIds.length === 0) return false;
     const votes = appData.accVotes || {};
     const allVoted = inIds.every(id => votes[id]);
@@ -14658,14 +14681,6 @@ function phaseComplete(phase, appData) {
     const sorted = Object.values(tally).sort((a, b) => b - a);
     if (sorted.length < 2) return true;
     return !(sorted[0] === sorted[1]);
-  }
-  if (phase === 6) {
-    if (inIds.length === 0) return false;
-    const avail = appData.avail || {};
-    return inIds.every(id => Array.isArray(avail[id]) && avail[id].length > 0);
-  }
-  if (phase === 7) {
-    return !!appData.locked;
   }
   return false; // fase 8 é a última
 }
@@ -14693,20 +14708,25 @@ function usePhaseProgress(phase, me) {
     if (phase === 1) {
       pending = allMembers.filter(m => !(appData.rsvp || {})[m.id]);
     } else if (phase === 2) {
-      const suggs = appData.locSuggs || [];
-      pending = inMembers.filter(m => !suggs.some(s => s.by === m.id));
-    } else if (phase === 3) {
-      const votes = appData.locVotes || {};
-      pending = inMembers.filter(m => !votes[m.id]);
-    } else if (phase === 4) {
-      const suggs = appData.accSuggs || [];
-      pending = inMembers.filter(m => !suggs.some(s => s.by === m.id));
-    } else if (phase === 5) {
-      const votes = appData.accVotes || {};
-      pending = inMembers.filter(m => !votes[m.id]);
-    } else if (phase === 6) {
+      // disponibilidade
       const avail = appData.avail || {};
       pending = inMembers.filter(m => !(Array.isArray(avail[m.id]) && avail[m.id].length > 0));
+    } else if (phase === 4) {
+      // sugestões de local
+      const suggs = appData.locSuggs || [];
+      pending = inMembers.filter(m => !suggs.some(s => s.by === m.id));
+    } else if (phase === 5) {
+      // votar local
+      const votes = appData.locVotes || {};
+      pending = inMembers.filter(m => !votes[m.id]);
+    } else if (phase === 6) {
+      // sugestões de alojamento
+      const suggs = appData.accSuggs || [];
+      pending = inMembers.filter(m => !suggs.some(s => s.by === m.id));
+    } else if (phase === 7) {
+      // votar alojamento
+      const votes = appData.accVotes || {};
+      pending = inMembers.filter(m => !votes[m.id]);
     }
   }
 
@@ -14944,21 +14964,21 @@ function PhaseProgressBanner({
   if (p.isLast || !me) return null;
   const appData = AppStore._cache();
 
-  // Estado C: empate na fase 3 ou 5 (todos votaram mas há empate sem vencedor)
+  // Empate nas fases de votação (5 = local, 7 = alojamento): todos votaram mas há empate
   const _detectTie = typeof detectTie === 'function' ? detectTie : () => null;
-  const tieIn3 = phase === 3 && !appData.locWinner ? (() => {
+  const tieLoc = phase === 5 && !appData.locWinner ? (() => {
     const inMembers = getInMembers(appData);
     const votes = appData.locVotes || {};
     const allVoted = inMembers.length > 0 && inMembers.every(m => votes[m.id]);
     return allVoted && _detectTie(votes, appData.locSuggs || []);
   })() : null;
-  const tieIn5 = phase === 5 && !appData.accWinner ? (() => {
+  const tieAcc = phase === 7 && !appData.accWinner ? (() => {
     const inMembers = getInMembers(appData);
     const votes = appData.accVotes || {};
     const allVoted = inMembers.length > 0 && inMembers.every(m => votes[m.id]);
     return allVoted && _detectTie(votes, appData.accSuggs || []);
   })() : null;
-  const hasUnresolvedTie = tieIn3 || tieIn5;
+  const hasUnresolvedTie = tieLoc || tieAcc;
   const pendingNames = p.pending.slice(0, 3).map(m => m.name).join(', ');
   const extraPending = p.pending.length > 3 ? ` +${p.pending.length - 3}` : '';
   let statusContent = null;
@@ -16160,6 +16180,43 @@ function AnnouncementBanner({
   }))))));
 }
 
+// Chip com as datas trancadas, visível nas fases de local/alojamento (4-7):
+// como as datas agora se decidem ANTES, toda a gente sugere e vota com elas à vista.
+function DatesChip({
+  phase
+}) {
+  const appData = useAppStore();
+  const locked = appData.locked;
+  if (!locked || phase < 4 || phase > 7) return null;
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: '8px 14px 0',
+      flexShrink: 0
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 7,
+      background: '#fff',
+      border: '1px solid var(--pa-line)',
+      borderRadius: 999,
+      padding: '5px 13px',
+      fontFamily: 'var(--pa-body)',
+      fontSize: 12.5,
+      color: 'var(--pa-ink)'
+    }
+  }, /*#__PURE__*/React.createElement("span", null, "📅"), /*#__PURE__*/React.createElement("strong", {
+    style: {
+      fontWeight: 600
+    }
+  }, paRangeLabel(locked.from, locked.to)), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: 'var(--pa-muted)'
+    }
+  }, "· ", paDaySpan(locked.from, locked.to), " ", paDaySpan(locked.from, locked.to) === 1 ? 'dia' : 'dias')));
+}
+
 // Modal do admin para criar anúncios (global ou para um membro) e remover os ativos.
 function AdminAnnounceModal({
   open,
@@ -17283,6 +17340,7 @@ Object.assign(window, {
   EditionCard,
   EditionHub,
   AnnouncementBanner,
+  DatesChip,
   AdminAnnounceModal,
   AdminMembersModal,
   AdminModalsHost,
@@ -17334,7 +17392,7 @@ function OnboardingModal({
   }, {
     emoji: '✅',
     title: 'Tudo por fases',
-    body: 'Primeiro dizem quem entra, depois sugerem e votam o destino e o alojamento, marcam disponibilidade e trancam as datas.'
+    body: 'Primeiro dizem quem entra e quando podem, trancam-se as datas, e só depois sugerem e votam o destino e o alojamento.'
   }, {
     emoji: '🎲',
     title: 'Empates? À sorte ou por pontos',
