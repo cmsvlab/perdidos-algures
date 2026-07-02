@@ -20,7 +20,7 @@
     --pa-bg: #f5f1ea;
     --pa-card: #ffffff;
     --pa-ink: #1f1a14;
-    --pa-muted: #8a7e6e;
+    --pa-muted: #6f6455;
     --pa-line: #e8e0d2;
     --pa-accent: #d97757;
     --pa-display: 'Bricolage Grotesque', system-ui, sans-serif;
@@ -137,6 +137,53 @@ function getDefaultMonth() {
   return { year: target.getFullYear(), month: target.getMonth() };
 }
 const { year: DY, month: DM } = getDefaultMonth();
+
+// ── Multi-mês ──────────────────────────────────────────────
+// Janela de meses navegáveis na fase 6/7: do mês atual até +11.
+// Os dias passam a ser chaves absolutas 'YYYY-MM-DD' (ordenáveis como texto).
+// Compatibilidade: dias antigos guardados como números (1-31) são interpretados
+// no mês default (o mesmo que a app usava quando eram gravados).
+const PA_MONTHS = (() => {
+  const now = new Date(); const arr = [];
+  for (let i = 0; i < 12; i++) {
+    const t = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    arr.push({ y: t.getFullYear(), m: t.getMonth(),
+      label: MONTH_NAMES[t.getMonth()] + ' ' + t.getFullYear(),
+      grid: buildMonth(t.getFullYear(), t.getMonth()) });
+  }
+  return arr;
+})();
+const PA_DEFAULT_MI = Math.max(0, PA_MONTHS.findIndex((x) => x.y === DY && x.m === DM));
+function paDayKey(y, m, d) { return y + '-' + String(m + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0'); }
+function paNormDay(d) { return (typeof d === 'number') ? paDayKey(DY, DM, d) : String(d); }
+function paDayLabel(key) {
+  const p = String(paNormDay(key)).split('-');
+  if (p.length < 3) return String(key);
+  const mn = MONTH_NAMES[+p[1] - 1] || '';
+  return (+p[2]) + ' ' + mn.slice(0, 3).toLowerCase();
+}
+// Rótulo de intervalo: "15–18 ago 2026" ou "30 jul – 2 ago 2026" se cruza meses.
+function paRangeLabel(from, to) {
+  const f = paNormDay(from).split('-'), t = paNormDay(to).split('-');
+  if (f.length < 3 || t.length < 3) return from + '–' + to;
+  const my = (p) => (MONTH_NAMES[+p[1] - 1] || '').slice(0, 3).toLowerCase() + ' ' + p[0];
+  if (f[0] === t[0] && f[1] === t[1]) {
+    return (+f[2] === +t[2]) ? (+f[2]) + ' ' + my(f) : (+f[2]) + '–' + (+t[2]) + ' ' + my(f);
+  }
+  return (+f[2]) + ' ' + my(f).split(' ')[0] + ' – ' + (+t[2]) + ' ' + my(t);
+}
+// Nº de dias entre duas chaves, inclusive (substitui a antiga subtração numérica).
+function paDaySpan(from, to) {
+  const p = (k) => { const a = paNormDay(k).split('-'); return new Date(+a[0], +a[1] - 1, +a[2]); };
+  const ms = Math.abs(p(to) - p(from));
+  return Math.round(ms / 86400000) + 1;
+}
+// Soma/subtrai dias a uma chave (atravessa meses corretamente).
+function paDayShift(key, delta) {
+  const a = paNormDay(key).split('-');
+  const d = new Date(+a[0], +a[1] - 1, +a[2] + delta);
+  return paDayKey(d.getFullYear(), d.getMonth(), d.getDate());
+}
 
 window.PA_DATA = {
   adminId: 'a0000000-0000-0000-0000-000000000001',
@@ -3457,11 +3504,20 @@ function Logo({
 function Calendar({
   grid = D.phase6.monthGrid,
   monthLabel = D.phase6.monthLabel,
+  mi = null,
+  onMonth,
   renderCell,
   onCellClick,
   dense = false
 }) {
   const dows = ['S', 'T', 'Q', 'Q', 'S', 'S', 'D']; // Seg Ter Qua Qui Sex Sáb Dom
+  // Modo multi-mês: com `mi` (índice em PA_MONTHS), o grid/título vêm do mês
+  // ativo e as setas navegam de verdade entre meses.
+  const M = mi !== null && PA_MONTHS[mi] ? PA_MONTHS[mi] : null;
+  const useGrid = M ? M.grid : grid;
+  const useLabel = M ? M.label : monthLabel;
+  const canPrev = M ? mi > 0 : false;
+  const canNext = M ? mi < PA_MONTHS.length - 1 : false;
   return /*#__PURE__*/React.createElement("div", {
     style: {
       width: '100%'
@@ -3480,37 +3536,44 @@ function Calendar({
       fontWeight: 600,
       letterSpacing: -0.3
     }
-  }, monthLabel), /*#__PURE__*/React.createElement("div", {
+  }, useLabel), M && /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
       gap: 6
     }
-  }, [1, 2].map(i => /*#__PURE__*/React.createElement("button", {
-    key: i,
-    style: {
-      width: 28,
-      height: 28,
-      borderRadius: 999,
-      border: '1px solid var(--pa-line)',
-      background: '#fff',
-      cursor: 'pointer',
-      padding: 0,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center'
-    }
-  }, /*#__PURE__*/React.createElement("svg", {
-    width: "10",
-    height: "10",
-    viewBox: "0 0 10 10"
-  }, /*#__PURE__*/React.createElement("path", {
-    d: i === 1 ? 'M6.5 2L3 5l3.5 3' : 'M3.5 2L7 5l-3.5 3',
-    fill: "none",
-    stroke: "var(--pa-ink)",
-    strokeWidth: "1.5",
-    strokeLinecap: "round",
-    strokeLinejoin: "round"
-  })))))), /*#__PURE__*/React.createElement("div", {
+  }, [1, 2].map(i => {
+    const enabled = i === 1 ? canPrev : canNext;
+    return /*#__PURE__*/React.createElement("button", {
+      key: i,
+      disabled: !enabled,
+      "aria-label": i === 1 ? 'Mês anterior' : 'Mês seguinte',
+      onClick: () => onMonth && onMonth(mi + (i === 1 ? -1 : 1)),
+      style: {
+        width: 28,
+        height: 28,
+        borderRadius: 999,
+        border: '1px solid var(--pa-line)',
+        background: '#fff',
+        cursor: enabled ? 'pointer' : 'default',
+        padding: 0,
+        opacity: enabled ? 1 : 0.35,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center'
+      }
+    }, /*#__PURE__*/React.createElement("svg", {
+      width: "10",
+      height: "10",
+      viewBox: "0 0 10 10"
+    }, /*#__PURE__*/React.createElement("path", {
+      d: i === 1 ? 'M6.5 2L3 5l3.5 3' : 'M3.5 2L7 5l-3.5 3',
+      fill: "none",
+      stroke: "var(--pa-ink)",
+      strokeWidth: "1.5",
+      strokeLinecap: "round",
+      strokeLinejoin: "round"
+    })));
+  }))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'grid',
       gridTemplateColumns: 'repeat(7, 1fr)',
@@ -3534,7 +3597,7 @@ function Calendar({
       gridTemplateColumns: 'repeat(7, 1fr)',
       gap: dense ? 3 : 6
     }
-  }, grid.map((day, i) => {
+  }, useGrid.map((day, i) => {
     const empty = day === null;
     return /*#__PURE__*/React.createElement("button", {
       key: i,
@@ -3602,7 +3665,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r27';
+window.PA_VERSION = '2026.06.01-r30';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -3650,6 +3713,59 @@ if ('serviceWorker' in navigator) {
 }
 
 // Toast simples (sem React, robusto) para feedback de erro/sucesso ao utilizador.
+// Descarrega um ficheiro gerado (backup JSON, calendário .ics).
+window._paDownloadFile = function(filename, content, mime) {
+  try {
+    const blob = new Blob([content], { type: mime });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    return true;
+  } catch (e) { window._paToast('Falhou: ' + e.message, 'error'); return false; }
+};
+
+// Backup da edição ativa: descarrega todos os dados em JSON (seguro barato
+// contra apagões acidentais — meses de decisões do grupo num ficheiro).
+window.paDownloadBackup = function() {
+  const ed = (window.EditionStore && EditionStore.active()) || null;
+  if (!ed) { window._paToast('Sem edição ativa para exportar.', 'error'); return; }
+  const payload = {
+    app: 'perdidos-algures', version: window.PA_VERSION, exportedAt: new Date().toISOString(),
+    edition: { id: ed.id, number: ed.number, title: ed.title, subtitle: ed.subtitle,
+      current_phase: ed.current_phase, data: ed.data || {} },
+  };
+  const name = 'perdidos-algures-ed' + (ed.number || 'x') + '-' + new Date().toISOString().slice(0, 10) + '.json';
+  if (window._paDownloadFile(name, JSON.stringify(payload, null, 2), 'application/json')) {
+    window._paToast('Backup descarregado!', 'success');
+  }
+};
+
+// Exporta as datas trancadas como evento de calendário (.ics, dia inteiro).
+window.paDownloadIcs = function() {
+  const appData = (window.AppStore && AppStore._cache()) || {};
+  const locked = appData.locked;
+  if (!locked) { window._paToast('Ainda não há datas trancadas.', 'error'); return; }
+  const ed = (window.EditionStore && EditionStore.active()) || null;
+  const locW = appData.locWinner ? (appData.locSuggs || []).find((s) => s.id === appData.locWinner) : null;
+  const dtStart = window.paNormDay(locked.from).replace(/-/g, '');
+  const dtEndEx = window.paDayShift(locked.to, 1).replace(/-/g, ''); // DTEND é exclusivo no iCalendar
+  const title = ((ed && ed.title) || 'Perdidos Algures') + (locW ? ' — ' + locW.name : '');
+  const esc = (s) => String(s).replace(/\\/g, '\\\\').replace(/[,;]/g, (c) => '\\' + c);
+  const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Perdidos Algures//PT',
+    'BEGIN:VEVENT',
+    'UID:pa-' + ((ed && ed.id) || 'trip') + '@perdidos-algures',
+    'DTSTAMP:' + new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z',
+    'DTSTART;VALUE=DATE:' + dtStart,
+    'DTEND;VALUE=DATE:' + dtEndEx,
+    'SUMMARY:' + esc(title),
+    'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+  if (window._paDownloadFile('viagem-' + window.paNormDay(locked.from) + '.ics', ics, 'text/calendar')) {
+    window._paToast('Evento descarregado — abre para adicionar ao calendário!', 'success');
+  }
+};
+
 window._paToast = function(msg, type) {
   type = type || 'error';
   try {
@@ -4201,23 +4317,49 @@ const AppStore = {
   },
 
   // ── RSVP ──
-  setRsvp(uid,st)  { return this._merge('rsvp', { [uid]:st }); },
+  setRsvp(uid,st)  {
+    // Responder (ou ser adicionado pelo admin) readmite quem tinha sido removido.
+    const removed = this._cache().removedMembers || [];
+    if (removed.includes(uid)) this._set('removedMembers', removed.filter((x) => x !== uid));
+    return this._merge('rsvp', { [uid]:st });
+  },
   getRsvp(uid)     { return this._cache().rsvp?.[uid]||null; },
   getAllRsvp()     { return this._cache().rsvp||{}; },
 
   // ── Sugestões de localização ──
   getLocSuggestions()           { return this._cache().locSuggs||[]; },
   async addLocSuggestion(s)     { await this._appendToArray('locSuggs', s); },
-  async removeLocSuggestion(id) { await this._removeFromArray('locSuggs', id); },
+  async removeLocSuggestion(id) {
+    await this._removeFromArray('locSuggs', id);
+    await this._cleanupOrphanVotes('locVotes', 'locWinner', id);
+  },
   getLocWinner()                { return this._cache().locWinner||null; },
   async setLocWinner(id)        { await this._set('locWinner',id); },
   getLocVotes()                 { return this._cache().locVotes||{}; },
   async setLocVote(uid,id)      { await this._merge('locVotes', { [uid]:id }); },
 
+  // Depois de remover uma sugestão, limpa votos que apontavam para ela e o
+  // vencedor se era ela (reabre a decisão). Só escreve se houver mesmo órfãos,
+  // por isso no caso comum (apagar na fase de sugestões, sem votos) não custa nada.
+  async _cleanupOrphanVotes(votesKey, winnerKey, removedId) {
+    const d = this._cache();
+    const votes = d[votesKey] || {};
+    const orphans = Object.keys(votes).filter((uid) => votes[uid] === removedId);
+    if (orphans.length) {
+      const v = { ...votes };
+      orphans.forEach((uid) => { delete v[uid]; });
+      await this._set(votesKey, v);
+    }
+    if (d[winnerKey] === removedId) await this.clearKey(winnerKey);
+  },
+
   // ── Sugestões de alojamento ──
   getAccSuggestions()           { return this._cache().accSuggs||[]; },
   async addAccSuggestion(s)     { await this._appendToArray('accSuggs', s); },
-  async removeAccSuggestion(id) { await this._removeFromArray('accSuggs', id); },
+  async removeAccSuggestion(id) {
+    await this._removeFromArray('accSuggs', id);
+    await this._cleanupOrphanVotes('accVotes', 'accWinner', id);
+  },
   getAccWinner()                { return this._cache().accWinner||null; },
   async setAccWinner(id)        { await this._set('accWinner',id); },
   getAccVotes()                 { return this._cache().accVotes||{}; },
@@ -4272,14 +4414,48 @@ const AppStore = {
   // Editar estado: usa setRsvp. Remover: limpa tudo o que o membro tem nesta edição
   // (RSVP, votos, disponibilidade, sugestões) sem apagar o perfil global.
   async removeMember(uid) {
-    const d = this._cache();
+    const ed = EditionStore.active();
+    if (!ed) { console.warn('[PA AppStore] sem edição ativa'); return; }
+
+    // Lê o estado FRESCO do servidor (não a cache local) para não apagar
+    // alterações recentes de outros membros (ex: um voto dado há segundos).
+    let base = this._cache();
+    try {
+      const { data: fresh } = await _sb.from('editions').select('data').eq('id', ed.id).single();
+      if (fresh && fresh.data) base = fresh.data;
+    } catch (e) { /* offline: usa a cache local, melhor que nada */ }
+
     const omit = (obj) => { const o = { ...(obj || {}) }; delete o[uid]; return o; };
-    await this._set('rsvp', omit(d.rsvp));
-    await this._set('locVotes', omit(d.locVotes));
-    await this._set('accVotes', omit(d.accVotes));
-    await this._set('avail', omit(d.avail));
-    await this._modifyArray('locSuggs', (arr) => (arr || []).filter((s) => s.by !== uid));
-    await this._modifyArray('accSuggs', (arr) => (arr || []).filter((s) => s.by !== uid));
+    const removedLocIds = new Set((base.locSuggs || []).filter((s) => s.by === uid).map((s) => s.id));
+    const removedAccIds = new Set((base.accSuggs || []).filter((s) => s.by === uid).map((s) => s.id));
+    // Limpa também votos órfãos: votos de QUALQUER pessoa que apontavam para
+    // sugestões do removido deixam de fazer sentido — essas pessoas votam de novo.
+    const dropOrphans = (votes, removedIds) => {
+      const v = omit(votes);
+      for (const k of Object.keys(v)) if (removedIds.has(v[k])) delete v[k];
+      return v;
+    };
+
+    const newData = { ...base,
+      rsvp: omit(base.rsvp),
+      avail: omit(base.avail),
+      locSuggs: (base.locSuggs || []).filter((s) => s.by !== uid),
+      accSuggs: (base.accSuggs || []).filter((s) => s.by !== uid),
+      locVotes: dropOrphans(base.locVotes, removedLocIds),
+      accVotes: dropOrphans(base.accVotes, removedAccIds),
+      // Marca como removido desta edição: sai do universo da fase 1 e de
+      // "quem falta" (senão reapareceria como pendente). Responder readmite.
+      removedMembers: [...(base.removedMembers || []).filter((x) => x !== uid), uid],
+    };
+    // Vencedor órfão (a sugestão vencedora era do removido): reabre a decisão.
+    if (removedLocIds.has(newData.locWinner)) delete newData.locWinner;
+    if (removedAccIds.has(newData.accWinner)) delete newData.accWinner;
+
+    // UMA escrita atómica (em vez de 6 sequenciais): janela de conflito mínima.
+    _appCache = newData;
+    ed.data = newData;
+    this._notify();
+    await this._updateWithRetry(ed.id, newData, 'removeMember');
   },
 
   // ── Reset da edição ativa ──
@@ -7060,6 +7236,14 @@ function getAllMembers() {
   return [...base, ...registered];
 }
 
+// Membros desta EDIÇÃO: todos os perfis menos os removidos pelo admin.
+// É este o universo da fase 1 (quem entra) e de "quem falta responder" —
+// perfis de outras edições/removidos não contam como pendentes.
+function getEditionMembers(appData) {
+  const removed = new Set(appData && appData.removedMembers || []);
+  return getAllMembers().filter(m => !removed.has(m.id));
+}
+
 // ─────────────────────────────────────────────────────────────
 // Admin phase navigator
 // ─────────────────────────────────────────────────────────────
@@ -7431,7 +7615,7 @@ function DLeftRail({
   me
 }) {
   const appData = useAppStore();
-  const allMembers = getAllMembers();
+  const allMembers = getEditionMembers(appData);
   const rsvp = appData.rsvp || {};
   const inCount = Object.values(rsvp).filter(s => s === 'in').length;
   const history = appData.history || [];
@@ -7870,7 +8054,12 @@ function DAdminBar({
     variant: "ghost",
     size: "sm",
     onClick: paOpenMembers
-  }, "👥 Membros"), phase > 1 && /*#__PURE__*/React.createElement(Btn, {
+  }, "👥 Membros"), /*#__PURE__*/React.createElement(Btn, {
+    variant: "ghost",
+    size: "sm",
+    onClick: () => window.paDownloadBackup(),
+    title: "Descarrega todos os dados desta edição (JSON)"
+  }, "⬇ Backup"), phase > 1 && /*#__PURE__*/React.createElement(Btn, {
     variant: "ghost",
     size: "sm",
     onClick: () => setPhase(phase - 1)
@@ -7885,7 +8074,7 @@ function DPhase1({
 }) {
   const appData = useAppStore();
   const rsvp = appData.rsvp || {};
-  const allMembers = getAllMembers();
+  const allMembers = getEditionMembers(appData);
   const counts = dUseMemo(() => {
     const c = {
       in: 0,
@@ -9388,23 +9577,25 @@ function DPhase6({
   me
 }) {
   const appData = useAppStore();
-  const allMembers = getAllMembers();
+  const allMembers = getEditionMembers(appData);
   const locSuggs = appData.locSuggs || [];
   const locWinnerId = appData.locWinner;
   const winnerLoc = locWinnerId ? locSuggs.find(s => s.id === locWinnerId) : locSuggs[0];
   const accSuggs = appData.accSuggs || [];
   const accWinnerId = appData.accWinner;
   const winnerAcc = accWinnerId ? accSuggs.find(s => s.id === accWinnerId) : accSuggs[0];
-  const [days, setDays] = dUseState2(() => AppStore.getAvailability(me.id));
+  const [mi, setMi] = dUseState2(PA_DEFAULT_MI);
+  const [days, setDays] = dUseState2(() => (AppStore.getAvailability(me.id) || []).map(paNormDay));
   dUseEffect2(() => {
-    setDays(AppStore.getAvailability(me.id));
+    setDays((AppStore.getAvailability(me.id) || []).map(paNormDay));
   }, [appData.avail, me.id]);
-  const toggle = d => setDays(arr => arr.includes(d) ? arr.filter(x => x !== d) : [...arr, d]);
+  const toggle = k => setDays(arr => arr.includes(k) ? arr.filter(x => x !== k) : [...arr, k]);
   const allAvail = appData.avail || {};
   const submittedIds = Object.keys(allAvail);
 
   // Mapa de calor do grupo em tempo real: outros (já guardado) + a minha seleção atual (local).
   // Conta APENAS quem está "in" — se alguém marcou e depois saiu, a disponibilidade não conta.
+  // Chaves absolutas (YYYY-MM-DD): dias antigos em número são normalizados.
   const inMembers = typeof getInMembers === 'function' ? getInMembers(appData) : allMembers;
   const totalIn = inMembers.length || allMembers.length;
   const inIds = dUseMemo2(() => new Set(inMembers.map(m => m.id)), [inMembers]);
@@ -9414,11 +9605,12 @@ function DPhase6({
     Object.entries(allAvail).forEach(([mid, arr]) => {
       if (mid === me.id || !inIds.has(mid)) return;
       (arr || []).forEach(d => {
-        h[d] = (h[d] || 0) + 1;
+        const k = paNormDay(d);
+        h[k] = (h[k] || 0) + 1;
       });
     });
-    if (meIsIn) days.forEach(d => {
-      h[d] = (h[d] || 0) + 1;
+    if (meIsIn) days.forEach(k => {
+      h[k] = (h[k] || 0) + 1;
     });
     return h;
   }, [allAvail, days, me.id, inIds, meIsIn]);
@@ -9427,19 +9619,20 @@ function DPhase6({
     Object.entries(allAvail).forEach(([mid, arr]) => {
       if (mid === me.id || !inIds.has(mid)) return;
       (arr || []).forEach(d => {
-        (map[d] = map[d] || []).push(memberById(mid) || {
+        const k = paNormDay(d);
+        (map[k] = map[k] || []).push(memberById(mid) || {
           name: '?'
         });
       });
     });
-    if (meIsIn) days.forEach(d => {
-      (map[d] = map[d] || []).push({
+    if (meIsIn) days.forEach(k => {
+      (map[k] = map[k] || []).push({
         name: me.name + ' (tu)'
       });
     });
     return map;
   }, [allAvail, days, me.id, inIds, meIsIn]);
-  const namesFor = d => (peopleByDay[d] || []).map(p => p.name).join(', ');
+  const namesFor = k => (peopleByDay[k] || []).map(p => p.name).join(', ');
   return /*#__PURE__*/React.createElement("div", {
     className: "pa-scroll",
     style: {
@@ -9514,13 +9707,16 @@ function DPhase6({
       border: '1px solid var(--pa-line)'
     }
   }, /*#__PURE__*/React.createElement(Calendar, {
-    onCellClick: toggle,
+    mi: mi,
+    onMonth: setMi,
+    onCellClick: d => toggle(paDayKey(PA_MONTHS[mi].y, PA_MONTHS[mi].m, d)),
     renderCell: d => {
-      const sel = days.includes(d);
-      const n = heat[d] || 0;
+      const k = paDayKey(PA_MONTHS[mi].y, PA_MONTHS[mi].m, d);
+      const sel = days.includes(k);
+      const n = heat[k] || 0;
       const intensity = totalIn > 0 ? n / totalIn : 0;
       return /*#__PURE__*/React.createElement("div", {
-        title: n > 0 ? namesFor(d) : undefined,
+        title: n > 0 ? namesFor(k) : undefined,
         style: {
           width: '100%',
           height: '100%',
@@ -9700,20 +9896,21 @@ function DPhase7({
 }) {
   const appData = useAppStore();
   const allAvail = appData.avail || {};
-  const allMembers = getAllMembers();
+  const allMembers = getEditionMembers(appData);
   const inMembers = typeof getInMembers === 'function' ? getInMembers(appData) : allMembers;
   const totalIn = inMembers.length || allMembers.length;
-  const monthLabel = D.phase6 && D.phase6.monthLabel || 'Este mês';
-  const monthShort = monthLabel.split(' ')[0].slice(0, 3);
+  const [mi, setMi] = dUseState2(PA_DEFAULT_MI);
 
-  // Conta apenas a disponibilidade de quem está "in" (ignora quem marcou e depois saiu)
+  // Conta apenas a disponibilidade de quem está "in" (ignora quem marcou e depois saiu).
+  // Chaves absolutas YYYY-MM-DD (dias antigos em número são normalizados).
   const inIds = dUseMemo2(() => new Set(inMembers.map(m => m.id)), [inMembers]);
   const heat = dUseMemo2(() => {
     const h = {};
     Object.entries(allAvail).forEach(([mid, arr]) => {
       if (!inIds.has(mid)) return;
       (arr || []).forEach(d => {
-        h[d] = (h[d] || 0) + 1;
+        const k = paNormDay(d);
+        h[k] = (h[k] || 0) + 1;
       });
     });
     return h;
@@ -9725,7 +9922,8 @@ function DPhase7({
     Object.entries(allAvail).forEach(([mid, days]) => {
       if (!inIds.has(mid)) return;
       (days || []).forEach(d => {
-        (map[d] = map[d] || []).push(memberById(mid) || {
+        const k = paNormDay(d);
+        (map[k] = map[k] || []).push(memberById(mid) || {
           id: mid,
           name: '?',
           initials: '?',
@@ -9735,34 +9933,35 @@ function DPhase7({
     });
     return map;
   }, [allAvail, inIds]);
-  const namesFor = d => (peopleByDay[d] || []).map(p => p.name).join(', ');
+  const namesFor = k => (peopleByDay[k] || []).map(p => p.name).join(', ');
   const locked = appData.locked || null;
   const [range, setRange] = dUseState2({
     from: null,
     to: null
   });
   const ranked = dUseMemo2(() => {
-    return Object.entries(heat).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([d, n]) => ({
-      day: +d,
+    return Object.entries(heat).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([k, n]) => ({
+      day: k,
       count: n
     }));
   }, [heat]);
   const hasData = Object.keys(heat).length > 0;
 
   // Seleção por cliques: 1º clique = início; 2º clique = fim (se depois do início).
-  const pickDay = d => {
+  // Chaves YYYY-MM-DD comparam-se como texto — funciona ENTRE meses diferentes.
+  const pickDay = k => {
     if (!me.isAdmin) return;
     setRange(r => {
       if (!r.from || r.from && r.to) return {
-        from: d,
+        from: k,
         to: null
       }; // novo início
-      if (d >= r.from) return {
+      if (k >= r.from) return {
         from: r.from,
-        to: d
+        to: k
       }; // fecha intervalo
       return {
-        from: d,
+        from: k,
         to: null
       }; // antes do início → recomeça
     });
@@ -9804,24 +10003,18 @@ function DPhase7({
       padding: 22,
       border: '1px solid var(--pa-line)'
     }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontFamily: 'var(--pa-mono)',
-      fontSize: 11,
-      letterSpacing: 1,
-      color: 'var(--pa-muted)',
-      textTransform: 'uppercase',
-      marginBottom: 14
-    }
-  }, monthLabel), /*#__PURE__*/React.createElement(Calendar, {
-    onCellClick: me.isAdmin ? pickDay : undefined,
+  }, /*#__PURE__*/React.createElement(Calendar, {
+    mi: mi,
+    onMonth: setMi,
+    onCellClick: me.isAdmin ? d => pickDay(paDayKey(PA_MONTHS[mi].y, PA_MONTHS[mi].m, d)) : undefined,
     renderCell: d => {
-      const n = heat[d] || 0;
-      const inRange = selFrom && d >= selFrom && d <= selTo;
-      const isLocked = locked && d >= locked.from && d <= locked.to;
+      const k = paDayKey(PA_MONTHS[mi].y, PA_MONTHS[mi].m, d);
+      const n = heat[k] || 0;
+      const inRange = selFrom && k >= selFrom && k <= selTo;
+      const isLocked = locked && k >= paNormDay(locked.from) && k <= paNormDay(locked.to);
       const intensity = totalIn > 0 ? n / totalIn : 0;
       return /*#__PURE__*/React.createElement("div", {
-        title: n > 0 ? namesFor(d) : undefined,
+        title: n > 0 ? namesFor(k) : undefined,
         style: {
           width: '100%',
           height: '100%',
@@ -9859,7 +10052,7 @@ function DPhase7({
       textAlign: 'center',
       fontFamily: 'var(--pa-body)'
     }
-  }, "Início em ", /*#__PURE__*/React.createElement("strong", null, selFrom), ". Clica noutro dia para um intervalo, ou tranca já só esse dia.")), /*#__PURE__*/React.createElement("div", {
+  }, "Início em ", /*#__PURE__*/React.createElement("strong", null, paDayLabel(selFrom)), ". Clica noutro dia para um intervalo, ou tranca já só esse dia.")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
       flexDirection: 'column',
@@ -9888,12 +10081,23 @@ function DPhase7({
       fontWeight: 600,
       letterSpacing: -0.7
     }
-  }, locked.from === locked.to ? `${locked.from} ${monthShort}` : `${locked.from}–${locked.to} ${monthShort}`), me.isAdmin && /*#__PURE__*/React.createElement(Btn, {
+  }, paRangeLabel(locked.from, locked.to)), /*#__PURE__*/React.createElement(Btn, {
     variant: "ghost",
     size: "sm",
     style: {
       width: '100%',
       marginTop: 14,
+      background: 'rgba(255,255,255,0.18)',
+      color: '#fff',
+      border: 'none'
+    },
+    onClick: () => window.paDownloadIcs()
+  }, "📅 Adicionar ao calendário"), me.isAdmin && /*#__PURE__*/React.createElement(Btn, {
+    variant: "ghost",
+    size: "sm",
+    style: {
+      width: '100%',
+      marginTop: 8,
       background: 'rgba(255,255,255,0.12)',
       color: '#fff',
       border: 'none'
@@ -9928,7 +10132,7 @@ function DPhase7({
       fontWeight: 600,
       letterSpacing: -0.7
     }
-  }, selFrom === selTo ? `${selFrom} ${monthShort}` : `${selFrom}–${selTo} ${monthShort}`), me.isAdmin && /*#__PURE__*/React.createElement(Btn, {
+  }, paRangeLabel(selFrom, selTo)), me.isAdmin && /*#__PURE__*/React.createElement(Btn, {
     variant: "accent",
     size: "lg",
     style: {
@@ -9936,7 +10140,7 @@ function DPhase7({
       marginTop: 14
     },
     onClick: () => {
-      AppStore.setLockedDates(selFrom, selTo, monthLabel);
+      AppStore.setLockedDates(selFrom, selTo, paRangeLabel(selFrom, selTo));
     }
   }, "Trancar ", selFrom === selTo ? 'este dia' : 'estes dias', " 🔒")), !locked && !selFrom && me.isAdmin && /*#__PURE__*/React.createElement("div", {
     style: {
@@ -9987,7 +10191,14 @@ function DPhase7({
       alignItems: 'center',
       justifyContent: 'center'
     }
-  }, r.day), /*#__PURE__*/React.createElement("div", {
+  }, paDayLabel(r.day).split(' ')[0], /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 8,
+      fontWeight: 600,
+      marginLeft: 1,
+      opacity: 0.7
+    }
+  }, paDayLabel(r.day).split(' ')[1])), /*#__PURE__*/React.createElement("div", {
     style: {
       flex: 1,
       display: 'flex',
@@ -10122,7 +10333,7 @@ function DPhase8({
       fontSize: 14,
       color: 'var(--pa-muted)'
     }
-  }, locked.from, "–", locked.to, " · ", locked.monthLabel || D.phase6.monthLabel))), /*#__PURE__*/React.createElement("div", {
+  }, paRangeLabel(locked.from, locked.to), " · ", paDaySpan(locked.from, locked.to), " dias"))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
       gap: 4,
@@ -10177,8 +10388,6 @@ function PlanEstadia({
   const locSuggs = appData.locSuggs || [];
   const locWinner = appData.locWinner ? locSuggs.find(s => s.id === appData.locWinner) : null;
   const locked = appData.locked || null;
-  const monthLabel = locked && locked.monthLabel || typeof D !== 'undefined' && D.phase6 && D.phase6.monthLabel || '';
-  const monthShort = monthLabel.split(' ')[0].slice(0, 3);
   const inMembers = typeof getInMembers === 'function' ? getInMembers(appData) : [];
   const by = acc ? memberById(acc.by) || {
     name: acc.by,
@@ -10243,7 +10452,7 @@ function PlanEstadia({
       fontWeight: 600,
       marginTop: 3
     }
-  }, locked ? locked.from === locked.to ? `${locked.from} ${monthShort}` : `${locked.from}–${locked.to} ${monthShort}` : '—')), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, locked ? paRangeLabel(locked.from, locked.to) : '—')), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       fontFamily: 'var(--pa-mono)',
       fontSize: 9.5,
@@ -10448,10 +10657,14 @@ function computeBalances(breakdown, members) {
   });
   // Corrige o resíduo de arredondamento para os saldos somarem EXATAMENTE 0
   // (caso contrário alguém perderia/ganharia 1-2 cêntimos no acerto de contas).
+  // IMPORTANTE: só corrige resíduos de CÊNTIMOS (arredondamento). Um resíduo
+  // grande significa dados inconsistentes (ex: pagador que já não é membro) e
+  // "corrigi-lo" à força inventaria dinheiro — nesse caso fica como está.
   const ids = Object.keys(bal);
   if (ids.length) {
     const residual = Math.round(ids.reduce((s, id) => s + bal[id], 0) * 100) / 100;
-    if (Math.abs(residual) >= 0.01) {
+    const maxRoundingResidual = Math.max(0.05, (breakdown || []).length * 0.01);
+    if (Math.abs(residual) >= 0.01 && Math.abs(residual) <= maxRoundingResidual) {
       // Absorve o resíduo no maior saldo em valor absoluto
       let target = ids[0];
       ids.forEach(id => {
@@ -11122,7 +11335,7 @@ function PlanItinerario({
   const [what, setWhat] = React.useState('');
 
   // Calcular nº de dias da viagem
-  const dayCount = locked ? Math.abs(locked.to - locked.from) + 1 : 1;
+  const dayCount = locked ? paDaySpan(locked.from, locked.to) : 1;
   const days = Array.from({
     length: dayCount
   }, (_, i) => i + 1);
@@ -12131,7 +12344,31 @@ function MPhaseNav({
     style: {
       fontSize: 13
     }
-  }, "👥"), " Gerir membros"), resetKey && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+  }, "👥"), " Gerir membros"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => {
+      window.paDownloadBackup();
+      setOpen(false);
+    },
+    style: {
+      width: '100%',
+      textAlign: 'left',
+      padding: '8px 10px',
+      borderRadius: 8,
+      border: 'none',
+      cursor: 'pointer',
+      background: 'transparent',
+      color: 'var(--pa-ink)',
+      fontFamily: 'var(--pa-body)',
+      fontSize: 12.5,
+      display: 'flex',
+      gap: 8,
+      alignItems: 'center'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13
+    }
+  }, "⬇"), " Backup da edição"), resetKey && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     style: {
       borderTop: '1px solid var(--pa-line)',
       margin: '4px 0'
@@ -12383,7 +12620,7 @@ function MPhase1({
   const appData = useAppStore();
   const rsvp = appData.rsvp || {};
   const myChoice = rsvp[me.id] || null;
-  const allMembers = getAllMembers();
+  const allMembers = getEditionMembers(appData);
   const counts = mUseMemo(() => {
     const c = {
       in: 0,
@@ -13491,16 +13728,17 @@ function MPhase6({
   onOpenChat
 }) {
   const appData = useAppStore();
-  const allMembers = getAllMembers();
+  const allMembers = getEditionMembers(appData);
   const locSuggs = appData.locSuggs || [];
   const winnerLoc = appData.locWinner ? locSuggs.find(s => s.id === appData.locWinner) : locSuggs[0];
   const accSuggs = appData.accSuggs || [];
   const winnerAcc = appData.accWinner ? accSuggs.find(s => s.id === appData.accWinner) : accSuggs[0];
-  const [days, setDays] = mUseState(() => AppStore.getAvailability(me.id));
+  const [mi, setMi] = mUseState(PA_DEFAULT_MI);
+  const [days, setDays] = mUseState(() => (AppStore.getAvailability(me.id) || []).map(paNormDay));
   mUseEffect(() => {
-    setDays(AppStore.getAvailability(me.id));
+    setDays((AppStore.getAvailability(me.id) || []).map(paNormDay));
   }, [appData.avail, me.id]);
-  const toggle = d => setDays(arr => arr.includes(d) ? arr.filter(x => x !== d) : [...arr, d]);
+  const toggle = k => setDays(arr => arr.includes(k) ? arr.filter(x => x !== k) : [...arr, k]);
   const allAvail = appData.avail || {};
   const submittedIds = Object.keys(allAvail);
   const inMembers = typeof getInMembers === 'function' ? getInMembers(appData) : allMembers;
@@ -13512,11 +13750,12 @@ function MPhase6({
     Object.entries(allAvail).forEach(([mid, arr]) => {
       if (mid === me.id || !inIds.has(mid)) return;
       (arr || []).forEach(d => {
-        h[d] = (h[d] || 0) + 1;
+        const k = paNormDay(d);
+        h[k] = (h[k] || 0) + 1;
       });
     });
-    if (meIsIn) days.forEach(d => {
-      h[d] = (h[d] || 0) + 1;
+    if (meIsIn) days.forEach(k => {
+      h[k] = (h[k] || 0) + 1;
     });
     return h;
   }, [allAvail, days, me.id, inIds, meIsIn]);
@@ -13525,19 +13764,20 @@ function MPhase6({
     Object.entries(allAvail).forEach(([mid, arr]) => {
       if (mid === me.id || !inIds.has(mid)) return;
       (arr || []).forEach(d => {
-        (map[d] = map[d] || []).push(memberById(mid) || {
+        const k = paNormDay(d);
+        (map[k] = map[k] || []).push(memberById(mid) || {
           name: '?'
         });
       });
     });
-    if (meIsIn) days.forEach(d => {
-      (map[d] = map[d] || []).push({
+    if (meIsIn) days.forEach(k => {
+      (map[k] = map[k] || []).push({
         name: me.name + ' (tu)'
       });
     });
     return map;
   }, [allAvail, days, me.id, inIds, meIsIn]);
-  const namesFor = d => (peopleByDay[d] || []).map(p => p.name).join(', ');
+  const namesFor = k => (peopleByDay[k] || []).map(p => p.name).join(', ');
   return /*#__PURE__*/React.createElement(MShell, null, /*#__PURE__*/React.createElement(MHeader, {
     phase: 6,
     onLogout: onLogout,
@@ -13609,13 +13849,16 @@ function MPhase6({
     }
   }, /*#__PURE__*/React.createElement(Calendar, {
     dense: true,
-    onCellClick: toggle,
+    mi: mi,
+    onMonth: setMi,
+    onCellClick: d => toggle(paDayKey(PA_MONTHS[mi].y, PA_MONTHS[mi].m, d)),
     renderCell: d => {
-      const sel = days.includes(d);
-      const n = heat[d] || 0;
+      const k = paDayKey(PA_MONTHS[mi].y, PA_MONTHS[mi].m, d);
+      const sel = days.includes(k);
+      const n = heat[k] || 0;
       const intensity = totalIn > 0 ? n / totalIn : 0;
       return /*#__PURE__*/React.createElement("div", {
-        title: n > 0 ? namesFor(d) : undefined,
+        title: n > 0 ? namesFor(k) : undefined,
         style: {
           width: '100%',
           height: '100%',
@@ -13779,13 +14022,15 @@ function MPhase7({
     from: null,
     to: null
   });
+  const [mi, setMi] = mUseState(PA_DEFAULT_MI);
 
-  // Heat map dos dias — conta apenas quem está "in" (ignora quem marcou e depois saiu)
+  // Heat map — só quem está "in"; chaves absolutas YYYY-MM-DD (números antigos normalizados)
   const heat = {};
   Object.entries(allAvail).forEach(([mid, arr]) => {
     if (!inIds.has(mid)) return;
     (arr || []).forEach(d => {
-      heat[d] = (heat[d] || 0) + 1;
+      const k = paNormDay(d);
+      heat[k] = (heat[k] || 0) + 1;
     });
   });
   // Quem marcou cada dia (nomes, só "in")
@@ -13793,7 +14038,8 @@ function MPhase7({
   Object.entries(allAvail).forEach(([mid, days]) => {
     if (!inIds.has(mid)) return;
     (days || []).forEach(d => {
-      (peopleByDay[d] = peopleByDay[d] || []).push(memberById(mid) || {
+      const k = paNormDay(d);
+      (peopleByDay[k] = peopleByDay[k] || []).push(memberById(mid) || {
         id: mid,
         name: '?',
         initials: '?',
@@ -13801,8 +14047,23 @@ function MPhase7({
       });
     });
   });
-  const namesFor = d => (peopleByDay[d] || []).map(p => p.name).join(', ');
-  const rankedDays = Object.keys(peopleByDay).map(Number).sort((a, b) => (heat[b] || 0) - (heat[a] || 0)).slice(0, 6);
+  const namesFor = k => (peopleByDay[k] || []).map(p => p.name).join(', ');
+  const rankedDays = Object.keys(peopleByDay).sort((a, b) => (heat[b] || 0) - (heat[a] || 0)).slice(0, 6);
+  // Seleção por 2 toques, igual ao desktop: 1º = início, 2º = fim.
+  const pickDay = k => setRange(r => {
+    if (!r.from || r.from && r.to) return {
+      from: k,
+      to: null
+    };
+    if (k >= r.from) return {
+      from: r.from,
+      to: k
+    };
+    return {
+      from: k,
+      to: null
+    };
+  });
   return /*#__PURE__*/React.createElement(MShell, null, /*#__PURE__*/React.createElement(MHeader, {
     phase: 7,
     onLogout: onLogout,
@@ -13813,8 +14074,8 @@ function MPhase7({
       style: {
         color: 'var(--pa-accent)'
       }
-    }, locked.from, "–", locked.to, ".")),
-    sub: locked.monthLabel || D.phase6.monthLabel
+    }, paRangeLabel(locked.from, locked.to), ".")),
+    sub: locked.monthLabel || ''
   }), /*#__PURE__*/React.createElement("div", {
     className: "pa-scroll",
     style: {
@@ -13843,21 +14104,29 @@ function MPhase7({
   }, "Confirmado"), /*#__PURE__*/React.createElement("div", {
     style: {
       fontFamily: 'var(--pa-display)',
-      fontSize: 40,
+      fontSize: 34,
       fontWeight: 600,
       letterSpacing: -1
     }
-  }, locked.from, "–", locked.to), /*#__PURE__*/React.createElement("div", {
+  }, paRangeLabel(locked.from, locked.to)), /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 4,
       opacity: 0.7
     }
-  }, locked.monthLabel || D.phase6.monthLabel)), me.isAdmin && /*#__PURE__*/React.createElement(Btn, {
-    variant: "ghost",
+  }, paDaySpan(locked.from, locked.to), " ", paDaySpan(locked.from, locked.to) === 1 ? 'dia' : 'dias')), /*#__PURE__*/React.createElement(Btn, {
+    variant: "soft",
     size: "sm",
     style: {
       width: '100%',
       marginTop: 12
+    },
+    onClick: () => window.paDownloadIcs()
+  }, "📅 Adicionar ao calendário"), me.isAdmin && /*#__PURE__*/React.createElement(Btn, {
+    variant: "ghost",
+    size: "sm",
+    style: {
+      width: '100%',
+      marginTop: 8
     },
     onClick: () => AppStore.clearKey('locked')
   }, "Destrancar"))) : me.isAdmin ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(MPhaseTitle, {
@@ -13885,15 +14154,13 @@ function MPhase7({
     }
   }, /*#__PURE__*/React.createElement(Calendar, {
     dense: true,
-    onCellClick: d => {
-      setRange({
-        from: d,
-        to: Math.min(d + 2, 31)
-      });
-    },
+    mi: mi,
+    onMonth: setMi,
+    onCellClick: d => pickDay(paDayKey(PA_MONTHS[mi].y, PA_MONTHS[mi].m, d)),
     renderCell: d => {
-      const n = heat[d] || 0;
-      const inRange = range.from && range.to && d >= range.from && d <= range.to;
+      const k = paDayKey(PA_MONTHS[mi].y, PA_MONTHS[mi].m, d);
+      const n = heat[k] || 0;
+      const inRange = range.from && k >= range.from && k <= (range.to || range.from);
       const intensity = totalIn > 0 ? n / totalIn : 0;
       return /*#__PURE__*/React.createElement("div", {
         style: {
@@ -13963,7 +14230,14 @@ function MPhase7({
       alignItems: 'center',
       justifyContent: 'center'
     }
-  }, day), /*#__PURE__*/React.createElement("div", {
+  }, paDayLabel(day).split(' ')[0], /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 7,
+      fontWeight: 600,
+      marginLeft: 1,
+      opacity: 0.7
+    }
+  }, paDayLabel(day).split(' ')[1])), /*#__PURE__*/React.createElement("div", {
     style: {
       flex: 1,
       display: 'flex',
@@ -14014,7 +14288,7 @@ function MPhase7({
       fontWeight: 600,
       marginTop: 4
     }
-  }, range.from, "–", range.to), /*#__PURE__*/React.createElement("div", {
+  }, paRangeLabel(range.from, range.to || range.from)), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
       gap: 6,
@@ -14026,30 +14300,32 @@ function MPhase7({
     style: {
       flex: 1
     },
-    onClick: () => setRange({
-      from: Math.max(1, range.from - 1),
-      to: range.to
-    })
-  }, "−1 dia"), /*#__PURE__*/React.createElement(Btn, {
+    onClick: () => setRange(r => ({
+      from: paDayShift(r.from, -1),
+      to: r.to
+    }))
+  }, "← início −1"), /*#__PURE__*/React.createElement(Btn, {
     variant: "ghost",
     size: "sm",
     style: {
       flex: 1
     },
-    onClick: () => setRange({
-      from: range.from,
-      to: Math.min(31, range.to + 1)
-    })
-  }, "+1 dia")), /*#__PURE__*/React.createElement(Btn, {
+    onClick: () => setRange(r => ({
+      from: r.from,
+      to: paDayShift(r.to || r.from, 1)
+    }))
+  }, "fim +1 →")), /*#__PURE__*/React.createElement(Btn, {
     variant: "accent",
     style: {
       width: '100%',
       marginTop: 10
     },
     onClick: () => {
-      AppStore.setLockedDates(range.from, range.to, D.phase6.monthLabel);
+      const f = range.from,
+        t = range.to || range.from;
+      AppStore.setLockedDates(f, t, paRangeLabel(f, t));
     }
-  }, "Trancar estes dias 🔒")))) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(MPhaseTitle, {
+  }, "Trancar ", range.to && range.to !== range.from ? 'estes dias' : 'este dia', " 🔒")))) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(MPhaseTitle, {
     kicker: "A aguardar",
     title: /*#__PURE__*/React.createElement(React.Fragment, null, "Admin está", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("span", {
       style: {
@@ -14122,7 +14398,7 @@ function MPhase8({
       borderRadius: 5,
       background: '#3d5e44'
     }
-  }), locked.from, "–", locked.to, " · trancado")), /*#__PURE__*/React.createElement(MPhaseTitle, {
+  }), paRangeLabel(locked.from, locked.to), " · trancado")), /*#__PURE__*/React.createElement(MPhaseTitle, {
     title: /*#__PURE__*/React.createElement(React.Fragment, null, "Planeamento."),
     sub: "A viagem nos detalhes."
   }), /*#__PURE__*/React.createElement("div", {
@@ -14329,7 +14605,7 @@ function getTotalMembers() {
 // ─────────────────────────────────────────────────────────────
 function phaseComplete(phase, appData) {
   const rsvp = appData.rsvp || {};
-  const allMembers = typeof getAllMembers === 'function' ? getAllMembers() : [];
+  const allMembers = typeof getEditionMembers === 'function' ? getEditionMembers(appData) : typeof getAllMembers === 'function' ? getAllMembers() : [];
   const inIds = allMembers.filter(m => rsvp[m.id] === 'in').map(m => m.id);
   if (phase === 1) {
     if (allMembers.length === 0) return false;
@@ -14404,7 +14680,7 @@ function usePhaseProgress(phase, me) {
   const appData = useAppStore();
   const isLast = phase >= 8;
   const isComplete = phaseComplete(phase, appData);
-  const allMembers = typeof getAllMembers === 'function' ? getAllMembers() : [];
+  const allMembers = typeof getEditionMembers === 'function' ? getEditionMembers(appData) : typeof getAllMembers === 'function' ? getAllMembers() : [];
   const inMembers = phase === 1 ? allMembers : getInMembers(appData);
 
   // Prazo opcional (countdown). Guardado em appData.deadline (ISO). Só o admin define.
@@ -14662,6 +14938,9 @@ function PhaseProgressBanner({
   narrow
 }) {
   const p = usePhaseProgress(phase, me);
+  // Anti-spam do "Lembrar quem falta" (1 por minuto). Declarado antes do
+  // early-return para respeitar as regras dos hooks.
+  const [remindCooldown, setRemindCooldown] = pUseState(false);
   if (p.isLast || !me) return null;
   const appData = AppStore._cache();
 
@@ -14815,7 +15094,9 @@ function PhaseProgressBanner({
     }, me.isAdmin && p.pending.length > 0 && /*#__PURE__*/React.createElement(Btn, {
       variant: "soft",
       size: "sm",
+      disabled: remindCooldown,
       onClick: () => {
+        if (remindCooldown) return;
         const names = p.pending.map(m => m.name).join(', ');
         if (typeof pushChatMessage === 'function') {
           pushChatMessage({
@@ -14825,9 +15106,35 @@ function PhaseProgressBanner({
             when: 'agora'
           });
           if (window._paToast) window._paToast('Lembrete enviado no chat!', 'success');
+          setRemindCooldown(true);
+          setTimeout(() => setRemindCooldown(false), 60000);
         }
       }
-    }, "Lembrar quem falta"), me.isAdmin && /*#__PURE__*/React.createElement(Btn, {
+    }, remindCooldown ? 'Lembrete enviado ✓' : 'Lembrar quem falta'), me.isAdmin && p.pending.length > 0 && /*#__PURE__*/React.createElement(Btn, {
+      variant: "ghost",
+      size: "sm",
+      onClick: async () => {
+        const names = p.pending.map(m => m.name).join(', ');
+        const phName = (D.phases.find(x => x.n === phase) || {}).name || 'fase ' + phase;
+        const ed = typeof EditionStore !== 'undefined' && EditionStore.active() || null;
+        const text = `📣 ${names} — faltam vocês em "${phName}"${ed ? ' na ' + ed.number + 'ª edição — ' + ed.title : ''}! Entra: ${location.origin}${location.pathname}`;
+        // No telemóvel abre a folha de partilha (WhatsApp, etc.); no desktop copia.
+        if (navigator.share) {
+          try {
+            await navigator.share({
+              text
+            });
+          } catch (e) {}
+        } else {
+          try {
+            await navigator.clipboard.writeText(text);
+            window._paToast('Mensagem copiada — cola no WhatsApp!', 'success');
+          } catch (e) {
+            window._paToast('Não consegui copiar.', 'error');
+          }
+        }
+      }
+    }, "Partilhar fora ↗"), me.isAdmin && /*#__PURE__*/React.createElement(Btn, {
       variant: "accent",
       size: "sm",
       onClick: p.advanceNow
@@ -15766,7 +16073,9 @@ function AnnouncementBanner({
   const anns = (appData.announcements || []).filter(a => (a.target === 'all' || a.target === me?.id) && !dismissed.includes(a.id));
   if (!anns.length) return null;
   const dismiss = id => {
-    const next = [...dismissed, id];
+    // Poda IDs de anúncios que já não existem (senão a lista cresce para sempre).
+    const liveIds = new Set((appData.announcements || []).map(a => a.id));
+    const next = [...dismissed.filter(d => liveIds.has(d)), id];
     setDismissed(next);
     try {
       localStorage.setItem('pa-ann-dismissed', JSON.stringify(next));
@@ -16210,33 +16519,47 @@ function AdminMembersModal({
       flexDirection: 'column',
       gap: 8
     }
-  }, available.map(m => /*#__PURE__*/React.createElement("div", {
-    key: m.id,
-    style: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: 10,
-      padding: '9px 12px',
-      borderRadius: 12,
-      background: 'rgba(31,26,20,0.02)',
-      border: '1px dashed var(--pa-line)'
-    }
-  }, /*#__PURE__*/React.createElement(Avatar, {
-    member: m,
-    size: 30
-  }), /*#__PURE__*/React.createElement("div", {
-    style: {
-      flex: 1,
-      minWidth: 60,
-      fontFamily: 'var(--pa-body)',
-      fontSize: 14,
-      fontWeight: 600
-    }
-  }, m.name), /*#__PURE__*/React.createElement(Btn, {
-    variant: "accent",
-    size: "sm",
-    onClick: () => addToSeason(m)
-  }, "+ Adicionar")))))));
+  }, available.map(m => {
+    const wasRemoved = (appData.removedMembers || []).includes(m.id);
+    return /*#__PURE__*/React.createElement("div", {
+      key: m.id,
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        padding: '9px 12px',
+        borderRadius: 12,
+        background: 'rgba(31,26,20,0.02)',
+        border: '1px dashed var(--pa-line)'
+      }
+    }, /*#__PURE__*/React.createElement(Avatar, {
+      member: m,
+      size: 30
+    }), /*#__PURE__*/React.createElement("div", {
+      style: {
+        flex: 1,
+        minWidth: 60
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontFamily: 'var(--pa-body)',
+        fontSize: 14,
+        fontWeight: 600
+      }
+    }, m.name), wasRemoved && /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontFamily: 'var(--pa-mono)',
+        fontSize: 9,
+        color: 'var(--pa-muted)',
+        textTransform: 'uppercase',
+        letterSpacing: 0.6
+      }
+    }, "removido desta edição")), /*#__PURE__*/React.createElement(Btn, {
+      variant: "accent",
+      size: "sm",
+      onClick: () => addToSeason(m)
+    }, "+ Adicionar"));
+  })))));
 }
 
 // Host dos modais de admin: fica montado uma vez e abre os modais via eventos,
