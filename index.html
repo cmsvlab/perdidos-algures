@@ -3049,14 +3049,25 @@ function Avatar({
   member,
   size = 36,
   ring = false,
-  ringColor
+  ringColor,
+  online = false
 }) {
   if (!member) return null;
   const photo = member.photoDataUrl;
+  // Wrapper sem overflow: a foto/iniciais ficam recortadas no círculo interior,
+  // e os indicadores (★ admin, bolinha online) vivem no wrapper sem serem cortados.
   return /*#__PURE__*/React.createElement("div", {
     style: {
+      position: 'relative',
       width: size,
       height: size,
+      flexShrink: 0,
+      display: 'inline-flex'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: '100%',
+      height: '100%',
       borderRadius: size,
       background: photo ? `#000 center/cover no-repeat url(${photo})` : member.color,
       color: '#fff',
@@ -3067,12 +3078,10 @@ function Avatar({
       fontWeight: 600,
       fontSize: size * 0.38,
       letterSpacing: 0.2,
-      flexShrink: 0,
       boxShadow: ring ? `0 0 0 2px ${ringColor || 'var(--pa-bg)'}, 0 0 0 4px ${member.color}` : 'none',
-      position: 'relative',
       overflow: 'hidden'
     }
-  }, !photo && member.initials, member.isAdmin && /*#__PURE__*/React.createElement("span", {
+  }, !photo && member.initials), member.isAdmin && /*#__PURE__*/React.createElement("span", {
     style: {
       position: 'absolute',
       top: -2,
@@ -3089,7 +3098,20 @@ function Avatar({
       fontWeight: 700,
       boxShadow: '0 0 0 2px var(--pa-bg)'
     }
-  }, "★"));
+  }, "★"), online && /*#__PURE__*/React.createElement("span", {
+    title: "Online agora",
+    style: {
+      position: 'absolute',
+      bottom: -1,
+      right: -1,
+      width: Math.max(8, size * 0.3),
+      height: Math.max(8, size * 0.3),
+      borderRadius: 999,
+      background: '#31a24c',
+      boxShadow: '0 0 0 2px var(--pa-bg)',
+      pointerEvents: 'none'
+    }
+  }));
 }
 
 // Mostra avatares de quem já participou (votou/sugeriu/marcou), sem revelar o quê.
@@ -3682,7 +3704,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r34';
+window.PA_VERSION = '2026.06.01-r35';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -4510,6 +4532,61 @@ function _paSame(a, b) {
   if (a === b) return true;
   try { return JSON.stringify(a) === JSON.stringify(b); } catch { return false; }
 }
+
+// ─────────────────────────────────────────────────────────────
+// Presença online (bolinha verde): usa o Presence nativo do Supabase Realtime.
+// Cada app aberta anuncia-se num channel partilhado; sem escritas na BD.
+// "Online" = app aberta E visível (ao mudar de app/tab, sai — honesto).
+// ─────────────────────────────────────────────────────────────
+const PresenceStore = {
+  _online: new Set(),
+  _subs: new Set(),
+  _ch: null,
+  _uid: null,
+  _visBound: false,
+  start(uid) {
+    if (!_sb || !uid || (this._ch && this._uid === uid)) return;
+    this.stop();
+    this._uid = uid;
+    const ch = _sb.channel('pa-presence', { config: { presence: { key: uid } } });
+    this._ch = ch;
+    ch.on('presence', { event: 'sync' }, () => {
+      const ids = new Set(Object.keys(ch.presenceState() || {}));
+      const changed = ids.size !== this._online.size || [...ids].some((i) => !this._online.has(i));
+      this._online = ids;
+      if (changed) this._notify();
+    });
+    ch.subscribe((status) => {
+      if (status === 'SUBSCRIBED') { try { ch.track({ at: Date.now() }); } catch (e) {} }
+    });
+    if (!this._visBound) {
+      this._visBound = true;
+      document.addEventListener('visibilitychange', () => {
+        const c = this._ch;
+        if (!c) return;
+        try { document.hidden ? c.untrack() : c.track({ at: Date.now() }); } catch (e) {}
+      });
+    }
+  },
+  stop() {
+    if (!this._ch) return;
+    try { this._ch.untrack(); _sb.removeChannel(this._ch); } catch (e) {}
+    this._ch = null; this._uid = null;
+    if (this._online.size) { this._online = new Set(); this._notify(); }
+  },
+  isOnline(uid) { return this._online.has(uid); },
+  subscribe(fn) { this._subs.add(fn); return () => this._subs.delete(fn); },
+  _notify() { this._subs.forEach((f) => { try { f(this._online); } catch (e) {} }); },
+};
+Object.assign(window, { PresenceStore });
+
+// Hook reativo: devolve o Set de ids online (re-renderiza só quando muda).
+function usePresence() {
+  const [online, setOnline] = React.useState(() => new Set(PresenceStore._online));
+  React.useEffect(() => PresenceStore.subscribe((ids) => setOnline(new Set(ids))), []);
+  return online;
+}
+Object.assign(window, { usePresence });
 
 function useAppStore() {
   const [data, setData] = React.useState(() => AppStore._cache());
@@ -8108,6 +8185,7 @@ function DPhase1({
   me
 }) {
   const appData = useAppStore();
+  const presence = usePresence(); // bolinha verde: quem está com a app aberta agora
   const rsvp = appData.rsvp || {};
   const allMembers = getEditionMembers(appData);
   const counts = dUseMemo(() => {
@@ -8294,7 +8372,8 @@ function DPhase1({
       }
     }, /*#__PURE__*/React.createElement(Avatar, {
       member: m,
-      size: 36
+      size: 36,
+      online: presence.has(m.id)
     }), /*#__PURE__*/React.createElement("div", {
       style: {
         flex: 1
@@ -9652,6 +9731,7 @@ function DPhase6({
   me
 }) {
   const appData = useAppStore();
+  const presence = usePresence(); // bolinha verde: quem está com a app aberta agora
   const allMembers = getEditionMembers(appData);
   const locSuggs = appData.locSuggs || [];
   const locWinnerId = appData.locWinner;
@@ -9936,7 +10016,8 @@ function DPhase6({
       }
     }, /*#__PURE__*/React.createElement(Avatar, {
       member: m,
-      size: 22
+      size: 22,
+      online: presence.has(m.id)
     }), /*#__PURE__*/React.createElement("span", {
       style: {
         flex: 1,
@@ -12717,6 +12798,7 @@ function MPhase1({
   onOpenChat
 }) {
   const appData = useAppStore();
+  const presence = usePresence(); // bolinha verde: quem está com a app aberta agora
   const rsvp = appData.rsvp || {};
   const myChoice = rsvp[me.id] || null;
   const allMembers = getEditionMembers(appData);
@@ -12939,7 +13021,8 @@ function MPhase1({
       }
     }, /*#__PURE__*/React.createElement(Avatar, {
       member: m,
-      size: 30
+      size: 30,
+      online: presence.has(m.id)
     }), /*#__PURE__*/React.createElement("div", {
       style: {
         flex: 1,
@@ -13863,6 +13946,7 @@ function MPhase6({
   onOpenChat
 }) {
   const appData = useAppStore();
+  const presence = usePresence(); // bolinha verde: quem está com a app aberta agora
   const allMembers = getEditionMembers(appData);
   const locSuggs = appData.locSuggs || [];
   const winnerLoc = appData.locWinner ? locSuggs.find(s => s.id === appData.locWinner) : null;
@@ -14141,7 +14225,8 @@ function MPhase6({
       }
     }, /*#__PURE__*/React.createElement(Avatar, {
       member: m,
-      size: 28
+      size: 28,
+      online: presence.has(m.id)
     }), /*#__PURE__*/React.createElement("span", {
       style: {
         flex: 1,
@@ -16548,6 +16633,7 @@ function AdminMembersModal({
   onClose
 }) {
   const appData = useAppStore();
+  const presence = usePresence(); // bolinha verde: quem está com a app aberta agora
   const members = typeof getAllMembers === 'function' ? getAllMembers() : [];
   const rsvp = appData.rsvp || {};
   const STATES = [{
@@ -16641,7 +16727,8 @@ function AdminMembersModal({
       }
     }, /*#__PURE__*/React.createElement(Avatar, {
       member: m,
-      size: 32
+      size: 32,
+      online: presence.has(m.id)
     }), /*#__PURE__*/React.createElement("div", {
       style: {
         flex: 1,
@@ -16746,7 +16833,8 @@ function AdminMembersModal({
       }
     }, /*#__PURE__*/React.createElement(Avatar, {
       member: m,
-      size: 30
+      size: 30,
+      online: presence.has(m.id)
     }), /*#__PURE__*/React.createElement("div", {
       style: {
         flex: 1,
@@ -17642,6 +17730,12 @@ function LiveApp() {
   const [inEdition, setInEdition] = lUseState(() => !!EditionStore.activeId() && !!EditionStore.active());
   const [profileOpen, setProfileOpen] = lUseState(false);
   const [showOnboarding, setShowOnboarding] = lUseState(false);
+
+  // Presença online: anuncia-se quando há sessão; sai no logout/fecho.
+  lUseEffect(() => {
+    if (auth.user) PresenceStore.start(auth.user.id);else PresenceStore.stop();
+    return () => PresenceStore.stop();
+  }, [auth.user?.id]);
 
   // Mostra onboarding na primeira visita (após login)
   lUseEffect(() => {

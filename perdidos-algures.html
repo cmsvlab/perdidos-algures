@@ -2132,22 +2132,25 @@ const ADMIN = memberById(D.adminId);
 // ─────────────────────────────────────────────────────────────
 // Avatar / Stack
 // ─────────────────────────────────────────────────────────────
-function Avatar({ member, size = 36, ring = false, ringColor }) {
+function Avatar({ member, size = 36, ring = false, ringColor, online = false }) {
   if (!member) return null;
   const photo = member.photoDataUrl;
+  // Wrapper sem overflow: a foto/iniciais ficam recortadas no círculo interior,
+  // e os indicadores (★ admin, bolinha online) vivem no wrapper sem serem cortados.
   return (
-    <div style={{
-      width: size, height: size, borderRadius: size,
-      background: photo ? `#000 center/cover no-repeat url(${photo})` : member.color,
-      color: '#fff',
-      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-      fontFamily: 'var(--pa-display)', fontWeight: 600,
-      fontSize: size * 0.38, letterSpacing: 0.2, flexShrink: 0,
-      boxShadow: ring ? `0 0 0 2px ${ringColor || 'var(--pa-bg)'}, 0 0 0 4px ${member.color}` : 'none',
-      position: 'relative',
-      overflow: 'hidden',
-    }}>
-      {!photo && member.initials}
+    <div style={{ position: 'relative', width: size, height: size, flexShrink: 0, display: 'inline-flex' }}>
+      <div style={{
+        width: '100%', height: '100%', borderRadius: size,
+        background: photo ? `#000 center/cover no-repeat url(${photo})` : member.color,
+        color: '#fff',
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        fontFamily: 'var(--pa-display)', fontWeight: 600,
+        fontSize: size * 0.38, letterSpacing: 0.2,
+        boxShadow: ring ? `0 0 0 2px ${ringColor || 'var(--pa-bg)'}, 0 0 0 4px ${member.color}` : 'none',
+        overflow: 'hidden',
+      }}>
+        {!photo && member.initials}
+      </div>
       {member.isAdmin && (
         <span style={{
           position: 'absolute', top: -2, right: -2,
@@ -2157,6 +2160,14 @@ function Avatar({ member, size = 36, ring = false, ringColor }) {
           color: '#fff', fontSize: size * 0.2, fontWeight: 700,
           boxShadow: '0 0 0 2px var(--pa-bg)',
         }}>★</span>
+      )}
+      {online && (
+        <span title="Online agora" style={{
+          position: 'absolute', bottom: -1, right: -1,
+          width: Math.max(8, size * 0.3), height: Math.max(8, size * 0.3), borderRadius: 999,
+          background: '#31a24c', boxShadow: '0 0 0 2px var(--pa-bg)',
+          pointerEvents: 'none',
+        }} />
       )}
     </div>
   );
@@ -2457,7 +2468,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r34';
+window.PA_VERSION = '2026.06.01-r35';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -3285,6 +3296,61 @@ function _paSame(a, b) {
   if (a === b) return true;
   try { return JSON.stringify(a) === JSON.stringify(b); } catch { return false; }
 }
+
+// ─────────────────────────────────────────────────────────────
+// Presença online (bolinha verde): usa o Presence nativo do Supabase Realtime.
+// Cada app aberta anuncia-se num channel partilhado; sem escritas na BD.
+// "Online" = app aberta E visível (ao mudar de app/tab, sai — honesto).
+// ─────────────────────────────────────────────────────────────
+const PresenceStore = {
+  _online: new Set(),
+  _subs: new Set(),
+  _ch: null,
+  _uid: null,
+  _visBound: false,
+  start(uid) {
+    if (!_sb || !uid || (this._ch && this._uid === uid)) return;
+    this.stop();
+    this._uid = uid;
+    const ch = _sb.channel('pa-presence', { config: { presence: { key: uid } } });
+    this._ch = ch;
+    ch.on('presence', { event: 'sync' }, () => {
+      const ids = new Set(Object.keys(ch.presenceState() || {}));
+      const changed = ids.size !== this._online.size || [...ids].some((i) => !this._online.has(i));
+      this._online = ids;
+      if (changed) this._notify();
+    });
+    ch.subscribe((status) => {
+      if (status === 'SUBSCRIBED') { try { ch.track({ at: Date.now() }); } catch (e) {} }
+    });
+    if (!this._visBound) {
+      this._visBound = true;
+      document.addEventListener('visibilitychange', () => {
+        const c = this._ch;
+        if (!c) return;
+        try { document.hidden ? c.untrack() : c.track({ at: Date.now() }); } catch (e) {}
+      });
+    }
+  },
+  stop() {
+    if (!this._ch) return;
+    try { this._ch.untrack(); _sb.removeChannel(this._ch); } catch (e) {}
+    this._ch = null; this._uid = null;
+    if (this._online.size) { this._online = new Set(); this._notify(); }
+  },
+  isOnline(uid) { return this._online.has(uid); },
+  subscribe(fn) { this._subs.add(fn); return () => this._subs.delete(fn); },
+  _notify() { this._subs.forEach((f) => { try { f(this._online); } catch (e) {} }); },
+};
+Object.assign(window, { PresenceStore });
+
+// Hook reativo: devolve o Set de ids online (re-renderiza só quando muda).
+function usePresence() {
+  const [online, setOnline] = React.useState(() => new Set(PresenceStore._online));
+  React.useEffect(() => PresenceStore.subscribe((ids) => setOnline(new Set(ids))), []);
+  return online;
+}
+Object.assign(window, { usePresence });
 
 function useAppStore() {
   const [data, setData] = React.useState(() => AppStore._cache());
@@ -5202,6 +5268,7 @@ function DAdminBar({ children, hint, showNext = true }) {
 // ─────────────────────────────────────────────────────────────
 function DPhase1({ me }) {
   const appData = useAppStore();
+  const presence = usePresence(); // bolinha verde: quem está com a app aberta agora
   const rsvp = appData.rsvp || {};
   const allMembers = getEditionMembers(appData);
   const counts = dUseMemo(() => {
@@ -5274,7 +5341,7 @@ function DPhase1({ me }) {
           return (
             <div key={m.id} style={{ display:'flex', alignItems:'center', gap:14, padding:'14px 20px',
               borderTop: i===0?'none':'1px solid var(--pa-line)' }}>
-              <Avatar member={m} size={36} />
+              <Avatar member={m} size={36} online={presence.has(m.id)} />
               <div style={{ flex:1 }}>
                 <div style={{ fontFamily:'var(--pa-body)', fontSize:15, fontWeight:600, color:'var(--pa-ink)' }}>
                   {m.name} {m.isAdmin && <span style={{ color:'var(--pa-accent)', fontSize:12, fontWeight:500 }}>· admin</span>}
@@ -5889,6 +5956,7 @@ function DPhase5({ me }) {
 // ─────────────────────────────────────────────────────────────
 function DPhase6({ me }) {
   const appData = useAppStore();
+  const presence = usePresence(); // bolinha verde: quem está com a app aberta agora
   const allMembers = getEditionMembers(appData);
   const locSuggs = appData.locSuggs || [];
   const locWinnerId = appData.locWinner;
@@ -5994,7 +6062,7 @@ function DPhase6({ me }) {
               const submitted = submittedIds.includes(m.id);
               return (
                 <div key={m.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'6px 0' }}>
-                  <Avatar member={m} size={22} />
+                  <Avatar member={m} size={22} online={presence.has(m.id)} />
                   <span style={{ flex:1, fontSize:13, color:'var(--pa-ink)' }}>{m.name}</span>
                   {submitted ? <Pill tone="success" size="sm">✓ pronto</Pill> : <Pill tone="muted" size="sm">a marcar…</Pill>}
                 </div>
@@ -7106,6 +7174,7 @@ function MEmpty({ icon, text }) {
 // PHASE 1 — RSVP
 function MPhase1({ me, onLogout, onOpenChat }) {
   const appData = useAppStore();
+  const presence = usePresence(); // bolinha verde: quem está com a app aberta agora
   const rsvp = appData.rsvp || {};
   const myChoice = rsvp[me.id] || null;
   const allMembers = getEditionMembers(appData);
@@ -7180,7 +7249,7 @@ function MPhase1({ me, onLogout, onOpenChat }) {
             const tones = { in:'success', out:'warn', maybe:'default', pending:'muted' };
             return (
               <div key={m.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 16px', borderTop:'1px solid var(--pa-line)' }}>
-                <Avatar member={m} size={30} />
+                <Avatar member={m} size={30} online={presence.has(m.id)} />
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ fontFamily:'var(--pa-body)', fontSize:14, fontWeight:600, color:'var(--pa-ink)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
                     {m.name} {m.isAdmin && <span style={{ color:'var(--pa-accent)', fontSize:11, fontWeight:500 }}>· admin</span>}
@@ -7554,6 +7623,7 @@ function MPhase5({ me, onLogout, onOpenChat }) {
 // PHASE 6 — Disponibilidade
 function MPhase6({ me, onLogout, onOpenChat }) {
   const appData = useAppStore();
+  const presence = usePresence(); // bolinha verde: quem está com a app aberta agora
   const allMembers = getEditionMembers(appData);
   const locSuggs = appData.locSuggs || [];
   const winnerLoc = appData.locWinner ? locSuggs.find((s) => s.id === appData.locWinner) : null;
@@ -7656,7 +7726,7 @@ function MPhase6({ me, onLogout, onOpenChat }) {
             const submitted = submittedIds.includes(m.id);
             return (
               <div key={m.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'9px 16px', borderTop:'1px solid var(--pa-line)' }}>
-                <Avatar member={m} size={28} />
+                <Avatar member={m} size={28} online={presence.has(m.id)} />
                 <span style={{ flex:1, minWidth:0, fontSize:13.5, color:'var(--pa-ink)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.name}</span>
                 {submitted ? <Pill tone="success" size="sm">✓ pronto</Pill> : <Pill tone="muted" size="sm">a marcar…</Pill>}
               </div>
@@ -8877,6 +8947,7 @@ function AdminAnnounceModal({ open, onClose, me }) {
 // Modal do admin para gerir membros: editar estado (Dentro/Fora/A pensar) e remover da edição.
 function AdminMembersModal({ open, onClose }) {
   const appData = useAppStore();
+  const presence = usePresence(); // bolinha verde: quem está com a app aberta agora
   const members = (typeof getAllMembers === 'function' ? getAllMembers() : []);
   const rsvp = appData.rsvp || {};
   const STATES = [
@@ -8915,7 +8986,7 @@ function AdminMembersModal({ open, onClose }) {
               const cur = rsvp[m.id] || 'pending';
               return (
                 <div key={m.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:12, background:'rgba(31,26,20,0.03)', border:'1px solid var(--pa-line)', flexWrap:'wrap' }}>
-                  <Avatar member={m} size={32} />
+                  <Avatar member={m} size={32} online={presence.has(m.id)} />
                   <div style={{ flex:1, minWidth:80 }}>
                     <div style={{ fontFamily:'var(--pa-body)', fontSize:14, fontWeight:600 }}>{m.name}{m.isAdmin ? ' ·admin' : ''}</div>
                     <div style={{ fontFamily:'var(--pa-mono)', fontSize:9.5, color:'var(--pa-muted)', textTransform:'uppercase', letterSpacing:0.5 }}>
@@ -8952,7 +9023,7 @@ function AdminMembersModal({ open, onClose }) {
                 const wasRemoved = (appData.removedMembers || []).includes(m.id);
                 return (
                   <div key={m.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', borderRadius:12, background:'rgba(31,26,20,0.02)', border:'1px dashed var(--pa-line)' }}>
-                    <Avatar member={m} size={30} />
+                    <Avatar member={m} size={30} online={presence.has(m.id)} />
                     <div style={{ flex:1, minWidth:60 }}>
                       <div style={{ fontFamily:'var(--pa-body)', fontSize:14, fontWeight:600 }}>{m.name}</div>
                       {wasRemoved && <div style={{ fontFamily:'var(--pa-mono)', fontSize:9, color:'var(--pa-muted)', textTransform:'uppercase', letterSpacing:0.6 }}>removido desta edição</div>}
@@ -9349,6 +9420,13 @@ function LiveApp() {
   const [inEdition, setInEdition] = lUseState(() => !!EditionStore.activeId() && !!EditionStore.active());
   const [profileOpen, setProfileOpen] = lUseState(false);
   const [showOnboarding, setShowOnboarding] = lUseState(false);
+
+  // Presença online: anuncia-se quando há sessão; sai no logout/fecho.
+  lUseEffect(() => {
+    if (auth.user) PresenceStore.start(auth.user.id);
+    else PresenceStore.stop();
+    return () => PresenceStore.stop();
+  }, [auth.user?.id]);
 
   // Mostra onboarding na primeira visita (após login)
   lUseEffect(() => {
