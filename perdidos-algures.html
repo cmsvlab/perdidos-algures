@@ -2132,8 +2132,12 @@ const ADMIN = memberById(D.adminId);
 // ─────────────────────────────────────────────────────────────
 // Avatar / Stack
 // ─────────────────────────────────────────────────────────────
-function Avatar({ member, size = 36, ring = false, ringColor, online = false }) {
+function Avatar({ member, size = 36, ring = false, ringColor }) {
+  // Presença: o Avatar observa quem está online por si — a bolinha verde aparece
+  // em qualquer sítio onde haja um avatar (listas, chat, modais), sem props.
+  const presence = (typeof usePresence === 'function') ? usePresence() : new Set();
   if (!member) return null;
+  const online = member.id && presence.has(member.id);
   const photo = member.photoDataUrl;
   // Wrapper sem overflow: a foto/iniciais ficam recortadas no círculo interior,
   // e os indicadores (★ admin, bolinha online) vivem no wrapper sem serem cortados.
@@ -2162,7 +2166,7 @@ function Avatar({ member, size = 36, ring = false, ringColor, online = false }) 
         }}>★</span>
       )}
       {online && (
-        <span title="Online agora" style={{
+        <span title="Online" style={{
           position: 'absolute', bottom: -1, right: -1,
           width: Math.max(8, size * 0.3), height: Math.max(8, size * 0.3), borderRadius: 999,
           background: '#31a24c', boxShadow: '0 0 0 2px var(--pa-bg)',
@@ -2468,7 +2472,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r35';
+window.PA_VERSION = '2026.06.01-r39';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -2772,20 +2776,48 @@ const EditionStore = {
   },
 
   nextNumber() {
-    if (!_editionsCache.length) return 1;
-    return Math.max(..._editionsCache.map(e => e.number || 0)) + 1;
+    const real = _editionsCache.filter(e => e.status !== 'proposed');
+    if (!real.length) return 1;
+    return Math.max(...real.map(e => e.number || 0)) + 1;
   },
 
-  async create({ number, title, subtitle }) {
+  async create({ number, title, subtitle, excludedIds }) {
     const num = number || this.nextNumber();
+    // Convites: quem NÃO foi convidado entra como "removido" da edição —
+    // o mesmo mecanismo do Gerir membros, e readmissível a qualquer momento.
+    const data0 = (excludedIds && excludedIds.length) ? { removedMembers: excludedIds } : {};
     const { data, error } = await _sb.from('editions')
-      .insert({ number: num, title: title || 'Nova Aventura', subtitle: subtitle || 'Algures no mundo.', status: 'active', current_phase: 1, data: {} })
+      .insert({ number: num, title: title || 'Nova Aventura', subtitle: subtitle || 'Algures no mundo.', status: 'active', current_phase: 1, data: data0 })
       .select().single();
     if (error) throw new Error('Erro ao criar edição: ' + error.message);
     _editionsCache = [data, ..._editionsCache].sort((a,b)=>b.number-a.number);
     this._notify();
     return data;
   },
+
+  // ── Propostas de aventura ──
+  // Qualquer membro pode propor; fica com status 'proposed' até o admin decidir.
+  // Aprovar promove a edição normal (número atribuído na hora); recusar apaga.
+  async propose({ title, subtitle, excludedIds, by, byName }) {
+    const data0 = { proposal: { by, byName, when: new Date().toISOString() } };
+    if (excludedIds && excludedIds.length) data0.removedMembers = excludedIds;
+    const { data, error } = await _sb.from('editions')
+      .insert({ number: 0, title: title || 'Nova Aventura', subtitle: subtitle || 'Algures no mundo.', status: 'proposed', current_phase: 1, data: data0 })
+      .select().single();
+    if (error) throw new Error('Erro ao propor: ' + error.message);
+    _editionsCache = [data, ..._editionsCache];
+    this._notify();
+    return data;
+  },
+  proposals() { return _editionsCache.filter(e => e.status === 'proposed'); },
+  async approveProposal(id) {
+    const ed = _editionsCache.find(e => e.id === id);
+    if (!ed) return;
+    const d = { ...(ed.data || {}) };
+    delete d.proposal;
+    return this.update(id, { status: 'active', number: this.nextNumber(), data: d });
+  },
+  async rejectProposal(id) { return this.remove(id); },
 
   async update(id, fields) {
     const { data, error } = await _sb.from('editions').update(fields).eq('id', id).select().single();
@@ -2808,19 +2840,33 @@ const EditionStore = {
   },
 
   async reset(id) {
-    // Limpa o estado mas mantém metadata (número, título)
-    return this.update(id, { data: {}, current_phase: 1 });
+    // Limpa o PROGRESSO (respostas, votos, sugestões...) mas mantém metadata e a
+    // COMPOSIÇÃO da aventura (quem está convidado/removido) — recomeçar o plano
+    // não deve re-convidar quem tinha ficado de fora.
+    const src = _editionsCache.find(e => e.id === id);
+    const keep = (src && src.data && src.data.removedMembers) ? { removedMembers: src.data.removedMembers } : {};
+    return this.update(id, { data: keep, current_phase: 1 });
   },
 
   async duplicate(id, { copyData = false } = {}) {
     const src = _editionsCache.find(e => e.id === id);
     if (!src) throw new Error('Edição não encontrada.');
+    const srcData = src.data || {};
     return this.create({
       number: this.nextNumber(),
       title: src.title + ' (cópia)',
       subtitle: src.subtitle,
+      // A composição (convidados/removidos) é estrutural: viaja sempre com a cópia.
+      excludedIds: srcData.removedMembers || [],
     }).then(async (newEd) => {
-      if (copyData) await this.update(newEd.id, { data: src.data || {} });
+      if (copyData) {
+        // Copiar o progresso, mas não o que pertence só à edição original:
+        // anúncios antigos e a marca de proposta não fazem sentido na cópia.
+        const d = { ...srcData };
+        delete d.announcements;
+        delete d.proposal;
+        await this.update(newEd.id, { data: d });
+      }
       return newEd;
     });
   },
@@ -3462,12 +3508,21 @@ function _fmtTime(iso) {
 
 function getChatMessages()   { return _chatCache || []; }
 async function pushChatMessage(msg) {
-  const { data, error } = await _sb.from('chat_messages').insert({ profile_id:msg.who, text:msg.text }).select().single();
-  if (error) { console.error('[PA Chat] erro a enviar', error.message); return; }
-  // Optimista: adiciona já localmente (realtime/polling evitam duplicado por id)
-  if (data && !(_chatCache||[]).some(m=>m.id===data.id)) {
-    _chatCache=[...(_chatCache||[]),{id:data.id,who:data.profile_id,text:data.text,when:_fmtTime(data.created_at)}];
-    _chatListeners.forEach(fn=>fn(_chatCache.slice()));
+  // Devolve true/false para o caller poder reagir (ex: repor o texto no input).
+  // Uma mensagem perdida SEM aviso é pior do que uma falha visível.
+  try {
+    const { data, error } = await _sb.from('chat_messages').insert({ profile_id:msg.who, text:msg.text }).select().single();
+    if (error) throw new Error(error.message);
+    // Optimista: adiciona já localmente (realtime/polling evitam duplicado por id)
+    if (data && !(_chatCache||[]).some(m=>m.id===data.id)) {
+      _chatCache=[...(_chatCache||[]),{id:data.id,who:data.profile_id,text:data.text,when:_fmtTime(data.created_at)}];
+      _chatListeners.forEach(fn=>fn(_chatCache.slice()));
+    }
+    return true;
+  } catch (e) {
+    console.error('[PA Chat] erro a enviar', e.message);
+    if (window._paToast) window._paToast('Mensagem não enviada — verifica a ligação.', 'error');
+    return false;
   }
 }
 async function deleteChatMessage(id) {
@@ -3844,16 +3899,12 @@ function ChatPanel({ me, compact = false }) {
     }
   }, [messages.length]);
 
-  const send = () => {
+  const send = async () => {
     const t = text.trim();
     if (!t) return;
-    pushChatMessage({
-      id: Date.now(),
-      who: me.id,
-      text: t,
-      when: 'agora',
-    });
-    setText('');
+    setText(''); // otimista: limpa já para escrever a próxima
+    const ok = await pushChatMessage({ id: Date.now(), who: me.id, text: t, when: 'agora' });
+    if (!ok) setText(t); // falhou: devolve o texto ao input para tentar de novo
   };
 
   const onKey = (e) => {
@@ -5268,7 +5319,6 @@ function DAdminBar({ children, hint, showNext = true }) {
 // ─────────────────────────────────────────────────────────────
 function DPhase1({ me }) {
   const appData = useAppStore();
-  const presence = usePresence(); // bolinha verde: quem está com a app aberta agora
   const rsvp = appData.rsvp || {};
   const allMembers = getEditionMembers(appData);
   const counts = dUseMemo(() => {
@@ -5341,7 +5391,7 @@ function DPhase1({ me }) {
           return (
             <div key={m.id} style={{ display:'flex', alignItems:'center', gap:14, padding:'14px 20px',
               borderTop: i===0?'none':'1px solid var(--pa-line)' }}>
-              <Avatar member={m} size={36} online={presence.has(m.id)} />
+              <Avatar member={m} size={36} />
               <div style={{ flex:1 }}>
                 <div style={{ fontFamily:'var(--pa-body)', fontSize:15, fontWeight:600, color:'var(--pa-ink)' }}>
                   {m.name} {m.isAdmin && <span style={{ color:'var(--pa-accent)', fontSize:12, fontWeight:500 }}>· admin</span>}
@@ -5817,7 +5867,6 @@ function DPhase5({ me }) {
   const [vote, setVote] = dUseState2(() => VoteStore.getVote(me.id, 'acc'));
   dUseEffect2(() => { setVote(VoteStore.getVote(me.id, 'acc')); }, [appData.accVotes, me.id]);
   const [saved, setSaved] = dUseState2(false);
-  const [resolved, setResolved] = dUseState2(null);
   const [tieOpen, setTieOpen] = dUseState2(false);
 
   const handleVote = (id) => {
@@ -5847,7 +5896,7 @@ function DPhase5({ me }) {
   }
 
   const closed = false; // Admin fecha manualmente — por enquanto sempre aberto
-  const winner = resolved ? suggestions.find((s) => s.id === resolved.id) : null;
+  const winner = appData.accWinner ? suggestions.find((s) => s.id === appData.accWinner) : null;
 
   return (
     <div className="pa-scroll" style={{ flex:1, minHeight:0, padding:'32px 36px', display:'flex', flexDirection:'column', overflow:'auto' }}>
@@ -5928,7 +5977,7 @@ function DPhase5({ me }) {
         <DAdminBar hint="Votação em curso. Declara o vencedor quando estiver pronto.">
           {suggestions.map((s) => (
             <Btn key={s.id} variant="soft" size="sm"
-              onClick={() => { if (window.confirm(`Declarar "${s.type} em ${s.area}" como vencedor?`)) setResolved({ id:s.id }); }}>
+              onClick={() => { if (window.confirm(`Declarar "${s.type} em ${s.area}" como vencedor?`)) AppStore.setAccWinner(s.id); }}>
               {s.type} · {s.area}
             </Btn>
           ))}
@@ -5936,7 +5985,7 @@ function DPhase5({ me }) {
       )}
       {me.isAdmin && winner && (
         <DAdminBar hint="Alojamento decidido.">
-          <Btn variant="ghost" size="sm" onClick={() => setResolved(null)}>Anular</Btn>
+          <Btn variant="ghost" size="sm" onClick={() => AppStore.clearKey('accWinner')}>Anular</Btn>
         </DAdminBar>
       )}
       <TiebreakModal
@@ -5956,7 +6005,6 @@ function DPhase5({ me }) {
 // ─────────────────────────────────────────────────────────────
 function DPhase6({ me }) {
   const appData = useAppStore();
-  const presence = usePresence(); // bolinha verde: quem está com a app aberta agora
   const allMembers = getEditionMembers(appData);
   const locSuggs = appData.locSuggs || [];
   const locWinnerId = appData.locWinner;
@@ -6062,7 +6110,7 @@ function DPhase6({ me }) {
               const submitted = submittedIds.includes(m.id);
               return (
                 <div key={m.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'6px 0' }}>
-                  <Avatar member={m} size={22} online={presence.has(m.id)} />
+                  <Avatar member={m} size={22} />
                   <span style={{ flex:1, fontSize:13, color:'var(--pa-ink)' }}>{m.name}</span>
                   {submitted ? <Pill tone="success" size="sm">✓ pronto</Pill> : <Pill tone="muted" size="sm">a marcar…</Pill>}
                 </div>
@@ -7174,7 +7222,6 @@ function MEmpty({ icon, text }) {
 // PHASE 1 — RSVP
 function MPhase1({ me, onLogout, onOpenChat }) {
   const appData = useAppStore();
-  const presence = usePresence(); // bolinha verde: quem está com a app aberta agora
   const rsvp = appData.rsvp || {};
   const myChoice = rsvp[me.id] || null;
   const allMembers = getEditionMembers(appData);
@@ -7249,7 +7296,7 @@ function MPhase1({ me, onLogout, onOpenChat }) {
             const tones = { in:'success', out:'warn', maybe:'default', pending:'muted' };
             return (
               <div key={m.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'10px 16px', borderTop:'1px solid var(--pa-line)' }}>
-                <Avatar member={m} size={30} online={presence.has(m.id)} />
+                <Avatar member={m} size={30} />
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ fontFamily:'var(--pa-body)', fontSize:14, fontWeight:600, color:'var(--pa-ink)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
                     {m.name} {m.isAdmin && <span style={{ color:'var(--pa-accent)', fontSize:11, fontWeight:500 }}>· admin</span>}
@@ -7623,7 +7670,6 @@ function MPhase5({ me, onLogout, onOpenChat }) {
 // PHASE 6 — Disponibilidade
 function MPhase6({ me, onLogout, onOpenChat }) {
   const appData = useAppStore();
-  const presence = usePresence(); // bolinha verde: quem está com a app aberta agora
   const allMembers = getEditionMembers(appData);
   const locSuggs = appData.locSuggs || [];
   const winnerLoc = appData.locWinner ? locSuggs.find((s) => s.id === appData.locWinner) : null;
@@ -7726,7 +7772,7 @@ function MPhase6({ me, onLogout, onOpenChat }) {
             const submitted = submittedIds.includes(m.id);
             return (
               <div key={m.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'9px 16px', borderTop:'1px solid var(--pa-line)' }}>
-                <Avatar member={m} size={28} online={presence.has(m.id)} />
+                <Avatar member={m} size={28} />
                 <span style={{ flex:1, minWidth:0, fontSize:13.5, color:'var(--pa-ink)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.name}</span>
                 {submitted ? <Pill tone="success" size="sm">✓ pronto</Pill> : <Pill tone="muted" size="sm">a marcar…</Pill>}
               </div>
@@ -8287,11 +8333,12 @@ function PhaseProgressBanner({ phase, me, narrow }) {
         </div>
         <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
           {me.isAdmin && p.pending.length > 0 && (
-            <Btn variant="soft" size="sm" disabled={remindCooldown} onClick={() => {
+            <Btn variant="soft" size="sm" disabled={remindCooldown} onClick={async () => {
               if (remindCooldown) return;
               const names = p.pending.map(m => m.name).join(', ');
               if (typeof pushChatMessage === 'function') {
-                pushChatMessage({ id: Date.now(), who: me.id, text: `📣 ${names} — faltam vocês nesta fase! 🙌`, when: 'agora' });
+                const ok = await pushChatMessage({ id: Date.now(), who: me.id, text: `📣 ${names} — faltam vocês nesta fase! 🙌`, when: 'agora' });
+                if (!ok) return; // o toast de erro já avisou; sem cooldown para poder repetir
                 if (window._paToast) window._paToast('Lembrete enviado no chat!', 'success');
                 setRemindCooldown(true);
                 setTimeout(() => setRemindCooldown(false), 60000);
@@ -8947,7 +8994,6 @@ function AdminAnnounceModal({ open, onClose, me }) {
 // Modal do admin para gerir membros: editar estado (Dentro/Fora/A pensar) e remover da edição.
 function AdminMembersModal({ open, onClose }) {
   const appData = useAppStore();
-  const presence = usePresence(); // bolinha verde: quem está com a app aberta agora
   const members = (typeof getAllMembers === 'function' ? getAllMembers() : []);
   const rsvp = appData.rsvp || {};
   const STATES = [
@@ -8986,7 +9032,7 @@ function AdminMembersModal({ open, onClose }) {
               const cur = rsvp[m.id] || 'pending';
               return (
                 <div key={m.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 12px', borderRadius:12, background:'rgba(31,26,20,0.03)', border:'1px solid var(--pa-line)', flexWrap:'wrap' }}>
-                  <Avatar member={m} size={32} online={presence.has(m.id)} />
+                  <Avatar member={m} size={32} />
                   <div style={{ flex:1, minWidth:80 }}>
                     <div style={{ fontFamily:'var(--pa-body)', fontSize:14, fontWeight:600 }}>{m.name}{m.isAdmin ? ' ·admin' : ''}</div>
                     <div style={{ fontFamily:'var(--pa-mono)', fontSize:9.5, color:'var(--pa-muted)', textTransform:'uppercase', letterSpacing:0.5 }}>
@@ -9023,7 +9069,7 @@ function AdminMembersModal({ open, onClose }) {
                 const wasRemoved = (appData.removedMembers || []).includes(m.id);
                 return (
                   <div key={m.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', borderRadius:12, background:'rgba(31,26,20,0.02)', border:'1px dashed var(--pa-line)' }}>
-                    <Avatar member={m} size={30} online={presence.has(m.id)} />
+                    <Avatar member={m} size={30} />
                     <div style={{ flex:1, minWidth:60 }}>
                       <div style={{ fontFamily:'var(--pa-body)', fontSize:14, fontWeight:600 }}>{m.name}</div>
                       {wasRemoved && <div style={{ fontFamily:'var(--pa-mono)', fontSize:9, color:'var(--pa-muted)', textTransform:'uppercase', letterSpacing:0.6 }}>removido desta edição</div>}
@@ -9067,69 +9113,111 @@ function paOpenMembers() { window.dispatchEvent(new CustomEvent('pa-admin-member
 // ─────────────────────────────────────────────────────────────
 // Editor de Edição — criar ou editar (número, título, subtítulo)
 // ─────────────────────────────────────────────────────────────
-function EditionEditor({ open, onClose, edition }) {
+function EditionEditor({ open, onClose, edition, me, proposeMode = false }) {
   const isNew = !edition;
   const [number, setNumber] = hUseState('');
   const [title, setTitle] = hUseState('');
   const [subtitle, setSubtitle] = hUseState('');
+  const [invited, setInvited] = hUseState(() => new Set());
   const [busy, setBusy] = hUseState(false);
   const [err, setErr] = hUseState(null);
+  const allProfiles = (typeof getAllMembers === 'function') ? getAllMembers() : [];
 
   hUseEffect(() => {
     if (open) {
       setNumber(String(edition?.number || EditionStore.nextNumber()));
       setTitle(edition?.title || '');
       setSubtitle(edition?.subtitle || '');
+      // Por defeito, toda a gente vem convidada (o comportamento clássico).
+      setInvited(new Set(allProfiles.map((m) => m.id)));
       setErr(null);
     }
   }, [open]);
 
+  const toggleInvite = (id) => setInvited((prev) => {
+    const n = new Set(prev);
+    if (n.has(id)) n.delete(id); else n.add(id);
+    if (me && !n.has(me.id)) n.add(me.id); // quem cria vai sempre
+    return n;
+  });
+
   const save = async () => {
     setBusy(true); setErr(null);
     try {
-      const num = parseInt(number) || EditionStore.nextNumber();
-      if (isNew) await EditionStore.create({ number:num, title:title.trim()||'Nova Aventura', subtitle:subtitle.trim() });
-      else await EditionStore.update(edition.id, { number:num, title:title.trim()||'Nova Aventura', subtitle:subtitle.trim() });
-      if (window._paToast) window._paToast(isNew ? 'Edição criada!' : 'Edição atualizada!', 'success');
+      const excludedIds = allProfiles.filter((m) => !invited.has(m.id)).map((m) => m.id);
+      if (proposeMode) {
+        await EditionStore.propose({ title: title.trim() || 'Nova Aventura', subtitle: subtitle.trim(),
+          excludedIds, by: me?.id, byName: me?.name || 'Alguém' });
+        if (window._paToast) window._paToast('Proposta enviada — o admin vai rever!', 'success');
+      } else if (isNew) {
+        await EditionStore.create({ title: title.trim() || 'Nova Aventura', subtitle: subtitle.trim(), excludedIds });
+        if (window._paToast) window._paToast('Aventura criada!', 'success');
+      } else {
+        const num = parseInt(number) || EditionStore.nextNumber();
+        await EditionStore.update(edition.id, { number: num, title: title.trim() || 'Nova Aventura', subtitle: subtitle.trim() });
+        if (window._paToast) window._paToast('Aventura atualizada!', 'success');
+      }
       onClose();
     } catch (ex) { setErr(ex.message); }
     finally { setBusy(false); }
   };
 
+  const modalTitle = proposeMode ? 'Propor aventura' : (isNew ? 'Nova aventura' : 'Editar aventura');
   return (
-    <PAModal open={open} onClose={onClose} title={isNew ? 'Nova edição' : 'Editar edição'}>
+    <PAModal open={open} onClose={onClose} title={modalTitle} maxWidth={500}>
       <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-        {isNew && (
+        {proposeMode && (
+          <div style={{ fontFamily:'var(--pa-body)', fontSize:13, color:'var(--pa-muted)', lineHeight:1.5 }}>
+            Tens uma ideia? Propõe a aventura — fica a aguardar aprovação do admin e, se for aprovada, arranca como edição a sério.
+          </div>
+        )}
+        <Field label="Nome da aventura" value={title} onChange={setTitle} placeholder="Fim de semana na serra, Roadtrip pelo Alentejo..." />
+        <Field label="Descrição (opcional)" value={subtitle} onChange={setSubtitle} placeholder="Algures no mundo." />
+        {!isNew && !proposeMode && (
+          <Field label="Número da edição" value={number} onChange={setNumber} placeholder="1" />
+        )}
+        {(isNew || proposeMode) && (
           <div>
-            <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:8 }}>Modelos rápidos</div>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:8 }}>
-              {[
-                { emoji:'🏖️', label:'Praia', title:'Fim-de-semana de praia', sub:'Sol, mar e descanso.' },
-                { emoji:'🚗', label:'Roadtrip', title:'Roadtrip', sub:'Estrada fora, sem pressas.' },
-                { emoji:'🏙️', label:'Citytrip', title:'Citytrip', sub:'Cidade nova para explorar.' },
-              ].map(t => (
-                <button key={t.label} onClick={()=>{ setTitle(t.title); setSubtitle(t.sub); }} style={{
-                  padding:'12px 8px', borderRadius:12, border:'1px solid var(--pa-line)', background:'#fff', cursor:'pointer',
-                  display:'flex', flexDirection:'column', alignItems:'center', gap:4 }}>
-                  <span style={{ fontSize:22 }}>{t.emoji}</span>
-                  <span style={{ fontFamily:'var(--pa-body)', fontSize:12, fontWeight:600 }}>{t.label}</span>
-                </button>
-              ))}
+            <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:8 }}>
+              Quem vai? ({invited.size} de {allProfiles.length})
+            </div>
+            <div className="pa-scroll" style={{ display:'flex', flexDirection:'column', gap:6, maxHeight:200, overflow:'auto' }}>
+              {allProfiles.map((m) => {
+                const isMe = me && m.id === me.id;
+                const on = invited.has(m.id);
+                return (
+                  <button key={m.id} onClick={() => !isMe && toggleInvite(m.id)} disabled={isMe} style={{
+                    display:'flex', alignItems:'center', gap:10, padding:'7px 10px', borderRadius:10, cursor: isMe ? 'default' : 'pointer',
+                    border: on ? '1px solid var(--pa-accent)' : '1px solid var(--pa-line)',
+                    background: on ? 'rgba(217,119,87,0.07)' : '#fff', textAlign:'left', width:'100%' }}>
+                    <Avatar member={m} size={26} />
+                    <span style={{ flex:1, fontFamily:'var(--pa-body)', fontSize:13.5, fontWeight:600, color:'var(--pa-ink)' }}>
+                      {m.name}{isMe ? ' (tu)' : ''}
+                    </span>
+                    <span style={{ fontFamily:'var(--pa-mono)', fontSize:10, color: on ? 'var(--pa-accent)' : 'var(--pa-muted)' }}>
+                      {on ? '✓ vai' : 'fora'}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ fontFamily:'var(--pa-body)', fontSize:11.5, color:'var(--pa-muted)', marginTop:6 }}>
+              Isto é só o ponto de partida — quem ficar de fora pode sempre entrar depois (basta responder na fase 1), e quem vai pode sair a qualquer momento.
             </div>
           </div>
         )}
-        <Field label="Número" value={number} onChange={setNumber} placeholder="1" />
-        <Field label="Nome da edição" value={title} onChange={setTitle} placeholder="Nova Aventura" />
-        <Field label="Subtítulo" value={subtitle} onChange={setSubtitle} placeholder="Algures no mundo." />
         {err && <AuthError msg={err} />}
         <div style={{ display:'flex', justifyContent:'flex-end', gap:8 }}>
           <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
-          <Btn variant="accent" onClick={save} disabled={busy}>{busy ? 'A guardar...' : (isNew ? 'Criar' : 'Guardar')}</Btn>
+          <Btn variant="accent" onClick={save} disabled={busy || !title.trim()}>
+            {busy ? 'A guardar...' : (proposeMode ? 'Enviar proposta' : (isNew ? 'Criar aventura' : 'Guardar'))}
+          </Btn>
         </div>
       </div>
     </PAModal>
   );
 }
+
 
 // ─────────────────────────────────────────────────────────────
 // Card de edição — mostra info + ações (admin)
@@ -9178,6 +9266,7 @@ function EditionCard({ edition, isAdmin, onEnter, onEdit, onAction, narrow }) {
                   border:'1px solid var(--pa-line)', boxShadow:'0 8px 28px rgba(0,0,0,0.16)', overflow:'hidden', minWidth:180 }}>
                   {[
                     { label:'✏️  Editar', act:'edit' },
+                    { label:'📨  Copiar convite', act:'invite' },
                     { label:'🔄  Recomeçar', act:'reset' },
                     { label:'📑  Duplicar', act:'duplicate' },
                     archived ? { label:'📤  Desarquivar', act:'unarchive' } : { label:'📥  Arquivar', act:'archive' },
@@ -9238,12 +9327,27 @@ function EditionHub({ auth, onEnterEdition, narrow }) {
   const [editingEdition, setEditingEdition] = hUseState(null);
   const [showArchived, setShowArchived] = hUseState(false);
 
-  const active = editions.filter(e => e.status !== 'archived');
+  const active = editions.filter(e => e.status !== 'archived' && e.status !== 'proposed');
   const archived = editions.filter(e => e.status === 'archived');
+  const proposals = editions.filter(e => e.status === 'proposed');
 
   const handleAction = async (act, ed) => {
     try {
-      if (act === 'archive') await EditionStore.archive(ed.id);
+      if (act === 'invite') {
+        const phName = (D.phases.find((p) => p.n === ed.current_phase) || {}).name || '';
+        const text = [
+          `🌍 *${ed.number}ª edição — ${ed.title}*`,
+          ed.subtitle ? `_${ed.subtitle}_` : null,
+          '',
+          `Estamos a planear a próxima aventura! Neste momento: *${phName}*.`,
+          'Entra, diz se estás dentro e vem decidir connosco 👇',
+          `${location.origin}${location.pathname}`,
+        ].filter((l) => l !== null).join('\n');
+        // No telemóvel abre a folha de partilha (WhatsApp incluído); no desktop copia.
+        if (navigator.share) { try { await navigator.share({ text }); } catch (e) {} }
+        else { try { await navigator.clipboard.writeText(text); if (window._paToast) window._paToast('Convite copiado — cola no WhatsApp!', 'success'); } catch (e) { if (window._paToast) window._paToast('Não consegui copiar.', 'error'); } }
+      }
+      else if (act === 'archive') await EditionStore.archive(ed.id);
       else if (act === 'unarchive') await EditionStore.unarchive(ed.id);
       else if (act === 'reset') { if (window.confirm(`Recomeçar a "${ed.title}"? Todos os dados (RSVP, votos, sugestões) serão apagados.`)) await EditionStore.reset(ed.id); }
       else if (act === 'duplicate') { const copyData = window.confirm('Copiar também os dados (RSVP, votos, etc.)?\n\nOK = copiar tudo · Cancelar = só a estrutura'); await EditionStore.duplicate(ed.id, { copyData }); }
@@ -9288,12 +9392,59 @@ function EditionHub({ auth, onEnterEdition, narrow }) {
               {isAdmin ? 'Cria, gere e entra nas edições.' : 'Escolhe uma edição para participar.'}
             </p>
           </div>
-          {isAdmin && (
+          {isAdmin ? (
             <Btn variant="accent" onClick={()=>{ setEditingEdition(null); setEditorOpen(true); }} icon={<span style={{ fontSize:16 }}>+</span>}>
-              Nova edição
+              Nova aventura
+            </Btn>
+          ) : (
+            <Btn variant="soft" onClick={()=>{ setEditingEdition(null); setEditorOpen(true); }} icon={<span style={{ fontSize:16 }}>💡</span>}>
+              Propor aventura
             </Btn>
           )}
         </div>
+
+        {proposals.length > 0 && (
+          <div style={{ marginBottom:24 }}>
+            <div style={{ fontFamily:'var(--pa-mono)', fontSize:11, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:12 }}>
+              💡 Propostas {isAdmin ? '— aprovas?' : 'a aguardar o admin'} ({proposals.length})
+            </div>
+            <div style={{ display:'grid', gridTemplateColumns: narrow ? '1fr' : 'repeat(auto-fill, minmax(320px, 1fr))', gap:12 }}>
+              {proposals.map((p) => {
+                const prop = (p.data && p.data.proposal) || {};
+                const mine = me && prop.by === me.id;
+                return (
+                  <div key={p.id} className="pa-fade-in" style={{ background:'#fff', border:'1px dashed var(--pa-accent)', borderRadius:16, padding:'16px 18px' }}>
+                    <div style={{ fontFamily:'var(--pa-mono)', fontSize:9.5, letterSpacing:1, color:'var(--pa-accent)', textTransform:'uppercase' }}>
+                      Proposta de {mine ? 'ti' : (prop.byName || 'alguém')}
+                    </div>
+                    <div style={{ fontFamily:'var(--pa-display)', fontSize:19, fontWeight:600, marginTop:5 }}>{p.title}</div>
+                    {p.subtitle && <div style={{ fontFamily:'var(--pa-body)', fontSize:13, color:'var(--pa-muted)', marginTop:2 }}>{p.subtitle}</div>}
+                    <div style={{ display:'flex', gap:8, marginTop:14, flexWrap:'wrap' }}>
+                      {isAdmin && (
+                        <>
+                          <Btn variant="accent" size="sm" onClick={async ()=>{ try { await EditionStore.approveProposal(p.id); if (window._paToast) window._paToast(`"${p.title}" aprovada — já é oficial!`, 'success'); } catch(e){ if (window._paToast) window._paToast('Falhou: '+e.message,'error'); } }}>
+                            ✓ Aprovar
+                          </Btn>
+                          <Btn variant="ghost" size="sm" onClick={async ()=>{ if (!window.confirm(`Recusar a proposta "${p.title}"?`)) return; try { await EditionStore.rejectProposal(p.id); if (window._paToast) window._paToast('Proposta recusada.', 'success'); } catch(e){} }}>
+                            Recusar
+                          </Btn>
+                        </>
+                      )}
+                      {!isAdmin && mine && (
+                        <Btn variant="ghost" size="sm" onClick={async ()=>{ if (!window.confirm('Retirar a tua proposta?')) return; try { await EditionStore.rejectProposal(p.id); if (window._paToast) window._paToast('Proposta retirada.', 'success'); } catch(e){} }}>
+                          Retirar proposta
+                        </Btn>
+                      )}
+                      {!isAdmin && !mine && (
+                        <span style={{ fontFamily:'var(--pa-body)', fontSize:12, color:'var(--pa-muted)', alignSelf:'center' }}>a aguardar aprovação…</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {active.length === 0 && (
           <div style={{ padding:'56px 0', textAlign:'center', color:'var(--pa-muted)' }}>
@@ -9339,7 +9490,7 @@ function EditionHub({ auth, onEnterEdition, narrow }) {
       </div>
 
       <ProfileEditor open={profileOpen} onClose={()=>setProfileOpen(false)} auth={auth} />
-      <EditionEditor open={editorOpen} onClose={()=>setEditorOpen(false)} edition={editingEdition} />
+      <EditionEditor open={editorOpen} onClose={()=>setEditorOpen(false)} edition={editingEdition} me={me} proposeMode={!isAdmin} />
     </div>
   );
 }
