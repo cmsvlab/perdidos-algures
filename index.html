@@ -3707,7 +3707,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r39';
+window.PA_VERSION = '2026.06.01-r40';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -16962,8 +16962,8 @@ function EditionEditor({
       setNumber(String(edition?.number || EditionStore.nextNumber()));
       setTitle(edition?.title || '');
       setSubtitle(edition?.subtitle || '');
-      // Por defeito, toda a gente vem convidada (o comportamento clássico).
-      setInvited(new Set(allProfiles.map(m => m.id)));
+      // Começa só com quem cria — os restantes escolhem-se no dropdown.
+      setInvited(new Set(me ? [me.id] : []));
       setErr(null);
     }
   }, [open]);
@@ -17053,53 +17053,72 @@ function EditionEditor({
       textTransform: 'uppercase',
       marginBottom: 8
     }
-  }, "Quem vai? (", invited.size, " de ", allProfiles.length, ")"), /*#__PURE__*/React.createElement("div", {
-    className: "pa-scroll",
+  }, "Quem vai? (", invited.size, " ", invited.size === 1 ? 'pessoa' : 'pessoas', ")"), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
-      flexDirection: 'column',
+      flexWrap: 'wrap',
       gap: 6,
-      maxHeight: 200,
-      overflow: 'auto'
+      marginBottom: 10
     }
-  }, allProfiles.map(m => {
+  }, allProfiles.filter(m => invited.has(m.id)).map(m => {
     const isMe = me && m.id === me.id;
-    const on = invited.has(m.id);
-    return /*#__PURE__*/React.createElement("button", {
+    return /*#__PURE__*/React.createElement("span", {
       key: m.id,
-      onClick: () => !isMe && toggleInvite(m.id),
-      disabled: isMe,
       style: {
-        display: 'flex',
+        display: 'inline-flex',
         alignItems: 'center',
-        gap: 10,
-        padding: '7px 10px',
-        borderRadius: 10,
-        cursor: isMe ? 'default' : 'pointer',
-        border: on ? '1px solid var(--pa-accent)' : '1px solid var(--pa-line)',
-        background: on ? 'rgba(217,119,87,0.07)' : '#fff',
-        textAlign: 'left',
-        width: '100%'
+        gap: 6,
+        padding: '4px 10px 4px 5px',
+        borderRadius: 999,
+        border: '1px solid var(--pa-accent)',
+        background: 'rgba(217,119,87,0.07)'
       }
     }, /*#__PURE__*/React.createElement(Avatar, {
       member: m,
-      size: 26
+      size: 20
     }), /*#__PURE__*/React.createElement("span", {
       style: {
-        flex: 1,
         fontFamily: 'var(--pa-body)',
-        fontSize: 13.5,
-        fontWeight: 600,
-        color: 'var(--pa-ink)'
+        fontSize: 12.5,
+        fontWeight: 600
       }
-    }, m.name, isMe ? ' (tu)' : ''), /*#__PURE__*/React.createElement("span", {
+    }, m.name, isMe ? ' (tu)' : ''), !isMe && /*#__PURE__*/React.createElement("button", {
+      onClick: () => toggleInvite(m.id),
+      "aria-label": 'Remover ' + m.name,
       style: {
-        fontFamily: 'var(--pa-mono)',
-        fontSize: 10,
-        color: on ? 'var(--pa-accent)' : 'var(--pa-muted)'
+        border: 'none',
+        background: 'transparent',
+        cursor: 'pointer',
+        color: 'var(--pa-muted)',
+        fontSize: 13,
+        padding: 0,
+        lineHeight: 1
       }
-    }, on ? '✓ vai' : 'fora'));
-  })), /*#__PURE__*/React.createElement("div", {
+    }, "×"));
+  })), allProfiles.some(m => !invited.has(m.id)) && /*#__PURE__*/React.createElement("select", {
+    value: "",
+    onChange: e => {
+      if (e.target.value) toggleInvite(e.target.value);
+    },
+    style: {
+      width: '100%',
+      padding: '11px 12px',
+      borderRadius: 12,
+      border: '1px solid var(--pa-line)',
+      background: '#fff',
+      fontFamily: 'var(--pa-body)',
+      fontSize: 14,
+      color: 'var(--pa-ink)',
+      cursor: 'pointer',
+      appearance: 'auto'
+    }
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "",
+    disabled: true
+  }, "+ Adicionar pessoa…"), allProfiles.filter(m => !invited.has(m.id)).map(m => /*#__PURE__*/React.createElement("option", {
+    key: m.id,
+    value: m.id
+  }, m.name))), /*#__PURE__*/React.createElement("div", {
     style: {
       fontFamily: 'var(--pa-body)',
       fontSize: 11.5,
