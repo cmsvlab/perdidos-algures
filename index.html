@@ -885,7 +885,8 @@ Object.assign(window, {
   IOSList,
   IOSListRow,
   IOSKeyboard
-});</script>
+});
+</script>
 <script>// DesignCanvas.jsx — Figma-ish design canvas wrapper
 // Warm gray grid bg + Sections + Artboards + PostIt notes.
 // Artboards are reorderable (grip-drag), deletable, labels/titles are
@@ -2333,7 +2334,8 @@ Object.assign(window, {
   DCSection,
   DCArtboard,
   DCPostIt
-});</script>
+});
+</script>
 <script>// tweaks-panel.jsx
 // Reusable Tweaks shell + form-control helpers.
 //
@@ -3025,7 +3027,8 @@ Object.assign(window, {
   TweakNumber,
   TweakColor,
   TweakButton
-});</script>
+});
+</script>
 <script>// Perdidos Algures — shared atoms (reused by desktop + mobile).
 
 const D = window.PA_DATA;
@@ -3604,7 +3607,7 @@ function Calendar({
   }))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'grid',
-      gridTemplateColumns: 'repeat(7, 1fr)',
+      gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
       gap: dense ? 3 : 6,
       marginBottom: dense ? 6 : 8
     }
@@ -3622,7 +3625,7 @@ function Calendar({
   }, d))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'grid',
-      gridTemplateColumns: 'repeat(7, 1fr)',
+      gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
       gap: dense ? 3 : 6
     }
   }, useGrid.map((day, i) => {
@@ -3637,7 +3640,10 @@ function Calendar({
         padding: 0,
         background: 'transparent',
         cursor: day && onCellClick ? 'pointer' : 'default',
-        position: 'relative'
+        position: 'relative',
+        minWidth: 0,
+        maxWidth: '100%',
+        overflow: 'hidden'
       }
     }, !empty && isToday(day) && /*#__PURE__*/React.createElement("div", {
       title: "Hoje",
@@ -3695,7 +3701,8 @@ Object.assign(window, {
   Logo,
   Calendar,
   MobileTopInset
-});</script>
+});
+</script>
 <!-- ═══════════════════════════════════════════════════════════
      SUPABASE INTEGRATION LAYER
      Substitui safeStore/AuthStore/AppStore/ChatStore por Supabase.
@@ -3707,7 +3714,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r40';
+window.PA_VERSION = '2026.06.01-r41';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -4799,6 +4806,58 @@ async function readPhotoFile(file) {
   } catch { return dataUrl; }
 }
 
+// ─────────────────────────────────────────────────────────────
+// Reports de problemas: descrição + screenshot opcional (comprimido no
+// cliente para não pesar na BD; o admin pode apagar tudo a qualquer momento).
+// ─────────────────────────────────────────────────────────────
+async function readBugImage(file) {
+  if (!file) return null;
+  const dataUrl = await new Promise((res, rej) => {
+    const fr = new FileReader();
+    fr.onload = () => res(fr.result);
+    fr.onerror = () => rej(new Error('Não consegui ler a imagem.'));
+    fr.readAsDataURL(file);
+  });
+  const img = await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => rej(new Error('Imagem inválida.')); im.src = dataUrl; });
+  // Screenshots precisam de mais resolução que avatares (para se ler o texto),
+  // mas comprimidas: max 1000px no lado maior, JPEG a 70%.
+  const max = 1000;
+  const scale = Math.min(1, max / Math.max(img.width, img.height));
+  const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+  const out = canvas.toDataURL('image/jpeg', 0.7);
+  // Teto duro: ~350KB depois de comprimir. Protege a BD gratuita.
+  if (out.length > 350 * 1024) throw new Error('A imagem ficou demasiado pesada mesmo comprimida — tenta um recorte mais pequeno.');
+  return out;
+}
+
+const BugReportStore = {
+  async submit({ byId, byName, description, image }) {
+    const { error } = await _sb.from('bug_reports').insert({
+      by_id: byId || null, by_name: byName || null,
+      description: String(description || '').slice(0, 800),
+      image: image || null,
+    });
+    if (error) throw new Error(error.message);
+  },
+  async list() {
+    const { data, error } = await _sb.from('bug_reports').select('*').order('created_at', { ascending: false });
+    if (error) throw new Error(error.message);
+    return data || [];
+  },
+  async remove(id) {
+    const { error } = await _sb.from('bug_reports').delete().eq('id', id);
+    if (error) throw new Error(error.message);
+  },
+  async removeAll() {
+    const { error } = await _sb.from('bug_reports').delete().gte('created_at', '1970-01-01');
+    if (error) throw new Error(error.message);
+  },
+};
+Object.assign(window, { BugReportStore, readBugImage });
+
 async function initSupabase() {
   // Carrega utilizadores primeiro (necessário para memberById)
   await AuthStore.refreshUsers();
@@ -5360,7 +5419,8 @@ Object.assign(window, {
   AuthGate,
   AuthPasswordField,
   AuthError
-});</script>
+});
+</script>
 
 <script>// Perdidos Algures — group chat: panel + mobile bubble.
 // ChatStore, useChat, pushChatMessage, deleteChatMessage, getChatMessages
@@ -5698,7 +5758,8 @@ function MobileChatSheet({
 Object.assign(window, {
   ChatPanel,
   MobileChatSheet
-});</script>
+});
+</script>
 <script>// Perdidos Algures — Tie-break methods (v2: 7 methods).
 // Admin picks the method; some involve only admin, others re-engage the group.
 
@@ -7377,7 +7438,8 @@ Object.assign(window, {
   TieMethodRunoff,
   TieMethodPublic,
   TieMethodRandom
-});</script>
+});
+</script>
 <script>// Perdidos Algures — Desktop shell + fases 1–3 (dinâmicas via AppStore).
 
 const {
@@ -9064,7 +9126,8 @@ Object.assign(window, {
   DPhase3,
   LocSuggestionForm,
   useActivityFeed
-});</script>
+});
+</script>
 <script>// Perdidos Algures — Desktop fases 4–8 + DesktopShell.
 
 const {
@@ -12312,7 +12375,8 @@ Object.assign(window, {
   PlanCompras,
   DesktopShell,
   PHASE_STORAGE_KEY
-});</script>
+});
+</script>
 <script>// Perdidos Algures — Mobile companion (dinâmico via AppStore).
 
 const {
@@ -14851,7 +14915,8 @@ Object.assign(window, {
   MPhase7,
   MPhase8,
   MobileApp
-});</script>
+});
+</script>
 <script>// Perdidos Algures — Sistema de progressão de fases.
 // - Auto-advance: quando todos os participantes "in" tiverem completado a fase,
 //   inicia countdown de 10s. Quando chega a 0, qualquer cliente avança a fase
@@ -15477,7 +15542,8 @@ Object.assign(window, {
   phaseComplete,
   usePhaseProgress,
   PhaseProgressBanner
-});</script>
+});
+</script>
 
 <script>// Perdidos Algures — Painel de desempate (admin).
 // Quando há empate, admin pode resolver com:
@@ -16132,7 +16198,8 @@ Object.assign(window, {
   CoinFlip,
   PointsVote,
   TiebreakModal
-});</script>
+});
+</script>
 
 <script>// Perdidos Algures — Edition Hub + modais (perfil, criar/editar edição).
 // Funciona em desktop e mobile (layout responsivo).
@@ -16463,6 +16530,331 @@ function AnnouncementBanner({
     strokeWidth: "1.6",
     strokeLinecap: "round"
   }))))));
+}
+
+// Modal de report de problemas: qualquer membro descreve e anexa screenshot;
+// o admin vê a lista dos reports e pode apagar (um a um ou todos) para
+// libertar espaço na base de dados gratuita.
+function BugReportModal({
+  open,
+  onClose,
+  me,
+  isAdmin
+}) {
+  const [desc, setDesc] = hUseState('');
+  const [img, setImg] = hUseState(null);
+  const [busy, setBusy] = hUseState(false);
+  const [sent, setSent] = hUseState(false);
+  const [reports, setReports] = hUseState(null); // admin: lista carregada on-open
+  const [expanded, setExpanded] = hUseState(null);
+  const loadReports = async () => {
+    try {
+      setReports(await BugReportStore.list());
+    } catch (e) {
+      setReports([]);
+    }
+  };
+  hUseEffect(() => {
+    if (open) {
+      setDesc('');
+      setImg(null);
+      setSent(false);
+      setExpanded(null);
+      if (isAdmin) loadReports();
+    }
+  }, [open]);
+  const attach = async file => {
+    if (!file) return;
+    try {
+      setImg(await readBugImage(file));
+    } catch (e) {
+      if (window._paToast) window._paToast(e.message, 'error');
+    }
+  };
+  const submit = async () => {
+    if (!desc.trim()) return;
+    setBusy(true);
+    try {
+      await BugReportStore.submit({
+        byId: me?.id,
+        byName: me?.name,
+        description: desc.trim(),
+        image: img
+      });
+      setSent(true);
+      setDesc('');
+      setImg(null);
+      if (window._paToast) window._paToast('Obrigado! Problema reportado.', 'success');
+      if (isAdmin) loadReports();
+    } catch (e) {
+      if (window._paToast) window._paToast('Não consegui enviar: ' + e.message, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return /*#__PURE__*/React.createElement(PAModal, {
+    open: open,
+    onClose: onClose,
+    title: "🐞 Reportar um problema",
+    maxWidth: 520
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 12
+    }
+  }, !sent ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: 'var(--pa-body)',
+      fontSize: 13,
+      color: 'var(--pa-muted)',
+      lineHeight: 1.5
+    }
+  }, "Encontraste algo estranho? Descreve o que aconteceu (e onde) — um screenshot ajuda imenso."), /*#__PURE__*/React.createElement("textarea", {
+    value: desc,
+    onChange: e => setDesc(e.target.value),
+    rows: 4,
+    maxLength: 800,
+    placeholder: "Ex: Na fase 2, no Chrome do meu Android, os dias do calendário saem do sítio...",
+    style: {
+      width: '100%',
+      boxSizing: 'border-box',
+      padding: '12px 14px',
+      borderRadius: 12,
+      border: '1px solid var(--pa-line)',
+      fontFamily: 'var(--pa-body)',
+      fontSize: 14,
+      color: 'var(--pa-ink)',
+      resize: 'vertical',
+      outline: 'none',
+      background: '#fff'
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 10,
+      flexWrap: 'wrap'
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    style: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 7,
+      padding: '9px 14px',
+      borderRadius: 12,
+      border: '1px dashed var(--pa-line)',
+      background: '#fff',
+      cursor: 'pointer',
+      fontFamily: 'var(--pa-body)',
+      fontSize: 13,
+      color: 'var(--pa-muted)'
+    }
+  }, "📎 ", img ? 'Trocar imagem' : 'Anexar imagem (opcional)', /*#__PURE__*/React.createElement("input", {
+    type: "file",
+    accept: "image/*",
+    style: {
+      display: 'none'
+    },
+    onChange: e => {
+      attach(e.target.files && e.target.files[0]);
+      e.target.value = '';
+    }
+  })), img && /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("img", {
+    src: img,
+    alt: "anexo",
+    style: {
+      height: 44,
+      borderRadius: 8,
+      border: '1px solid var(--pa-line)'
+    }
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setImg(null),
+    "aria-label": "Remover imagem",
+    style: {
+      border: 'none',
+      background: 'transparent',
+      color: 'var(--pa-muted)',
+      cursor: 'pointer',
+      fontSize: 15
+    }
+  }, "×"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      justifyContent: 'flex-end',
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement(Btn, {
+    variant: "ghost",
+    onClick: onClose
+  }, "Cancelar"), /*#__PURE__*/React.createElement(Btn, {
+    variant: "accent",
+    onClick: submit,
+    disabled: busy || !desc.trim()
+  }, busy ? 'A enviar…' : 'Enviar report'))) : /*#__PURE__*/React.createElement("div", {
+    style: {
+      textAlign: 'center',
+      padding: '8px 0'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 34
+    }
+  }, "🙏"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: 'var(--pa-display)',
+      fontSize: 18,
+      fontWeight: 600,
+      marginTop: 6
+    }
+  }, "Recebido!"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: 'var(--pa-body)',
+      fontSize: 13,
+      color: 'var(--pa-muted)',
+      marginTop: 4
+    }
+  }, "O problema vai ser analisado. Obrigado por ajudares a melhorar a app."), /*#__PURE__*/React.createElement(Btn, {
+    variant: "soft",
+    style: {
+      marginTop: 14
+    },
+    onClick: onClose
+  }, "Fechar")), isAdmin && /*#__PURE__*/React.createElement("div", {
+    style: {
+      borderTop: '1px solid var(--pa-line)',
+      paddingTop: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 8
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: 'var(--pa-mono)',
+      fontSize: 10,
+      letterSpacing: 1.2,
+      color: 'var(--pa-muted)',
+      textTransform: 'uppercase'
+    }
+  }, "Reports recebidos ", reports ? `(${reports.length})` : ''), reports && reports.length > 0 && /*#__PURE__*/React.createElement("button", {
+    onClick: async () => {
+      if (!window.confirm('Apagar TODOS os reports? Isto liberta o espaço das imagens na base de dados.')) return;
+      try {
+        await BugReportStore.removeAll();
+        loadReports();
+        if (window._paToast) window._paToast('Reports apagados.', 'success');
+      } catch (e) {}
+    },
+    style: {
+      border: 'none',
+      background: 'transparent',
+      color: 'var(--pa-muted)',
+      textDecoration: 'underline',
+      cursor: 'pointer',
+      fontFamily: 'var(--pa-body)',
+      fontSize: 12
+    }
+  }, "Apagar todos")), !reports && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: 'var(--pa-body)',
+      fontSize: 12.5,
+      color: 'var(--pa-muted)'
+    }
+  }, "A carregar…"), reports && reports.length === 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: 'var(--pa-body)',
+      fontSize: 12.5,
+      color: 'var(--pa-muted)'
+    }
+  }, "Sem reports — tudo limpo. 🎉"), reports && reports.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "pa-scroll",
+    style: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 8,
+      maxHeight: 260,
+      overflow: 'auto'
+    }
+  }, reports.map(r => /*#__PURE__*/React.createElement("div", {
+    key: r.id,
+    style: {
+      padding: '10px 12px',
+      borderRadius: 12,
+      background: 'rgba(31,26,20,0.02)',
+      border: '1px solid var(--pa-line)'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'baseline',
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: 'var(--pa-body)',
+      fontSize: 12.5,
+      fontWeight: 700
+    }
+  }, r.by_name || 'Anónimo'), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: 'var(--pa-mono)',
+      fontSize: 9.5,
+      color: 'var(--pa-muted)'
+    }
+  }, new Date(r.created_at).toLocaleString('pt-PT', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  })), /*#__PURE__*/React.createElement("button", {
+    onClick: async () => {
+      try {
+        await BugReportStore.remove(r.id);
+        loadReports();
+      } catch (e) {}
+    },
+    "aria-label": "Apagar report",
+    title: "Apagar (liberta espaço na BD)",
+    style: {
+      marginLeft: 'auto',
+      border: 'none',
+      background: 'transparent',
+      color: 'var(--pa-muted)',
+      cursor: 'pointer',
+      fontSize: 14
+    }
+  }, "🗑")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: 'var(--pa-body)',
+      fontSize: 13,
+      color: 'var(--pa-ink)',
+      marginTop: 4,
+      whiteSpace: 'pre-wrap'
+    }
+  }, r.description), r.image && /*#__PURE__*/React.createElement("img", {
+    src: r.image,
+    alt: "screenshot do report",
+    onClick: () => setExpanded(expanded === r.id ? null : r.id),
+    style: {
+      marginTop: 8,
+      borderRadius: 8,
+      border: '1px solid var(--pa-line)',
+      cursor: 'zoom-in',
+      maxWidth: expanded === r.id ? '100%' : 120,
+      maxHeight: expanded === r.id ? 'none' : 90,
+      objectFit: 'cover'
+    }
+  })))))));
 }
 
 // Chip com as datas trancadas, visível nas fases de local/alojamento (4-7):
@@ -17414,6 +17806,7 @@ function EditionHub({
   narrow
 }) {
   const editions = useEditions();
+  const [bugOpen, setBugOpen] = hUseState(false);
   const me = sessionToMember(auth.user);
   const isAdmin = !!auth.user?.isAdmin;
   const [profileOpen, setProfileOpen] = hUseState(false);
@@ -17797,10 +18190,35 @@ function EditionHub({
       padding: '12px 0 20px',
       fontFamily: 'var(--pa-mono)',
       fontSize: 10,
-      color: 'var(--pa-muted)',
+      color: 'var(--pa-muted)'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
       opacity: 0.6
     }
-  }, "Perdidos Algures · v", window.PA_VERSION || '?'), /*#__PURE__*/React.createElement(ProfileEditor, {
+  }, "Perdidos Algures · v", window.PA_VERSION || '?'), /*#__PURE__*/React.createElement("span", {
+    style: {
+      opacity: 0.4,
+      margin: '0 6px'
+    }
+  }, "·"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setBugOpen(true),
+    style: {
+      border: 'none',
+      background: 'transparent',
+      cursor: 'pointer',
+      fontFamily: 'var(--pa-mono)',
+      fontSize: 10,
+      color: 'var(--pa-muted)',
+      textDecoration: 'underline',
+      padding: 0
+    }
+  }, "🐞 reportar um problema")), /*#__PURE__*/React.createElement(BugReportModal, {
+    open: bugOpen,
+    onClose: () => setBugOpen(false),
+    me: me,
+    isAdmin: isAdmin
+  }), /*#__PURE__*/React.createElement(ProfileEditor, {
     open: profileOpen,
     onClose: () => setProfileOpen(false),
     auth: auth
@@ -17820,12 +18238,14 @@ Object.assign(window, {
   EditionHub,
   AnnouncementBanner,
   DatesChip,
+  BugReportModal,
   AdminAnnounceModal,
   AdminMembersModal,
   AdminModalsHost,
   paOpenAnnounce,
   paOpenMembers
-});</script>
+});
+</script>
 
 <script>// Perdidos Algures — Live app entry. Boots the auth gate and routes the
 // authenticated user into the desktop or mobile shell based on viewport.
@@ -18078,7 +18498,8 @@ Object.assign(window, {
   LiveApp,
   useViewport,
   sessionToMember
-});</script>
+});
+</script>
 
 <script>const {
   useState,
@@ -18413,6 +18834,7 @@ const renderApp = () => ReactDOM.createRoot(document.getElementById('root')).ren
 initSupabase().then(renderApp).catch(err => {
   console.error('[PA] Erro ao iniciar Supabase:', err);
   renderApp(); // Renderiza mesmo assim para não bloquear a app
-});</script>
+});
+</script>
 </body>
 </html>
