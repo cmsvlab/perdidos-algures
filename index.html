@@ -3716,7 +3716,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r45';
+window.PA_VERSION = '2026.06.01-r46';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -8572,33 +8572,26 @@ function DPhase2({
   const mineCount = suggestions.filter(s => s.by === me.id).length;
   const limit = D.phase2.perPersonLimit;
   const [adding, setAdding] = dUseState(false);
-  const addBusyRef = React.useRef(false);
-  const handleAdd = async ({
+  const handleAdd = ({
     name,
     city,
     tags,
-    accent
+    accent,
+    geo
   }) => {
-    if (addBusyRef.current) return; // evita duplicados durante o geocoding
-    addBusyRef.current = true;
-    try {
-      // Geocodifica primeiro (rápido, com timeout); se falhar, a sugestão entra sem mapa.
-      const geo = await paGeocode([name, city].filter(Boolean).join(', '));
-      AppStore.addLocSuggestion({
-        id: 'loc_' + Date.now().toString(36),
-        name,
-        city,
-        tags: tags || [],
-        accent: accent || 'var(--pa-accent)',
-        by: me.id,
-        ...(geo ? {
-          geo
-        } : {})
-      });
-      setAdding(false);
-    } finally {
-      addBusyRef.current = false;
-    }
+    // O geo vem do LocationPicker (pino confirmado à mão) — sem adivinhas.
+    AppStore.addLocSuggestion({
+      id: 'loc_' + Date.now().toString(36),
+      name,
+      city,
+      tags: tags || [],
+      accent: accent || 'var(--pa-accent)',
+      by: me.id,
+      ...(geo ? {
+        geo
+      } : {})
+    });
+    setAdding(false);
   };
   return /*#__PURE__*/React.createElement("div", {
     className: "pa-scroll",
@@ -8766,6 +8759,7 @@ function LocSuggestionForm({
   const [city, setCity] = dUseState('');
   const [tag, setTag] = dUseState('');
   const [tags, setTags] = dUseState([]);
+  const [geo, setGeo] = dUseState(null); // escolhido no mapa (picker), nunca adivinhado
   const ok = name.trim() && city.trim();
   const addTag = () => {
     const t = tag.trim();
@@ -8900,6 +8894,22 @@ function LocSuggestionForm({
     }
   }, "+"))), /*#__PURE__*/React.createElement("div", {
     style: {
+      margin: '10px 0 12px'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: 'var(--pa-mono)',
+      fontSize: 10,
+      letterSpacing: 1.2,
+      color: 'var(--pa-muted)',
+      textTransform: 'uppercase',
+      marginBottom: 6
+    }
+  }, "Localização no mapa (opcional)"), /*#__PURE__*/React.createElement(LocationPicker, {
+    onChange: setGeo,
+    placeholder: "Procura o sítio exato…"
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
       display: 'flex',
       justifyContent: 'flex-end',
       gap: 8
@@ -8914,7 +8924,13 @@ function LocSuggestionForm({
     onClick: () => onSubmit({
       name: name.trim(),
       city: city.trim(),
-      tags
+      tags,
+      ...(geo ? {
+        geo: {
+          lat: geo.lat,
+          lng: geo.lng
+        }
+      } : {})
     }),
     disabled: !ok
   }, "Lançar")));
@@ -9311,24 +9327,14 @@ function DPhase4({
   const suggestions = appData.accSuggs || [];
   const mineCount = suggestions.filter(s => s.by === me.id).length;
   const [adding, setAdding] = dUseState2(false);
-  const accBusyRef = React.useRef(false);
-  const handleAdd = async data => {
-    if (accBusyRef.current) return;
-    accBusyRef.current = true;
-    try {
-      const geo = await paGeocode(data.area || '');
-      AppStore.addAccSuggestion({
-        id: 'acc_' + Date.now().toString(36),
-        ...data,
-        by: me.id,
-        ...(geo ? {
-          geo
-        } : {})
-      });
-      setAdding(false);
-    } finally {
-      accBusyRef.current = false;
-    }
+  const handleAdd = data => {
+    // data.geo (se existir) vem do LocationPicker do formulário.
+    AppStore.addAccSuggestion({
+      id: 'acc_' + Date.now().toString(36),
+      ...data,
+      by: me.id
+    });
+    setAdding(false);
   };
   return /*#__PURE__*/React.createElement("div", {
     className: "pa-scroll",
@@ -9569,6 +9575,7 @@ function AccommodationForm({
   onCancel,
   onSubmit
 }) {
+  const [accGeo, setAccGeo] = dUseState(null);
   const [type, setType] = dUseState2('Casa');
   const [price, setPrice] = dUseState2('');
   const [area, setArea] = dUseState2('');
@@ -9680,6 +9687,22 @@ function AccommodationForm({
     onChange: setNote
   })), /*#__PURE__*/React.createElement("div", {
     style: {
+      margin: '10px 0 12px'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: 'var(--pa-mono)',
+      fontSize: 10,
+      letterSpacing: 1.2,
+      color: 'var(--pa-muted)',
+      textTransform: 'uppercase',
+      marginBottom: 6
+    }
+  }, "Localização no mapa (opcional)"), /*#__PURE__*/React.createElement(LocationPicker, {
+    onChange: setAccGeo,
+    placeholder: "Procura a casa/zona exata…"
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
       display: 'flex',
       justifyContent: 'flex-end',
       gap: 8
@@ -9696,7 +9719,13 @@ function AccommodationForm({
       price: parseInt(price) || 0,
       area,
       link,
-      note
+      note,
+      ...(accGeo ? {
+        geo: {
+          lat: accGeo.lat,
+          lng: accGeo.lng
+        }
+      } : {})
     }),
     disabled: !ok
   }, "Lançar")));
@@ -12196,6 +12225,8 @@ function PlanAtividades({
   };
   const items = plan.activities || [];
   const [text, setText] = React.useState('');
+  const [actGeo, setActGeo] = React.useState(null);
+  const [actPickerKey, setActPickerKey] = React.useState(0);
   const add = async () => {
     if (!text.trim()) return;
     const newA = {
@@ -12203,13 +12234,21 @@ function PlanAtividades({
       text: text.trim(),
       by: me?.id,
       done: false,
-      at: Date.now()
+      at: Date.now(),
+      ...(actGeo ? {
+        geo: {
+          lat: actGeo.lat,
+          lng: actGeo.lng
+        }
+      } : {})
     };
     await AppStore.updatePlanning(p => ({
       ...p,
       activities: [...(p.activities || []), newA]
     }));
     setText('');
+    setActGeo(null);
+    setActPickerKey(k => k + 1);
   };
   const toggle = async id => {
     await AppStore.updatePlanning(p => ({
@@ -12265,7 +12304,16 @@ function PlanAtividades({
       fontSize: 16,
       outline: 'none'
     }
-  }), /*#__PURE__*/React.createElement(Btn, {
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      margin: '8px 0'
+    }
+  }, /*#__PURE__*/React.createElement(LocationPicker, {
+    key: actPickerKey,
+    compact: true,
+    onChange: setActGeo,
+    placeholder: "Onde? (opcional — aparece no mapa da viagem)"
+  })), /*#__PURE__*/React.createElement(Btn, {
     variant: "accent",
     onClick: add,
     disabled: !text.trim(),
@@ -13603,29 +13651,27 @@ function MPhase2({
   const [adding, setAdding] = mUseState(false);
   const [name, setName] = mUseState('');
   const [city, setCity] = mUseState('');
-  const [busyAdd, setBusyAdd] = mUseState(false);
-  const handleAdd = async () => {
-    if (!name.trim() || busyAdd) return;
-    setBusyAdd(true); // evita duplicados durante o geocoding
-    try {
-      const geo = await paGeocode([name.trim(), city.trim()].filter(Boolean).join(', '));
-      AppStore.addLocSuggestion({
-        id: 'loc_' + Date.now().toString(36),
-        name: name.trim(),
-        city: city.trim(),
-        tags: [],
-        accent: 'var(--pa-accent)',
-        by: me.id,
-        ...(geo ? {
-          geo
-        } : {})
-      });
-      setName('');
-      setCity('');
-      setAdding(false);
-    } finally {
-      setBusyAdd(false);
-    }
+  const [mGeo, setMGeo] = mUseState(null); // do LocationPicker (pino confirmado)
+  const handleAdd = () => {
+    if (!name.trim()) return;
+    AppStore.addLocSuggestion({
+      id: 'loc_' + Date.now().toString(36),
+      name: name.trim(),
+      city: city.trim(),
+      tags: [],
+      accent: 'var(--pa-accent)',
+      by: me.id,
+      ...(mGeo ? {
+        geo: {
+          lat: mGeo.lat,
+          lng: mGeo.lng
+        }
+      } : {})
+    });
+    setName('');
+    setCity('');
+    setMGeo(null);
+    setAdding(false);
   };
   return /*#__PURE__*/React.createElement(MShell, null, /*#__PURE__*/React.createElement(MHeader, {
     phase: 4,
@@ -13786,6 +13832,14 @@ function MPhase2({
     }
   }), /*#__PURE__*/React.createElement("div", {
     style: {
+      marginBottom: 8
+    }
+  }, /*#__PURE__*/React.createElement(LocationPicker, {
+    compact: true,
+    onChange: setMGeo,
+    placeholder: "Sítio exato no mapa (opcional)"
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
       display: 'flex',
       gap: 8
     }
@@ -13804,7 +13858,7 @@ function MPhase2({
     }
   }, "Cancelar"), /*#__PURE__*/React.createElement("button", {
     onClick: handleAdd,
-    disabled: !name.trim() || busyAdd,
+    disabled: !name.trim(),
     style: {
       flex: 1,
       padding: '10px',
@@ -13812,13 +13866,13 @@ function MPhase2({
       border: 'none',
       background: 'var(--pa-accent)',
       color: '#fff',
-      cursor: name.trim() && !busyAdd ? 'pointer' : 'default',
+      cursor: name.trim() ? 'pointer' : 'default',
       fontFamily: 'var(--pa-body)',
       fontSize: 13,
       fontWeight: 600,
-      opacity: name.trim() && !busyAdd ? 1 : 0.5
+      opacity: name.trim() ? 1 : 0.5
     }
-  }, busyAdd ? 'A localizar…' : 'Lançar'))), suggestions.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "Lançar"))), suggestions.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 8,
       borderTop: '1px solid var(--pa-line)',
@@ -14118,31 +14172,29 @@ function MPhase4({
   const [area, setArea] = mUseState('');
   const [price, setPrice] = mUseState('');
   const [link, setLink] = mUseState('');
-  const [busyAcc, setBusyAcc] = mUseState(false);
-  const handleAdd = async () => {
-    if (!area.trim() || busyAcc) return;
-    setBusyAcc(true);
-    try {
-      const geo = await paGeocode(area.trim());
-      AppStore.addAccSuggestion({
-        id: 'acc_' + Date.now().toString(36),
-        type: 'Casa',
-        price: parseInt(price) || 0,
-        area: area.trim(),
-        link,
-        note: '',
-        by: me.id,
-        ...(geo ? {
-          geo
-        } : {})
-      });
-      setArea('');
-      setPrice('');
-      setLink('');
-      setAdding(false);
-    } finally {
-      setBusyAcc(false);
-    }
+  const [mAccGeo, setMAccGeo] = mUseState(null);
+  const handleAdd = () => {
+    if (!area.trim()) return;
+    AppStore.addAccSuggestion({
+      id: 'acc_' + Date.now().toString(36),
+      type: 'Casa',
+      price: parseInt(price) || 0,
+      area: area.trim(),
+      link,
+      note: '',
+      by: me.id,
+      ...(mAccGeo ? {
+        geo: {
+          lat: mAccGeo.lat,
+          lng: mAccGeo.lng
+        }
+      } : {})
+    });
+    setArea('');
+    setPrice('');
+    setLink('');
+    setMAccGeo(null);
+    setAdding(false);
   };
   return /*#__PURE__*/React.createElement(MShell, null, /*#__PURE__*/React.createElement(MHeader, {
     phase: 6,
@@ -14360,6 +14412,14 @@ function MPhase4({
       marginBottom: 12
     }
   }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 8
+    }
+  }, /*#__PURE__*/React.createElement(LocationPicker, {
+    compact: true,
+    onChange: setMAccGeo,
+    placeholder: "Casa/zona exata no mapa (opcional)"
+  })), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
       gap: 8
@@ -16354,6 +16414,245 @@ function LocMap({
     }
   }, suggestions.length - withGeo.length + ' sugestão(ões) sem localização no mapa — o link "ver no mapa" funciona na mesma.'));
 }
+// ─────────────────────────────────────────────────────────────
+// LocationPicker: o padrão das apps de referência (Uber, delivery, Airbnb):
+// 1) escreves e aparecem sugestões (autocomplete, sem typos);
+// 2) escolhes e o pin aparece num mini-mapa para CONFIRMAÇÃO VISUAL;
+// 3) afinas arrastando o pin ou tocando no mapa — o sítio é sempre o certo.
+// Nominatim/OSM (gratuito) com debounce ≥750ms e cancelamento de pedidos
+// pendentes, a respeitar a política de uso (1 pedido/s).
+// ─────────────────────────────────────────────────────────────
+function LocationPicker({
+  onChange,
+  placeholder = 'Procurar no mapa…',
+  compact = false
+}) {
+  const [query, setQuery] = React.useState('');
+  const [results, setResults] = React.useState(null); // null=idle, []=sem resultados
+  const [searching, setSearching] = React.useState(false);
+  const [picked, setPicked] = React.useState(null); // { lat, lng, label }
+  const mapEl = React.useRef(null);
+  const debRef = React.useRef(null);
+  const ctlRef = React.useRef(null);
+  const shortLabel = dn => String(dn || '').split(',').slice(0, 3).join(',');
+
+  // Autocomplete com debounce + cancelamento
+  const onType = v => {
+    setQuery(v);
+    if (debRef.current) clearTimeout(debRef.current);
+    if (ctlRef.current) {
+      try {
+        ctlRef.current.abort();
+      } catch (e) {}
+    }
+    if (v.trim().length < 3) {
+      setResults(null);
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    debRef.current = setTimeout(async () => {
+      const ctl = new AbortController();
+      ctlRef.current = ctl;
+      try {
+        const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=5&q=' + encodeURIComponent(v.trim());
+        const res = await fetch(url, {
+          signal: ctl.signal,
+          headers: {
+            'Accept': 'application/json'
+          }
+        });
+        const arr = res.ok ? await res.json() : [];
+        setResults(Array.isArray(arr) ? arr.filter(r => isFinite(parseFloat(r.lat))) : []);
+      } catch (e) {
+        if (e.name !== 'AbortError') setResults([]);
+      } finally {
+        setSearching(false);
+      }
+    }, 750);
+  };
+  const choose = r => {
+    const p = {
+      lat: parseFloat(r.lat),
+      lng: parseFloat(r.lon),
+      label: shortLabel(r.display_name)
+    };
+    setPicked(p);
+    setResults(null);
+    setQuery('');
+    if (onChange) onChange(p);
+  };
+  const move = (lat, lng) => {
+    setPicked(prev => {
+      const p = {
+        ...(prev || {}),
+        lat,
+        lng,
+        adjusted: true
+      };
+      if (onChange) onChange(p);
+      return p;
+    });
+  };
+  const clear = () => {
+    setPicked(null);
+    setResults(null);
+    setQuery('');
+    if (onChange) onChange(null);
+  };
+
+  // Mini-mapa de confirmação: pin arrastável + toque no mapa move
+  React.useEffect(() => {
+    if (!picked || !window.L || !mapEl.current) return;
+    const L = window.L;
+    const map = L.map(mapEl.current, {
+      scrollWheelZoom: false
+    }).setView([picked.lat, picked.lng], 14);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 18,
+      attribution: '&copy; OpenStreetMap'
+    }).addTo(map);
+    const mk = L.marker([picked.lat, picked.lng], {
+      draggable: true
+    }).addTo(map);
+    mk.on('dragend', () => {
+      const ll = mk.getLatLng();
+      move(ll.lat, ll.lng);
+    });
+    map.on('click', e => {
+      mk.setLatLng(e.latlng);
+      move(e.latlng.lat, e.latlng.lng);
+    });
+    return () => {
+      try {
+        map.remove();
+      } catch (e) {}
+    };
+  }, [picked ? 'on' : 'off']); // monta/desmonta; o marker segue os ajustes sem reinit
+
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 6
+    }
+  }, !picked && /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: 'relative'
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    value: query,
+    onChange: e => onType(e.target.value),
+    placeholder: '📍 ' + placeholder,
+    maxLength: 80,
+    style: {
+      width: '100%',
+      boxSizing: 'border-box',
+      padding: compact ? '9px 12px' : '11px 14px',
+      borderRadius: 12,
+      border: '1px solid var(--pa-line)',
+      background: '#fff',
+      fontFamily: 'var(--pa-body)',
+      fontSize: compact ? 13 : 14,
+      color: 'var(--pa-ink)',
+      outline: 'none'
+    }
+  }), searching && /*#__PURE__*/React.createElement("span", {
+    style: {
+      position: 'absolute',
+      right: 12,
+      top: '50%',
+      transform: 'translateY(-50%)',
+      fontFamily: 'var(--pa-body)',
+      fontSize: 11,
+      color: 'var(--pa-muted)'
+    }
+  }, "a procurar…"), results !== null && /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: 'absolute',
+      top: '100%',
+      left: 0,
+      right: 0,
+      zIndex: 30,
+      marginTop: 4,
+      background: '#fff',
+      border: '1px solid var(--pa-line)',
+      borderRadius: 12,
+      boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+      overflow: 'hidden'
+    }
+  }, results.length === 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: '10px 14px',
+      fontFamily: 'var(--pa-body)',
+      fontSize: 12.5,
+      color: 'var(--pa-muted)'
+    }
+  }, "Sem resultados — tenta acrescentar a terra ou concelho."), results.map((r, i) => /*#__PURE__*/React.createElement("button", {
+    key: i,
+    onClick: () => choose(r),
+    style: {
+      display: 'block',
+      width: '100%',
+      textAlign: 'left',
+      padding: '10px 14px',
+      border: 'none',
+      borderTop: i ? '1px solid var(--pa-line)' : 'none',
+      background: '#fff',
+      cursor: 'pointer',
+      fontFamily: 'var(--pa-body)',
+      fontSize: 12.5,
+      color: 'var(--pa-ink)'
+    }
+  }, "📍 ", shortLabel(r.display_name))))), picked && /*#__PURE__*/React.createElement("div", {
+    style: {
+      borderRadius: 12,
+      overflow: 'hidden',
+      border: '1px solid var(--pa-accent)'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    ref: mapEl,
+    style: {
+      height: compact ? 150 : 180,
+      width: '100%',
+      background: '#e8e4dc'
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: 8,
+      padding: '7px 10px',
+      background: '#fff'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      flex: 1,
+      fontFamily: 'var(--pa-body)',
+      fontSize: 11.5,
+      color: 'var(--pa-muted)',
+      minWidth: 0,
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap'
+    }
+  }, "📍 ", picked.label || 'ponto escolhido', picked.adjusted ? ' (afinado à mão)' : '', " — arrasta o pino ou toca no mapa para afinar"), /*#__PURE__*/React.createElement("button", {
+    onClick: clear,
+    "aria-label": "Limpar localização",
+    style: {
+      border: 'none',
+      background: 'transparent',
+      color: 'var(--pa-muted)',
+      cursor: 'pointer',
+      fontSize: 14,
+      padding: 0
+    }
+  }, "×"))));
+}
+Object.assign(window, {
+  LocationPicker
+});
+
 // Mapa da viagem (fase 8): estadia + local vencedores (automático) e pontos
 // de interesse adicionados pelo grupo. Pins coloridos: laranja=local,
 // escuro=estadia, verde=pontos de interesse.
@@ -16364,7 +16663,6 @@ function TripMap({
   const plan = AppStore.getPlanning();
   const pois = plan.pois || [];
   const [name, setName] = React.useState('');
-  const [busy, setBusy] = React.useState(false);
   const ref = React.useRef(null);
 
   // Pins automáticos: local e alojamento vencedores (se geocodificados)
@@ -16397,6 +16695,16 @@ function TripMap({
       geo: p.geo
     });
   });
+  (plan.activities || []).forEach(a => {
+    if (a.geo) pins.push({
+      id: a.id,
+      kind: 'atividade',
+      color: '#4a7fb5',
+      name: a.text,
+      sub: 'atividade planeada',
+      geo: a.geo
+    });
+  });
   React.useEffect(() => {
     if (!window.L || !ref.current || pins.length === 0) return;
     const L = window.L;
@@ -16423,29 +16731,26 @@ function TripMap({
       } catch (e) {}
     };
   }, [pins.map(p => p.id + ':' + p.geo.lat).join(',')]);
-  const addPoi = async () => {
+  const [poiGeo, setPoiGeo] = React.useState(null);
+  const [pickerKey, setPickerKey] = React.useState(0); // reset do picker após adicionar
+  const addPoi = () => {
     const n = name.trim();
-    if (!n || busy) return;
-    setBusy(true);
-    try {
-      const geo = await paGeocode(n);
-      if (!geo) {
-        if (window._paToast) window._paToast('Não encontrei esse sítio no mapa — tenta com a terra ao lado (ex: "Miradouro X, Gerês").', 'error');
-        return;
-      }
-      AppStore.updatePlanning(p => ({
-        ...p,
-        pois: [...(p.pois || []), {
-          id: 'poi_' + Date.now().toString(36),
-          name: n.slice(0, 60),
-          geo,
-          by: me.id
-        }]
-      }));
-      setName('');
-    } finally {
-      setBusy(false);
-    }
+    if (!n || !poiGeo) return;
+    AppStore.updatePlanning(p => ({
+      ...p,
+      pois: [...(p.pois || []), {
+        id: 'poi_' + Date.now().toString(36),
+        name: n.slice(0, 60),
+        geo: {
+          lat: poiGeo.lat,
+          lng: poiGeo.lng
+        },
+        by: me.id
+      }]
+    }));
+    setName('');
+    setPoiGeo(null);
+    setPickerKey(k => k + 1);
   };
   const removePoi = poi => {
     if (!window.confirm(`Tirar "${poi.name}" do mapa?`)) return;
@@ -16484,7 +16789,7 @@ function TripMap({
       fontSize: 11,
       color: 'var(--pa-muted)'
     }
-  }, /*#__PURE__*/React.createElement("span", null, "🟠 local"), /*#__PURE__*/React.createElement("span", null, "⚫ estadia"), /*#__PURE__*/React.createElement("span", null, "🟢 pontos de interesse"))) : /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", null, "🟠 local"), /*#__PURE__*/React.createElement("span", null, "⚫ estadia"), /*#__PURE__*/React.createElement("span", null, "🟢 pontos de interesse"), /*#__PURE__*/React.createElement("span", null, "🔵 atividades"))) : /*#__PURE__*/React.createElement("div", {
     style: {
       fontFamily: 'var(--pa-body)',
       fontSize: 13,
@@ -16495,20 +16800,17 @@ function TripMap({
   }, "O mapa ganha vida à medida que adicionas pontos de interesse — e o local e a estadia vencedores aparecem automaticamente."), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
-      gap: 8,
-      alignItems: 'center'
+      flexDirection: 'column',
+      gap: 8
     }
   }, /*#__PURE__*/React.createElement("input", {
     value: name,
     onChange: e => setName(e.target.value),
-    onKeyDown: e => {
-      if (e.key === 'Enter') addPoi();
-    },
-    placeholder: "Praia, restaurante, miradouro… (nome + terra ajuda)",
+    placeholder: "Nome do ponto: praia, restaurante, miradouro…",
     maxLength: 60,
     style: {
-      flex: 1,
-      minWidth: 160,
+      width: '100%',
+      boxSizing: 'border-box',
       padding: '11px 14px',
       borderRadius: 12,
       border: '1px solid var(--pa-line)',
@@ -16518,12 +16820,18 @@ function TripMap({
       color: 'var(--pa-ink)',
       outline: 'none'
     }
+  }), /*#__PURE__*/React.createElement(LocationPicker, {
+    key: pickerKey,
+    compact: true,
+    onChange: setPoiGeo,
+    placeholder: "Procura e confirma o pino no mapa"
   }), /*#__PURE__*/React.createElement(Btn, {
     variant: "accent",
     size: "sm",
     onClick: addPoi,
-    disabled: busy || !name.trim()
-  }, busy ? 'A localizar…' : '+ Ponto')), pois.length > 0 && /*#__PURE__*/React.createElement("div", {
+    disabled: !name.trim() || !poiGeo,
+    title: !poiGeo ? 'Escolhe primeiro o sítio no mapa' : ''
+  }, "+ Adicionar ao mapa")), pois.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
       flexDirection: 'column',

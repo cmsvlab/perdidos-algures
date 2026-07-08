@@ -2475,7 +2475,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r45';
+window.PA_VERSION = '2026.06.01-r46';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -5508,21 +5508,15 @@ function DPhase2({ me }) {
   const limit = D.phase2.perPersonLimit;
   const [adding, setAdding] = dUseState(false);
 
-  const addBusyRef = React.useRef(false);
-  const handleAdd = async ({ name, city, tags, accent }) => {
-    if (addBusyRef.current) return; // evita duplicados durante o geocoding
-    addBusyRef.current = true;
-    try {
-      // Geocodifica primeiro (rápido, com timeout); se falhar, a sugestão entra sem mapa.
-      const geo = await paGeocode([name, city].filter(Boolean).join(', '));
-      AppStore.addLocSuggestion({
-        id: 'loc_' + Date.now().toString(36),
-        name, city, tags: tags || [], accent: accent || 'var(--pa-accent)',
-        by: me.id,
-        ...(geo ? { geo } : {}),
-      });
-      setAdding(false);
-    } finally { addBusyRef.current = false; }
+  const handleAdd = ({ name, city, tags, accent, geo }) => {
+    // O geo vem do LocationPicker (pino confirmado à mão) — sem adivinhas.
+    AppStore.addLocSuggestion({
+      id: 'loc_' + Date.now().toString(36),
+      name, city, tags: tags || [], accent: accent || 'var(--pa-accent)',
+      by: me.id,
+      ...(geo ? { geo } : {}),
+    });
+    setAdding(false);
   };
 
   return (
@@ -5603,6 +5597,7 @@ function LocSuggestionForm({ onCancel, onSubmit }) {
   const [city, setCity] = dUseState('');
   const [tag, setTag] = dUseState('');
   const [tags, setTags] = dUseState([]);
+  const [geo, setGeo] = dUseState(null); // escolhido no mapa (picker), nunca adivinhado
   const ok = name.trim() && city.trim();
 
   const addTag = () => {
@@ -5638,9 +5633,13 @@ function LocSuggestionForm({ onCancel, onSubmit }) {
           <button onClick={addTag} style={{ padding:'8px 14px', borderRadius:10, border:'none', background:'var(--pa-ink)', color:'#fff', cursor:'pointer', fontSize:12, fontWeight:600 }}>+</button>
         </div>
       </div>
-      <div style={{ display:'flex', justifyContent:'flex-end', gap:8 }}>
+            <div style={{ margin:'10px 0 12px' }}>
+        <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:6 }}>Localização no mapa (opcional)</div>
+        <LocationPicker onChange={setGeo} placeholder="Procura o sítio exato…" />
+      </div>
+<div style={{ display:'flex', justifyContent:'flex-end', gap:8 }}>
         <Btn variant="ghost" size="sm" onClick={onCancel}>Cancelar</Btn>
-        <Btn variant="accent" size="sm" onClick={() => onSubmit({ name:name.trim(), city:city.trim(), tags })} disabled={!ok}>Lançar</Btn>
+        <Btn variant="accent" size="sm" onClick={() => onSubmit({ name:name.trim(), city:city.trim(), tags, ...(geo ? { geo: { lat: geo.lat, lng: geo.lng } } : {}) })} disabled={!ok}>Lançar</Btn>
       </div>
     </div>
   );
@@ -5829,15 +5828,10 @@ function DPhase4({ me }) {
   const mineCount = suggestions.filter((s) => s.by === me.id).length;
   const [adding, setAdding] = dUseState2(false);
 
-  const accBusyRef = React.useRef(false);
-  const handleAdd = async (data) => {
-    if (accBusyRef.current) return;
-    accBusyRef.current = true;
-    try {
-      const geo = await paGeocode(data.area || '');
-      AppStore.addAccSuggestion({ id:'acc_' + Date.now().toString(36), ...data, by: me.id, ...(geo ? { geo } : {}) });
-      setAdding(false);
-    } finally { accBusyRef.current = false; }
+  const handleAdd = (data) => {
+    // data.geo (se existir) vem do LocationPicker do formulário.
+    AppStore.addAccSuggestion({ id:'acc_' + Date.now().toString(36), ...data, by: me.id });
+    setAdding(false);
   };
 
   return (
@@ -5945,6 +5939,7 @@ function AccommodationCard({ acc, me }) {
 }
 
 function AccommodationForm({ onCancel, onSubmit }) {
+  const [accGeo, setAccGeo] = dUseState(null);
   const [type, setType]   = dUseState2('Casa');
   const [price, setPrice] = dUseState2('');
   const [area, setArea]   = dUseState2('');
@@ -5975,9 +5970,13 @@ function AccommodationForm({ onCancel, onSubmit }) {
       <div style={{ marginBottom:10 }}><Field label="Zona / bairro" placeholder="Centro histórico, praia..." value={area} onChange={setArea} /></div>
       <div style={{ marginBottom:10 }}><Field label="Link" placeholder="https://airbnb.com/..." value={link} onChange={setLink} prefix="🔗" /></div>
       <div style={{ marginBottom:14 }}><Field label="Comentário" textarea placeholder="O que tem de especial? Já lá foste?" value={note} onChange={setNote} /></div>
-      <div style={{ display:'flex', justifyContent:'flex-end', gap:8 }}>
+            <div style={{ margin:'10px 0 12px' }}>
+        <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:6 }}>Localização no mapa (opcional)</div>
+        <LocationPicker onChange={setAccGeo} placeholder="Procura a casa/zona exata…" />
+      </div>
+<div style={{ display:'flex', justifyContent:'flex-end', gap:8 }}>
         <Btn variant="ghost" size="sm" onClick={onCancel}>Cancelar</Btn>
-        <Btn variant="accent" size="sm" onClick={() => onSubmit({ type, price: parseInt(price)||0, area, link, note })} disabled={!ok}>Lançar</Btn>
+        <Btn variant="accent" size="sm" onClick={() => onSubmit({ type, price: parseInt(price)||0, area, link, note, ...(accGeo ? { geo: { lat: accGeo.lat, lng: accGeo.lng } } : {}) })} disabled={!ok}>Lançar</Btn>
       </div>
     </div>
   );
@@ -7102,12 +7101,14 @@ function PlanAtividades({ me }) {
   const plan = appData.planData || { activities:[] };
   const items = plan.activities || [];
   const [text, setText] = React.useState('');
+  const [actGeo, setActGeo] = React.useState(null);
+  const [actPickerKey, setActPickerKey] = React.useState(0);
 
   const add = async () => {
     if (!text.trim()) return;
-    const newA = { id:'act_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6), text:text.trim(), by:me?.id, done:false, at:Date.now() };
+    const newA = { id:'act_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6), text:text.trim(), by:me?.id, done:false, at:Date.now(), ...(actGeo ? { geo: { lat: actGeo.lat, lng: actGeo.lng } } : {}) };
     await AppStore.updatePlanning(p => ({ ...p, activities:[...((p.activities)||[]), newA] }));
-    setText('');
+    setText(''); setActGeo(null); setActPickerKey((k) => k + 1);
   };
 
   const toggle = async (id) => {
@@ -7126,6 +7127,9 @@ function PlanAtividades({ me }) {
       <div style={{ background:'#fff', border:'1px solid var(--pa-line)', borderRadius:14, padding:16, display:'flex', gap:8 }}>
         <input value={text} onChange={(e)=>setText(e.target.value)} onKeyDown={(e)=>{ if(e.key==='Enter'){ e.preventDefault(); add(); } }}
           placeholder="Surf ao pôr do sol, restaurante X..." maxLength={100} style={{ flex:1, minWidth:0, boxSizing:'border-box', padding:'10px 14px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:16, outline:'none' }} />
+      <div style={{ margin:'8px 0' }}>
+        <LocationPicker key={actPickerKey} compact onChange={setActGeo} placeholder="Onde? (opcional — aparece no mapa da viagem)" />
+      </div>
         <Btn variant="accent" onClick={add} disabled={!text.trim()} style={{ flexShrink:0 }}>+</Btn>
       </div>
 
@@ -7597,15 +7601,11 @@ function MPhase2({ me, onLogout, onOpenChat }) {
   const [name, setName] = mUseState('');
   const [city, setCity] = mUseState('');
 
-  const [busyAdd, setBusyAdd] = mUseState(false);
-  const handleAdd = async () => {
-    if (!name.trim() || busyAdd) return;
-    setBusyAdd(true); // evita duplicados durante o geocoding
-    try {
-      const geo = await paGeocode([name.trim(), city.trim()].filter(Boolean).join(', '));
-      AppStore.addLocSuggestion({ id:'loc_'+Date.now().toString(36), name:name.trim(), city:city.trim(), tags:[], accent:'var(--pa-accent)', by:me.id, ...(geo ? { geo } : {}) });
-      setName(''); setCity(''); setAdding(false);
-    } finally { setBusyAdd(false); }
+  const [mGeo, setMGeo] = mUseState(null); // do LocationPicker (pino confirmado)
+  const handleAdd = () => {
+    if (!name.trim()) return;
+    AppStore.addLocSuggestion({ id:'loc_'+Date.now().toString(36), name:name.trim(), city:city.trim(), tags:[], accent:'var(--pa-accent)', by:me.id, ...(mGeo ? { geo: { lat: mGeo.lat, lng: mGeo.lng } } : {}) });
+    setName(''); setCity(''); setMGeo(null); setAdding(false);
   };
 
   return (
@@ -7649,9 +7649,10 @@ function MPhase2({ me, onLogout, onOpenChat }) {
             <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Cidade, País" maxLength={80}
               style={{ width:'100%', padding:'10px 12px', borderRadius:10, border:'1px solid var(--pa-line)',
                 fontFamily:'var(--pa-body)', fontSize:14, outline:'none', boxSizing:'border-box', marginBottom:12 }} />
+            <div style={{ marginBottom:8 }}><LocationPicker compact onChange={setMGeo} placeholder="Sítio exato no mapa (opcional)" /></div>
             <div style={{ display:'flex', gap:8 }}>
               <button onClick={() => setAdding(false)} style={{ flex:1, padding:'10px', borderRadius:999, border:'1px solid var(--pa-line)', background:'transparent', cursor:'pointer', fontFamily:'var(--pa-body)', fontSize:13, fontWeight:600 }}>Cancelar</button>
-              <button onClick={handleAdd} disabled={!name.trim() || busyAdd} style={{ flex:1, padding:'10px', borderRadius:999, border:'none', background:'var(--pa-accent)', color:'#fff', cursor: name.trim() && !busyAdd?'pointer':'default', fontFamily:'var(--pa-body)', fontSize:13, fontWeight:600, opacity: name.trim() && !busyAdd?1:0.5 }}>{busyAdd ? 'A localizar…' : 'Lançar'}</button>
+              <button onClick={handleAdd} disabled={!name.trim()} style={{ flex:1, padding:'10px', borderRadius:999, border:'none', background:'var(--pa-accent)', color:'#fff', cursor: name.trim()?'pointer':'default', fontFamily:'var(--pa-body)', fontSize:13, fontWeight:600, opacity: name.trim()?1:0.5 }}>Lançar</button>
             </div>
           </div>
         )}
@@ -7801,15 +7802,11 @@ function MPhase4({ me, onLogout, onOpenChat }) {
   const [price, setPrice] = mUseState('');
   const [link, setLink] = mUseState('');
 
-  const [busyAcc, setBusyAcc] = mUseState(false);
-  const handleAdd = async () => {
-    if (!area.trim() || busyAcc) return;
-    setBusyAcc(true);
-    try {
-      const geo = await paGeocode(area.trim());
-      AppStore.addAccSuggestion({ id:'acc_'+Date.now().toString(36), type:'Casa', price:parseInt(price)||0, area:area.trim(), link, note:'', by:me.id, ...(geo ? { geo } : {}) });
-      setArea(''); setPrice(''); setLink(''); setAdding(false);
-    } finally { setBusyAcc(false); }
+  const [mAccGeo, setMAccGeo] = mUseState(null);
+  const handleAdd = () => {
+    if (!area.trim()) return;
+    AppStore.addAccSuggestion({ id:'acc_'+Date.now().toString(36), type:'Casa', price:parseInt(price)||0, area:area.trim(), link, note:'', by:me.id, ...(mAccGeo ? { geo: { lat: mAccGeo.lat, lng: mAccGeo.lng } } : {}) });
+    setArea(''); setPrice(''); setLink(''); setMAccGeo(null); setAdding(false);
   };
 
   return (
@@ -7878,6 +7875,7 @@ function MPhase4({ me, onLogout, onOpenChat }) {
               style={{ width:'100%', padding:'10px 12px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:14, outline:'none', boxSizing:'border-box', marginBottom:8 }} />
             <input value={link} onChange={(e) => setLink(e.target.value)} placeholder="Link (airbnb, booking...)"
               style={{ width:'100%', padding:'10px 12px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:14, outline:'none', boxSizing:'border-box', marginBottom:12 }} />
+            <div style={{ marginBottom:8 }}><LocationPicker compact onChange={setMAccGeo} placeholder="Casa/zona exata no mapa (opcional)" /></div>
             <div style={{ display:'flex', gap:8 }}>
               <button onClick={() => setAdding(false)} style={{ flex:1, padding:'10px', borderRadius:999, border:'1px solid var(--pa-line)', background:'transparent', cursor:'pointer', fontFamily:'var(--pa-body)', fontSize:13, fontWeight:600 }}>Cancelar</button>
               <button onClick={handleAdd} disabled={!area.trim()} style={{ flex:1, padding:'10px', borderRadius:999, border:'none', background:'var(--pa-accent)', color:'#fff', cursor: area.trim()?'pointer':'default', fontFamily:'var(--pa-body)', fontSize:13, fontWeight:600, opacity: area.trim()?1:0.5 }}>Lançar</button>
@@ -8858,6 +8856,118 @@ function LocMap({ suggestions, height = 230, membersById }) {
       React.createElement('div', { style: { padding: '6px 10px', fontFamily: 'var(--pa-body)', fontSize: 10.5, color: 'var(--pa-muted)', background: '#fff' } },
         (suggestions.length - withGeo.length) + ' sugestão(ões) sem localização no mapa — o link "ver no mapa" funciona na mesma.'));
 }
+// ─────────────────────────────────────────────────────────────
+// LocationPicker: o padrão das apps de referência (Uber, delivery, Airbnb):
+// 1) escreves e aparecem sugestões (autocomplete, sem typos);
+// 2) escolhes e o pin aparece num mini-mapa para CONFIRMAÇÃO VISUAL;
+// 3) afinas arrastando o pin ou tocando no mapa — o sítio é sempre o certo.
+// Nominatim/OSM (gratuito) com debounce ≥750ms e cancelamento de pedidos
+// pendentes, a respeitar a política de uso (1 pedido/s).
+// ─────────────────────────────────────────────────────────────
+function LocationPicker({ onChange, placeholder = 'Procurar no mapa…', compact = false }) {
+  const [query, setQuery] = React.useState('');
+  const [results, setResults] = React.useState(null); // null=idle, []=sem resultados
+  const [searching, setSearching] = React.useState(false);
+  const [picked, setPicked] = React.useState(null); // { lat, lng, label }
+  const mapEl = React.useRef(null);
+  const debRef = React.useRef(null);
+  const ctlRef = React.useRef(null);
+
+  const shortLabel = (dn) => String(dn || '').split(',').slice(0, 3).join(',');
+
+  // Autocomplete com debounce + cancelamento
+  const onType = (v) => {
+    setQuery(v);
+    if (debRef.current) clearTimeout(debRef.current);
+    if (ctlRef.current) { try { ctlRef.current.abort(); } catch (e) {} }
+    if (v.trim().length < 3) { setResults(null); setSearching(false); return; }
+    setSearching(true);
+    debRef.current = setTimeout(async () => {
+      const ctl = new AbortController();
+      ctlRef.current = ctl;
+      try {
+        const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=5&q=' + encodeURIComponent(v.trim());
+        const res = await fetch(url, { signal: ctl.signal, headers: { 'Accept': 'application/json' } });
+        const arr = res.ok ? await res.json() : [];
+        setResults(Array.isArray(arr) ? arr.filter((r) => isFinite(parseFloat(r.lat))) : []);
+      } catch (e) { if (e.name !== 'AbortError') setResults([]); }
+      finally { setSearching(false); }
+    }, 750);
+  };
+
+  const choose = (r) => {
+    const p = { lat: parseFloat(r.lat), lng: parseFloat(r.lon), label: shortLabel(r.display_name) };
+    setPicked(p);
+    setResults(null);
+    setQuery('');
+    if (onChange) onChange(p);
+  };
+  const move = (lat, lng) => {
+    setPicked((prev) => {
+      const p = { ...(prev || {}), lat, lng, adjusted: true };
+      if (onChange) onChange(p);
+      return p;
+    });
+  };
+  const clear = () => { setPicked(null); setResults(null); setQuery(''); if (onChange) onChange(null); };
+
+  // Mini-mapa de confirmação: pin arrastável + toque no mapa move
+  React.useEffect(() => {
+    if (!picked || !window.L || !mapEl.current) return;
+    const L = window.L;
+    const map = L.map(mapEl.current, { scrollWheelZoom: false }).setView([picked.lat, picked.lng], 14);
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '&copy; OpenStreetMap' }).addTo(map);
+    const mk = L.marker([picked.lat, picked.lng], { draggable: true }).addTo(map);
+    mk.on('dragend', () => { const ll = mk.getLatLng(); move(ll.lat, ll.lng); });
+    map.on('click', (e) => { mk.setLatLng(e.latlng); move(e.latlng.lat, e.latlng.lng); });
+    return () => { try { map.remove(); } catch (e) {} };
+  }, [picked ? 'on' : 'off']); // monta/desmonta; o marker segue os ajustes sem reinit
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+      {!picked && (
+        <div style={{ position:'relative' }}>
+          <input value={query} onChange={(e) => onType(e.target.value)} placeholder={'📍 ' + placeholder} maxLength={80}
+            style={{ width:'100%', boxSizing:'border-box', padding: compact ? '9px 12px' : '11px 14px', borderRadius:12,
+              border:'1px solid var(--pa-line)', background:'#fff', fontFamily:'var(--pa-body)',
+              fontSize: compact ? 13 : 14, color:'var(--pa-ink)', outline:'none' }} />
+          {searching && <span style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)', fontFamily:'var(--pa-body)', fontSize:11, color:'var(--pa-muted)' }}>a procurar…</span>}
+          {results !== null && (
+            <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:30, marginTop:4, background:'#fff',
+              border:'1px solid var(--pa-line)', borderRadius:12, boxShadow:'0 8px 24px rgba(0,0,0,0.12)', overflow:'hidden' }}>
+              {results.length === 0 && (
+                <div style={{ padding:'10px 14px', fontFamily:'var(--pa-body)', fontSize:12.5, color:'var(--pa-muted)' }}>
+                  Sem resultados — tenta acrescentar a terra ou concelho.
+                </div>
+              )}
+              {results.map((r, i) => (
+                <button key={i} onClick={() => choose(r)} style={{ display:'block', width:'100%', textAlign:'left',
+                  padding:'10px 14px', border:'none', borderTop: i ? '1px solid var(--pa-line)' : 'none',
+                  background:'#fff', cursor:'pointer', fontFamily:'var(--pa-body)', fontSize:12.5, color:'var(--pa-ink)' }}>
+                  📍 {shortLabel(r.display_name)}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {picked && (
+        <div style={{ borderRadius:12, overflow:'hidden', border:'1px solid var(--pa-accent)' }}>
+          <div ref={mapEl} style={{ height: compact ? 150 : 180, width:'100%', background:'#e8e4dc' }} />
+          <div style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 10px', background:'#fff' }}>
+            <span style={{ flex:1, fontFamily:'var(--pa-body)', fontSize:11.5, color:'var(--pa-muted)', minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+              📍 {picked.label || 'ponto escolhido'}{picked.adjusted ? ' (afinado à mão)' : ''} — arrasta o pino ou toca no mapa para afinar
+            </span>
+            <button onClick={clear} aria-label="Limpar localização"
+              style={{ border:'none', background:'transparent', color:'var(--pa-muted)', cursor:'pointer', fontSize:14, padding:0 }}>×</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+Object.assign(window, { LocationPicker });
+
 // Mapa da viagem (fase 8): estadia + local vencedores (automático) e pontos
 // de interesse adicionados pelo grupo. Pins coloridos: laranja=local,
 // escuro=estadia, verde=pontos de interesse.
@@ -8866,7 +8976,6 @@ function TripMap({ me }) {
   const plan = AppStore.getPlanning();
   const pois = plan.pois || [];
   const [name, setName] = React.useState('');
-  const [busy, setBusy] = React.useState(false);
   const ref = React.useRef(null);
 
   // Pins automáticos: local e alojamento vencedores (se geocodificados)
@@ -8876,6 +8985,7 @@ function TripMap({ me }) {
   if (locWin && locWin.geo) pins.push({ id:'win-loc', kind:'local', color:'#d97757', name: locWin.name, sub: locWin.city || '', geo: locWin.geo });
   if (accWin && accWin.geo) pins.push({ id:'win-acc', kind:'estadia', color:'#1f1a14', name: (accWin.type ? accWin.type + ' em ' : '') + (accWin.area || ''), sub:'a vossa estadia', geo: accWin.geo });
   pois.forEach((p) => { if (p.geo) pins.push({ id:p.id, kind:'interesse', color:'#31a24c', name:p.name, sub:'', geo:p.geo }); });
+  (plan.activities || []).forEach((a) => { if (a.geo) pins.push({ id:a.id, kind:'atividade', color:'#4a7fb5', name:a.text, sub:'atividade planeada', geo:a.geo }); });
 
   React.useEffect(() => {
     if (!window.L || !ref.current || pins.length === 0) return;
@@ -8889,19 +8999,13 @@ function TripMap({ me }) {
     return () => { try { map.remove(); } catch (e) {} };
   }, [pins.map((p) => p.id + ':' + p.geo.lat).join(',')]);
 
-  const addPoi = async () => {
+  const [poiGeo, setPoiGeo] = React.useState(null);
+  const [pickerKey, setPickerKey] = React.useState(0); // reset do picker após adicionar
+  const addPoi = () => {
     const n = name.trim();
-    if (!n || busy) return;
-    setBusy(true);
-    try {
-      const geo = await paGeocode(n);
-      if (!geo) {
-        if (window._paToast) window._paToast('Não encontrei esse sítio no mapa — tenta com a terra ao lado (ex: "Miradouro X, Gerês").', 'error');
-        return;
-      }
-      AppStore.updatePlanning((p) => ({ ...p, pois: [ ...(p.pois || []), { id:'poi_' + Date.now().toString(36), name: n.slice(0, 60), geo, by: me.id } ] }));
-      setName('');
-    } finally { setBusy(false); }
+    if (!n || !poiGeo) return;
+    AppStore.updatePlanning((p) => ({ ...p, pois: [ ...(p.pois || []), { id:'poi_' + Date.now().toString(36), name: n.slice(0, 60), geo: { lat: poiGeo.lat, lng: poiGeo.lng }, by: me.id } ] }));
+    setName(''); setPoiGeo(null); setPickerKey((k) => k + 1);
   };
   const removePoi = (poi) => {
     if (!window.confirm(`Tirar "${poi.name}" do mapa?`)) return;
@@ -8914,7 +9018,7 @@ function TripMap({ me }) {
         <div style={{ borderRadius:14, overflow:'hidden', border:'1px solid var(--pa-line)' }}>
           <div ref={ref} style={{ height:260, width:'100%', background:'#e8e4dc' }} />
           <div style={{ display:'flex', gap:12, flexWrap:'wrap', padding:'7px 12px', background:'#fff', fontFamily:'var(--pa-body)', fontSize:11, color:'var(--pa-muted)' }}>
-            <span>🟠 local</span><span>⚫ estadia</span><span>🟢 pontos de interesse</span>
+            <span>🟠 local</span><span>⚫ estadia</span><span>🟢 pontos de interesse</span><span>🔵 atividades</span>
           </div>
         </div>
       ) : (
@@ -8923,12 +9027,14 @@ function TripMap({ me }) {
         </div>
       )}
 
-      <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-        <input value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addPoi(); }}
-          placeholder="Praia, restaurante, miradouro… (nome + terra ajuda)" maxLength={60}
-          style={{ flex:1, minWidth:160, padding:'11px 14px', borderRadius:12, border:'1px solid var(--pa-line)', background:'#fff',
+      <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+        <input value={name} onChange={(e) => setName(e.target.value)}
+          placeholder="Nome do ponto: praia, restaurante, miradouro…" maxLength={60}
+          style={{ width:'100%', boxSizing:'border-box', padding:'11px 14px', borderRadius:12, border:'1px solid var(--pa-line)', background:'#fff',
             fontFamily:'var(--pa-body)', fontSize:14, color:'var(--pa-ink)', outline:'none' }} />
-        <Btn variant="accent" size="sm" onClick={addPoi} disabled={busy || !name.trim()}>{busy ? 'A localizar…' : '+ Ponto'}</Btn>
+        <LocationPicker key={pickerKey} compact onChange={setPoiGeo} placeholder="Procura e confirma o pino no mapa" />
+        <Btn variant="accent" size="sm" onClick={addPoi} disabled={!name.trim() || !poiGeo}
+          title={!poiGeo ? 'Escolhe primeiro o sítio no mapa' : ''}>+ Adicionar ao mapa</Btn>
       </div>
 
       {pois.length > 0 && (
