@@ -2475,7 +2475,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r46';
+window.PA_VERSION = '2026.06.01-r47';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -5639,7 +5639,7 @@ function LocSuggestionForm({ onCancel, onSubmit }) {
       </div>
 <div style={{ display:'flex', justifyContent:'flex-end', gap:8 }}>
         <Btn variant="ghost" size="sm" onClick={onCancel}>Cancelar</Btn>
-        <Btn variant="accent" size="sm" onClick={() => onSubmit({ name:name.trim(), city:city.trim(), tags, ...(geo ? { geo: { lat: geo.lat, lng: geo.lng } } : {}) })} disabled={!ok}>Lançar</Btn>
+        <Btn variant="accent" size="sm" onClick={() => onSubmit({ name:name.trim(), city:city.trim(), tags, ...(geo ? { geo: { lat: geo.lat, lng: geo.lng }, ...(geo.zone ? { zone: geo.zone } : {}) } : {}) })} disabled={!ok}>Lançar</Btn>
       </div>
     </div>
   );
@@ -5976,7 +5976,7 @@ function AccommodationForm({ onCancel, onSubmit }) {
       </div>
 <div style={{ display:'flex', justifyContent:'flex-end', gap:8 }}>
         <Btn variant="ghost" size="sm" onClick={onCancel}>Cancelar</Btn>
-        <Btn variant="accent" size="sm" onClick={() => onSubmit({ type, price: parseInt(price)||0, area, link, note, ...(accGeo ? { geo: { lat: accGeo.lat, lng: accGeo.lng } } : {}) })} disabled={!ok}>Lançar</Btn>
+        <Btn variant="accent" size="sm" onClick={() => onSubmit({ type, price: parseInt(price)||0, area, link, note, ...(accGeo ? { geo: { lat: accGeo.lat, lng: accGeo.lng }, ...(accGeo.zone ? { zone: accGeo.zone } : {}) } : {}) })} disabled={!ok}>Lançar</Btn>
       </div>
     </div>
   );
@@ -7106,7 +7106,7 @@ function PlanAtividades({ me }) {
 
   const add = async () => {
     if (!text.trim()) return;
-    const newA = { id:'act_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6), text:text.trim(), by:me?.id, done:false, at:Date.now(), ...(actGeo ? { geo: { lat: actGeo.lat, lng: actGeo.lng } } : {}) };
+    const newA = { id:'act_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6), text:text.trim(), by:me?.id, done:false, at:Date.now(), ...(actGeo ? { geo: { lat: actGeo.lat, lng: actGeo.lng }, ...(actGeo.zone ? { zone: actGeo.zone } : {}) } : {}) };
     await AppStore.updatePlanning(p => ({ ...p, activities:[...((p.activities)||[]), newA] }));
     setText(''); setActGeo(null); setActPickerKey((k) => k + 1);
   };
@@ -7604,7 +7604,7 @@ function MPhase2({ me, onLogout, onOpenChat }) {
   const [mGeo, setMGeo] = mUseState(null); // do LocationPicker (pino confirmado)
   const handleAdd = () => {
     if (!name.trim()) return;
-    AppStore.addLocSuggestion({ id:'loc_'+Date.now().toString(36), name:name.trim(), city:city.trim(), tags:[], accent:'var(--pa-accent)', by:me.id, ...(mGeo ? { geo: { lat: mGeo.lat, lng: mGeo.lng } } : {}) });
+    AppStore.addLocSuggestion({ id:'loc_'+Date.now().toString(36), name:name.trim(), city:city.trim(), tags:[], accent:'var(--pa-accent)', by:me.id, ...(mGeo ? { geo: { lat: mGeo.lat, lng: mGeo.lng }, ...(mGeo.zone ? { zone: mGeo.zone } : {}) } : {}) });
     setName(''); setCity(''); setMGeo(null); setAdding(false);
   };
 
@@ -7805,7 +7805,7 @@ function MPhase4({ me, onLogout, onOpenChat }) {
   const [mAccGeo, setMAccGeo] = mUseState(null);
   const handleAdd = () => {
     if (!area.trim()) return;
-    AppStore.addAccSuggestion({ id:'acc_'+Date.now().toString(36), type:'Casa', price:parseInt(price)||0, area:area.trim(), link, note:'', by:me.id, ...(mAccGeo ? { geo: { lat: mAccGeo.lat, lng: mAccGeo.lng } } : {}) });
+    AppStore.addAccSuggestion({ id:'acc_'+Date.now().toString(36), type:'Casa', price:parseInt(price)||0, area:area.trim(), link, note:'', by:me.id, ...(mAccGeo ? { geo: { lat: mAccGeo.lat, lng: mAccGeo.lng }, ...(mAccGeo.zone ? { zone: mAccGeo.zone } : {}) } : {}) });
     setArea(''); setPrice(''); setLink(''); setMAccGeo(null); setAdding(false);
   };
 
@@ -8813,6 +8813,20 @@ async function paGeocode(query) {
 }
 function paMapsUrl(q) { return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q || ''); }
 
+// Estética dos mapas: CARTO Voyager — tons quentes e limpos que assentam na
+// paleta da app; gratuito, sem chave, com suporte retina ({r}).
+function paTileLayer(L) {
+  return L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    maxZoom: 19, subdomains: 'abcd',
+    attribution: '&copy; OpenStreetMap &copy; CARTO',
+  });
+}
+// Zona sombreada (regiões: distrito/concelho/freguesia) com o accent da app.
+function paZoneLayer(L, zone) {
+  return L.geoJSON(zone, { style: { color: '#d97757', weight: 2, fillColor: '#d97757', fillOpacity: 0.18, dashArray: '4 3' } });
+}
+Object.assign(window, { paTileLayer, paZoneLayer });
+
 // Link discreto "ver no mapa" para qualquer sugestão (Google Maps, custo zero).
 function MapLink({ query, style }) {
   if (!query) return null;
@@ -8835,20 +8849,20 @@ function LocMap({ suggestions, height = 230, membersById }) {
     const L = window.L;
     const map = L.map(ref.current, { scrollWheelZoom: false, attributionControl: true });
     mapRef.current = map;
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 18, attribution: '&copy; OpenStreetMap',
-    }).addTo(map);
-    const markers = withGeo.map((s) => {
+    paTileLayer(L).addTo(map);
+    const layers = withGeo.map((s) => {
       const by = membersById ? membersById(s.by) : null;
       const label = `<b>${(s.name || s.area || '').replace(/</g,'&lt;')}</b>` +
         (s.city ? `<br/>${String(s.city).replace(/</g,'&lt;')}` : '') +
         (by ? `<br/><span style="opacity:0.7">sugerido por ${String(by.name).replace(/</g,'&lt;')}</span>` : '');
-      return L.marker([s.geo.lat, s.geo.lng]).addTo(map).bindPopup(label);
+      // Regiões (Alentejo, Comporta…) aparecem como ZONA sombreada; sítios exatos como pino.
+      const layer = s.zone ? paZoneLayer(L, s.zone) : L.marker([s.geo.lat, s.geo.lng]);
+      return layer.addTo(map).bindPopup(label);
     });
-    const grp = L.featureGroup(markers);
-    map.fitBounds(grp.getBounds().pad(0.3), { maxZoom: 11 });
+    const grp = L.featureGroup(layers);
+    try { map.fitBounds(grp.getBounds().pad(0.15), { maxZoom: 11 }); } catch (e) { map.setView([withGeo[0].geo.lat, withGeo[0].geo.lng], 9); }
     return () => { try { map.remove(); } catch (e) {} mapRef.current = null; };
-  }, [withGeo.map((s) => s.id + ':' + s.geo.lat).join(',')]);
+  }, [withGeo.map((s) => s.id + ':' + s.geo.lat + (s.zone ? 'z' : '')).join(',')]);
   if (withGeo.length === 0) return null;
   return React.createElement('div', { style: { borderRadius: 14, overflow: 'hidden', border: '1px solid var(--pa-line)', marginBottom: 14 } },
     React.createElement('div', { ref, style: { height, width: '100%', background: '#e8e4dc' } }),
@@ -8886,7 +8900,9 @@ function LocationPicker({ onChange, placeholder = 'Procurar no mapa…', compact
       const ctl = new AbortController();
       ctlRef.current = ctl;
       try {
-        const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=5&q=' + encodeURIComponent(v.trim());
+        // polygon_geojson simplificado: regiões (Alentejo, Comporta…) vêm com a
+        // forma da zona em poucos KB, em vez de um simples ponto no centro.
+        const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=5&polygon_geojson=1&polygon_threshold=0.015&q=' + encodeURIComponent(v.trim());
         const res = await fetch(url, { signal: ctl.signal, headers: { 'Accept': 'application/json' } });
         const arr = res.ok ? await res.json() : [];
         setResults(Array.isArray(arr) ? arr.filter((r) => isFinite(parseFloat(r.lat))) : []);
@@ -8897,6 +8913,14 @@ function LocationPicker({ onChange, placeholder = 'Procurar no mapa…', compact
 
   const choose = (r) => {
     const p = { lat: parseFloat(r.lat), lng: parseFloat(r.lon), label: shortLabel(r.display_name) };
+    // Se o resultado é uma REGIÃO (tem polígono), guardamos a forma sombreada —
+    // com teto de peso (25KB) para nunca inchar a base de dados.
+    const gj = r.geojson;
+    if (gj && (gj.type === 'Polygon' || gj.type === 'MultiPolygon')) {
+      // Teto de 12KB por zona: o data da edição viaja no polling — zonas leves
+      // (simplificadas) mantêm a forma reconhecível sem pesar na rede/BD grátis.
+      try { if (JSON.stringify(gj).length <= 12 * 1024) p.zone = gj; } catch (e) {}
+    }
     setPicked(p);
     setResults(null);
     setQuery('');
@@ -8915,13 +8939,20 @@ function LocationPicker({ onChange, placeholder = 'Procurar no mapa…', compact
   React.useEffect(() => {
     if (!picked || !window.L || !mapEl.current) return;
     const L = window.L;
-    const map = L.map(mapEl.current, { scrollWheelZoom: false }).setView([picked.lat, picked.lng], 14);
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '&copy; OpenStreetMap' }).addTo(map);
-    const mk = L.marker([picked.lat, picked.lng], { draggable: true }).addTo(map);
-    mk.on('dragend', () => { const ll = mk.getLatLng(); move(ll.lat, ll.lng); });
-    map.on('click', (e) => { mk.setLatLng(e.latlng); move(e.latlng.lat, e.latlng.lng); });
+    const map = L.map(mapEl.current, { scrollWheelZoom: false });
+    paTileLayer(L).addTo(map);
+    if (picked.zone) {
+      // Região: mostra a ZONA sombreada — não há pino para arrastar.
+      const layer = paZoneLayer(L, picked.zone).addTo(map);
+      try { map.fitBounds(layer.getBounds().pad(0.08)); } catch (e) { map.setView([picked.lat, picked.lng], 9); }
+    } else {
+      map.setView([picked.lat, picked.lng], 14);
+      const mk = L.marker([picked.lat, picked.lng], { draggable: true }).addTo(map);
+      mk.on('dragend', () => { const ll = mk.getLatLng(); move(ll.lat, ll.lng); });
+      map.on('click', (e) => { mk.setLatLng(e.latlng); move(e.latlng.lat, e.latlng.lng); });
+    }
     return () => { try { map.remove(); } catch (e) {} };
-  }, [picked ? 'on' : 'off']); // monta/desmonta; o marker segue os ajustes sem reinit
+  }, [picked ? (picked.zone ? 'zone' : 'pin') : 'off']); // monta/desmonta; o marker segue os ajustes sem reinit
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
@@ -8933,8 +8964,8 @@ function LocationPicker({ onChange, placeholder = 'Procurar no mapa…', compact
               fontSize: compact ? 13 : 14, color:'var(--pa-ink)', outline:'none' }} />
           {searching && <span style={{ position:'absolute', right:12, top:'50%', transform:'translateY(-50%)', fontFamily:'var(--pa-body)', fontSize:11, color:'var(--pa-muted)' }}>a procurar…</span>}
           {results !== null && (
-            <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:30, marginTop:4, background:'#fff',
-              border:'1px solid var(--pa-line)', borderRadius:12, boxShadow:'0 8px 24px rgba(0,0,0,0.12)', overflow:'hidden' }}>
+            <div className="pa-scroll" style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:60, marginTop:4, background:'#fff',
+              border:'1px solid var(--pa-line)', borderRadius:12, boxShadow:'0 8px 24px rgba(0,0,0,0.12)', maxHeight:220, overflowY:'auto' }}>
               {results.length === 0 && (
                 <div style={{ padding:'10px 14px', fontFamily:'var(--pa-body)', fontSize:12.5, color:'var(--pa-muted)' }}>
                   Sem resultados — tenta acrescentar a terra ou concelho.
@@ -8956,7 +8987,9 @@ function LocationPicker({ onChange, placeholder = 'Procurar no mapa…', compact
           <div ref={mapEl} style={{ height: compact ? 150 : 180, width:'100%', background:'#e8e4dc' }} />
           <div style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 10px', background:'#fff' }}>
             <span style={{ flex:1, fontFamily:'var(--pa-body)', fontSize:11.5, color:'var(--pa-muted)', minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-              📍 {picked.label || 'ponto escolhido'}{picked.adjusted ? ' (afinado à mão)' : ''} — arrasta o pino ou toca no mapa para afinar
+              {picked.zone
+                ? <>🗺 Zona selecionada — {picked.label || 'região'} (fica sombreada no mapa)</>
+                : <>📍 {picked.label || 'ponto escolhido'}{picked.adjusted ? ' (afinado à mão)' : ''} — arrasta o pino ou toca no mapa para afinar</>}
             </span>
             <button onClick={clear} aria-label="Limpar localização"
               style={{ border:'none', background:'transparent', color:'var(--pa-muted)', cursor:'pointer', fontSize:14, padding:0 }}>×</button>
@@ -8982,29 +9015,38 @@ function TripMap({ me }) {
   const locWin = (appData.locSuggs || []).find((s) => s.id === appData.locWinner);
   const accWin = (appData.accSuggs || []).find((s) => s.id === appData.accWinner);
   const pins = [];
-  if (locWin && locWin.geo) pins.push({ id:'win-loc', kind:'local', color:'#d97757', name: locWin.name, sub: locWin.city || '', geo: locWin.geo });
-  if (accWin && accWin.geo) pins.push({ id:'win-acc', kind:'estadia', color:'#1f1a14', name: (accWin.type ? accWin.type + ' em ' : '') + (accWin.area || ''), sub:'a vossa estadia', geo: accWin.geo });
-  pois.forEach((p) => { if (p.geo) pins.push({ id:p.id, kind:'interesse', color:'#31a24c', name:p.name, sub:'', geo:p.geo }); });
-  (plan.activities || []).forEach((a) => { if (a.geo) pins.push({ id:a.id, kind:'atividade', color:'#4a7fb5', name:a.text, sub:'atividade planeada', geo:a.geo }); });
+  if (locWin && locWin.geo) pins.push({ id:'win-loc', kind:'local', color:'#d97757', name: locWin.name, sub: locWin.city || '', geo: locWin.geo, zone: locWin.zone });
+  if (accWin && accWin.geo) pins.push({ id:'win-acc', kind:'estadia', color:'#1f1a14', name: (accWin.type ? accWin.type + ' em ' : '') + (accWin.area || ''), sub:'a vossa estadia', geo: accWin.geo, zone: accWin.zone });
+  pois.forEach((p) => { if (p.geo) pins.push({ id:p.id, kind:'interesse', color:'#31a24c', name:p.name, sub:'', geo:p.geo, zone:p.zone }); });
+  (plan.activities || []).forEach((a) => { if (a.geo) pins.push({ id:a.id, kind:'atividade', color:'#4a7fb5', name:a.text, sub:'atividade planeada', geo:a.geo, zone:a.zone }); });
 
   React.useEffect(() => {
-    if (!window.L || !ref.current || pins.length === 0) return;
+    if (!window.L || !ref.current) return;
     const L = window.L;
     const map = L.map(ref.current, { scrollWheelZoom: false });
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '&copy; OpenStreetMap' }).addTo(map);
-    const ms = pins.map((p) => L.circleMarker([p.geo.lat, p.geo.lng], {
-      radius: 9, color: '#fff', weight: 2, fillColor: p.color, fillOpacity: 1,
-    }).addTo(map).bindPopup(`<b>${String(p.name).replace(/</g,'&lt;')}</b>${p.sub ? '<br/>' + String(p.sub).replace(/</g,'&lt;') : ''}`));
-    map.fitBounds(L.featureGroup(ms).getBounds().pad(0.3), { maxZoom: 13 });
+    paTileLayer(L).addTo(map);
+    if (pins.length === 0) {
+      // Sem pontos ainda: o mapa aparece na mesma, centrado em Portugal.
+      map.setView([39.6, -8.0], 6);
+    } else {
+      const ms = pins.map((p) => {
+        const popup = `<b>${String(p.name).replace(/</g,'&lt;')}</b>${p.sub ? '<br/>' + String(p.sub).replace(/</g,'&lt;') : ''}`;
+        const layer = p.zone
+          ? paZoneLayer(L, p.zone)
+          : L.circleMarker([p.geo.lat, p.geo.lng], { radius: 9, color: '#fff', weight: 2, fillColor: p.color, fillOpacity: 1 });
+        return layer.addTo(map).bindPopup(popup);
+      });
+      try { map.fitBounds(L.featureGroup(ms).getBounds().pad(0.2), { maxZoom: 13 }); } catch (e) { map.setView([pins[0].geo.lat, pins[0].geo.lng], 10); }
+    }
     return () => { try { map.remove(); } catch (e) {} };
-  }, [pins.map((p) => p.id + ':' + p.geo.lat).join(',')]);
+  }, [pins.map((p) => p.id + ':' + p.geo.lat + (p.zone ? 'z' : '')).join(',')]);
 
   const [poiGeo, setPoiGeo] = React.useState(null);
   const [pickerKey, setPickerKey] = React.useState(0); // reset do picker após adicionar
   const addPoi = () => {
     const n = name.trim();
     if (!n || !poiGeo) return;
-    AppStore.updatePlanning((p) => ({ ...p, pois: [ ...(p.pois || []), { id:'poi_' + Date.now().toString(36), name: n.slice(0, 60), geo: { lat: poiGeo.lat, lng: poiGeo.lng }, by: me.id } ] }));
+    AppStore.updatePlanning((p) => ({ ...p, pois: [ ...(p.pois || []), { id:'poi_' + Date.now().toString(36), name: n.slice(0, 60), geo: { lat: poiGeo.lat, lng: poiGeo.lng }, ...(poiGeo.zone ? { zone: poiGeo.zone } : {}), by: me.id } ] }));
     setName(''); setPoiGeo(null); setPickerKey((k) => k + 1);
   };
   const removePoi = (poi) => {
@@ -9014,18 +9056,14 @@ function TripMap({ me }) {
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-      {pins.length > 0 ? (
-        <div style={{ borderRadius:14, overflow:'hidden', border:'1px solid var(--pa-line)' }}>
-          <div ref={ref} style={{ height:260, width:'100%', background:'#e8e4dc' }} />
-          <div style={{ display:'flex', gap:12, flexWrap:'wrap', padding:'7px 12px', background:'#fff', fontFamily:'var(--pa-body)', fontSize:11, color:'var(--pa-muted)' }}>
-            <span>🟠 local</span><span>⚫ estadia</span><span>🟢 pontos de interesse</span><span>🔵 atividades</span>
-          </div>
+      <div style={{ borderRadius:14, overflow:'hidden', border:'1px solid var(--pa-line)' }}>
+        <div ref={ref} style={{ height:260, width:'100%', background:'#eee9df' }} />
+        <div style={{ display:'flex', gap:12, flexWrap:'wrap', padding:'7px 12px', background:'#fff', fontFamily:'var(--pa-body)', fontSize:11, color:'var(--pa-muted)' }}>
+          {pins.length > 0
+            ? <><span>🟠 local</span><span>⚫ estadia</span><span>🟢 pontos de interesse</span><span>🔵 atividades</span></>
+            : <span>O local e a estadia vencedores aparecem aqui automaticamente — e podes juntar pontos de interesse já.</span>}
         </div>
-      ) : (
-        <div style={{ fontFamily:'var(--pa-body)', fontSize:13, color:'var(--pa-muted)', textAlign:'center', padding:'14px 0' }}>
-          O mapa ganha vida à medida que adicionas pontos de interesse — e o local e a estadia vencedores aparecem automaticamente.
-        </div>
-      )}
+      </div>
 
       <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
         <input value={name} onChange={(e) => setName(e.target.value)}
