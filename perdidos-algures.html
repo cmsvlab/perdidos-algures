@@ -109,6 +109,8 @@
 <!-- Supabase JS v2 -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="anonymous" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
@@ -232,7 +234,7 @@ window.PA_DATA = {
   phase8: {
     tripStart: null, tripEnd: null, dayCount: 0,
     costs: { perPerson: 0, breakdown: [], paid: {} },
-    itinerary: [], activities: [], shopping: [],
+    itinerary: [], activities: [], shopping: [], packing: [],
   },
 
   history: [],
@@ -2473,7 +2475,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r41';
+window.PA_VERSION = '2026.06.01-r44';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -3196,6 +3198,16 @@ const AppStore = {
     await this._set('avail', avail);
   },
 
+  // Modo de votação da fase (single | points). Mudar de modo RECOMEÇA a
+  // votação (limpa votos e vencedor) — misturar votos de modos diferentes
+  // daria contagens sem sentido.
+  async setVoteMode(kind, mode) {
+    const isAcc = kind === 'acc';
+    await this._set(isAcc ? 'accVotes' : 'locVotes', {});
+    await this.clearKey(isAcc ? 'accWinner' : 'locWinner');
+    await this._set(isAcc ? 'accVoteMode' : 'locVoteMode', mode);
+  },
+
   // Reset pessoal: remover o próprio voto (volta a "por votar").
   async clearVote(uid, kind) {
     const key = kind === 'acc' ? 'accVotes' : 'locVotes';
@@ -3211,12 +3223,24 @@ const AppStore = {
   async _cleanupOrphanVotes(votesKey, winnerKey, removedId) {
     const d = this._cache();
     const votes = d[votesKey] || {};
-    const orphans = Object.keys(votes).filter((uid) => votes[uid] === removedId);
-    if (orphans.length) {
-      const v = { ...votes };
-      orphans.forEach((uid) => { delete v[uid]; });
-      await this._set(votesKey, v);
+    // Suporta voto simples (string) e Top 3 (array): remove o id apagado do
+    // voto; se a lista ficar vazia, a pessoa volta a "por votar".
+    const v = { ...votes };
+    let changed = false;
+    for (const uid of Object.keys(v)) {
+      const val = v[uid];
+      if (Array.isArray(val)) {
+        if (val.includes(removedId)) {
+          const rest = val.filter((x) => x !== removedId);
+          if (rest.length) v[uid] = rest; else delete v[uid];
+          changed = true;
+        }
+      } else if (val === removedId) {
+        delete v[uid];
+        changed = true;
+      }
     }
+    if (changed) await this._set(votesKey, v);
     if (d[winnerKey] === removedId) await this.clearKey(winnerKey);
   },
 
@@ -3245,14 +3269,14 @@ const AppStore = {
   },
 
   // ── Planeamento ──
-  getPlanning() { return this._cache().planData || { costs:{perPerson:0,breakdown:[],paid:{}}, itinerary:[],activities:[],shopping:[] }; },
+  getPlanning() { return this._cache().planData || { costs:{perPerson:0,breakdown:[],paid:{}}, itinerary:[],activities:[],shopping:[],packing:[] }; },
   async setPlanning(p) { await this._set('planData',p); },
   // Atualização segura do planeamento via função transformadora (read-modify-write).
   // Reduz drasticamente a janela de race quando vários editam custos/itinerário em simultâneo.
   async updatePlanning(transformFn) {
     const ed = EditionStore.active();
     if (!ed) return;
-    const emptyPlan = { costs:{ perPerson:0, breakdown:[], paid:{} }, itinerary:[], activities:[], shopping:[] };
+    const emptyPlan = { costs:{ perPerson:0, breakdown:[], paid:{} }, itinerary:[], activities:[], shopping:[], packing:[] };
     // Optimistic local
     const localPlan = this.getPlanning();
     _appCache = { ...(this._cache()), planData: transformFn(localPlan) };
@@ -5244,6 +5268,11 @@ function DLeftRail({ phase, me }) {
           ))}
         </div>
       )}
+
+      <button onClick={() => paOpenBugReport()} style={{ marginTop:14, border:'none', background:'transparent', cursor:'pointer',
+        fontFamily:'var(--pa-mono)', fontSize:9.5, color:'var(--pa-muted)', textDecoration:'underline', padding:0, textAlign:'left', opacity:0.7 }}>
+        🐞 reportar um problema
+      </button>
     </div>
   );
 }
@@ -5479,13 +5508,21 @@ function DPhase2({ me }) {
   const limit = D.phase2.perPersonLimit;
   const [adding, setAdding] = dUseState(false);
 
-  const handleAdd = ({ name, city, tags, accent }) => {
-    AppStore.addLocSuggestion({
-      id: 'loc_' + Date.now().toString(36),
-      name, city, tags: tags || [], accent: accent || 'var(--pa-accent)',
-      by: me.id,
-    });
-    setAdding(false);
+  const addBusyRef = React.useRef(false);
+  const handleAdd = async ({ name, city, tags, accent }) => {
+    if (addBusyRef.current) return; // evita duplicados durante o geocoding
+    addBusyRef.current = true;
+    try {
+      // Geocodifica primeiro (rápido, com timeout); se falhar, a sugestão entra sem mapa.
+      const geo = await paGeocode([name, city].filter(Boolean).join(', '));
+      AppStore.addLocSuggestion({
+        id: 'loc_' + Date.now().toString(36),
+        name, city, tags: tags || [], accent: accent || 'var(--pa-accent)',
+        by: me.id,
+        ...(geo ? { geo } : {}),
+      });
+      setAdding(false);
+    } finally { addBusyRef.current = false; }
   };
 
   return (
@@ -5622,9 +5659,22 @@ function DPhase3({ me }) {
 
   const inMembers = (typeof getInMembers === 'function') ? getInMembers(appData) : [];
 
+  const voteMode = appData.locVoteMode || 'single';
+  const myList = paVoteList(vote);
   const handleVote = (id) => {
-    setVote(id);
-    VoteStore.setVote(me.id, 'loc', id);
+    if (voteMode === 'points') {
+      const cur = paVoteList(vote);
+      let next;
+      if (cur.includes(id)) next = cur.filter((x) => x !== id);
+      else if (cur.length < 3) next = [...cur, id];
+      else { if (window._paToast) window._paToast('Já tens 3 escolhas — toca numa para a trocar.', 'info'); return; }
+      if (next.length === 0) { setVote(null); VoteStore.clearVote(me.id, 'loc'); return; }
+      setVote(next);
+      VoteStore.setVote(me.id, 'loc', next);
+    } else {
+      setVote(id);
+      VoteStore.setVote(me.id, 'loc', id);
+    }
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -5650,21 +5700,33 @@ function DPhase3({ me }) {
     <div className="pa-scroll" style={{ flex:1, minHeight:0, padding:'32px 36px', display:'flex', flexDirection:'column', overflow:'auto' }}>
       <DPhaseHeader phase={5} status="A decorrer" statusTone="accent"
         title={<>Vota no teu<br/><span style={{ color:'var(--pa-accent)' }}>sítio favorito.</span></>}
-        sub="Voto secreto. Um por pessoa." />
+        sub={voteMode === 'points' ? 'Voto secreto. Escolhe até 3 por ordem: 1º vale 3 pontos, 2º vale 2, 3º vale 1.' : 'Voto secreto. Um por pessoa.'} />
+
+      <LocMap suggestions={suggestions} height={240} membersById={(id) => (typeof memberById === 'function' ? memberById(id) : null)} />
 
       <div style={{ marginBottom:18 }}>
-        <VotersRow doneIds={Object.keys(votes)} allMembers={inMembers} label="Já votaram" />
+        <VotersRow doneIds={Object.keys(votes).filter((id) => paVoteList(votes[id]).length > 0)} allMembers={inMembers} label="Já votaram" />
       </div>
 
       <div style={{ display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:14, marginBottom:8 }}>
         {suggestions.map((s) => {
           const by = memberById(s.by) || { name:s.by, color:'var(--pa-muted)', initials:'?' };
-          const sel = vote === s.id;
+          const sel = voteMode === 'points' ? myList.includes(s.id) : vote === s.id;
+          const rank = voteMode === 'points' ? myList.indexOf(s.id) : -1;
           return (
-            <button key={s.id} onClick={() => handleVote(s.id)} style={{
+            <button key={s.id} onClick={() => handleVote(s.id)} style={{ position:'relative',
               background:'#fff', borderRadius:14, overflow:'hidden', textAlign:'left',
               border: sel?'2px solid var(--pa-accent)':'1px solid var(--pa-line)',
+              
               cursor:'pointer', padding:0, position:'relative' }}>
+              {voteMode === 'points' && rank >= 0 && (
+                <span aria-label={`A tua ${rank+1}ª escolha`} style={{ position:'absolute', top:8, left:8, zIndex:3,
+                  width:26, height:26, borderRadius:26, background:'var(--pa-accent)', color:'#fff',
+                  display:'flex', alignItems:'center', justifyContent:'center',
+                  fontFamily:'var(--pa-mono)', fontSize:11, fontWeight:700,
+                  boxShadow:'0 2px 6px rgba(0,0,0,0.25)' }}>{rank+1}º</span>
+              )}
+              
               <PhotoSlot accent={s.accent || 'var(--pa-accent)'} label="" height={96} radius={0} />
               {sel && (
                 <div style={{ position:'absolute', top:10, right:10, width:28, height:28, borderRadius:28,
@@ -5677,6 +5739,7 @@ function DPhase3({ me }) {
               <div style={{ padding:'12px 14px 14px' }}>
                 <div style={{ fontFamily:'var(--pa-display)', fontSize:16, fontWeight:600, letterSpacing:-0.2, lineHeight:1.15 }}>{s.name}</div>
                 <div style={{ fontSize:11, color:'var(--pa-muted)', marginTop:2 }}>{s.city}</div>
+                <MapLink query={[s.name, s.city].filter(Boolean).join(', ')} style={{ marginTop:4, display:'inline-block' }} />
                 <div style={{ marginTop:10, display:'flex', alignItems:'center', gap:6 }}>
                   <Avatar member={by} size={18} />
                   <span style={{ fontSize:10.5, color:'var(--pa-muted)' }}>por {by.name}</span>
@@ -5693,10 +5756,12 @@ function DPhase3({ me }) {
           Cada um vota numa só opção.{' '}
           {saved
             ? <span style={{ color:'#3d5e44', fontWeight:600 }}>✓ Voto guardado!</span>
-            : vote
-              ? <span style={{ color:'var(--pa-ink)', fontWeight:600 }}>Voto em {suggestions.find((s) => s.id === vote)?.name}.</span>
+            : myList.length
+              ? <span style={{ color:'var(--pa-ink)', fontWeight:600 }}>{voteMode === 'points'
+                  ? 'O teu top: ' + myList.map((id, i) => `${i+1}º ${((id) => { const s = suggestions.find((x) => x.id === id); return s ? (s.name || s.area || s.type) : '?'; })(id)}`).join(' · ') + '.'
+                  : `Voto em ${((id) => { const s = suggestions.find((x) => x.id === id); return s ? (s.name || s.area || s.type) : '?'; })(myList[0])}.`}</span>
               : 'Ainda não votaste.'}
-          {vote && !closed && (
+          {myList.length > 0 && !closed && (
             <button onClick={() => { setVote(null); VoteStore.clearVote(me.id, 'loc'); if (window._paToast) window._paToast('Voto removido — podes votar de novo.', 'success'); }}
               style={{ marginLeft: 10, border:'none', background:'transparent', color:'var(--pa-muted)', textDecoration:'underline', cursor:'pointer', fontFamily:'var(--pa-body)', fontSize:12.5, padding:0 }}>
               Remover o meu voto
@@ -5707,6 +5772,7 @@ function DPhase3({ me }) {
 
       {me.isAdmin && (
         <DAdminBar hint={`${suggestions.length} destinos a votar. Quando fechar, avança.`}>
+          <VoteModeToggle kind="loc" mode={voteMode} isAdmin={me.isAdmin} hasVotes={Object.keys(appData.locVotes || {}).length > 0} />
           <Btn variant="ghost" size="sm">Reabrir votação</Btn>
         </DAdminBar>
       )}
@@ -5922,10 +5988,23 @@ function DPhase5({ me }) {
   const [saved, setSaved] = dUseState2(false);
   const [tieOpen, setTieOpen] = dUseState2(false);
 
+  const voteMode = appData.accVoteMode || 'single';
+  const myList = paVoteList(vote);
   const handleVote = (id) => {
     if (closed) return;
-    setVote(id);
-    VoteStore.setVote(me.id, 'acc', id);
+    if (voteMode === 'points') {
+      const cur = paVoteList(vote);
+      let next;
+      if (cur.includes(id)) next = cur.filter((x) => x !== id);
+      else if (cur.length < 3) next = [...cur, id];
+      else { if (window._paToast) window._paToast('Já tens 3 escolhas — toca numa para a trocar.', 'info'); return; }
+      if (next.length === 0) { setVote(null); VoteStore.clearVote(me.id, 'acc'); return; }
+      setVote(next);
+      VoteStore.setVote(me.id, 'acc', next);
+    } else {
+      setVote(id);
+      VoteStore.setVote(me.id, 'acc', id);
+    }
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -5960,11 +6039,11 @@ function DPhase5({ me }) {
           ? <>{winner.type} em <span style={{ color:'var(--pa-accent)' }}>{winner.area}.</span></>
           : <>Onde é que <span style={{ color:'var(--pa-accent)' }}>dormimos mesmo?</span></>}
         sub={winner ? `${winner.price}€/noite${(appData.locked && paDaySpan(appData.locked.from, appData.locked.to) > 1 && paNum(winner.price) > 0) ? ` · ≈ ${Math.round(paNum(winner.price) * (paDaySpan(appData.locked.from, appData.locked.to) - 1))}€ p/ ${paDaySpan(appData.locked.from, appData.locked.to) - 1} noites` : ''} · sugerido por ${memberById(winner.by)?.name || winner.by}`
-          : 'Voto secreto. Cada um vota num alojamento.'} />
+          : (voteMode === 'points' ? 'Voto secreto. Escolhe até 3 por ordem — 3/2/1 pontos.' : 'Voto secreto. Cada um vota num alojamento.')} />
 
       {!winner && (
         <div style={{ marginBottom:18 }}>
-          <VotersRow doneIds={Object.keys(votes)} allMembers={inMembers} label="Já votaram" />
+          <VotersRow doneIds={Object.keys(votes).filter((id) => paVoteList(votes[id]).length > 0)} allMembers={inMembers} label="Já votaram" />
         </div>
       )}
 
@@ -5991,16 +6070,27 @@ function DPhase5({ me }) {
 
       <div style={{ display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap:12 }}>
         {suggestions.map((s) => {
-          const sel = vote === s.id;
+          const sel = voteMode === 'points' ? myList.includes(s.id) : vote === s.id;
+          const rank = voteMode === 'points' ? myList.indexOf(s.id) : -1;
           const isWinner = winner && winner.id === s.id;
           return (
-            <button key={s.id} onClick={() => handleVote(s.id)} style={{
+            <button key={s.id} onClick={() => handleVote(s.id)} style={{ position:'relative',
               background:'#fff', borderRadius:14, padding:16, textAlign:'left',
               border: isWinner||sel ? '2px solid var(--pa-accent)' : '1px solid var(--pa-line)',
+              
               cursor: closed?'default':'pointer', position:'relative' }}>
+              {voteMode === 'points' && rank >= 0 && (
+                <span aria-label={`A tua ${rank+1}ª escolha`} style={{ position:'absolute', top:-8, left:-8, zIndex:3,
+                  width:26, height:26, borderRadius:26, background:'var(--pa-accent)', color:'#fff',
+                  display:'flex', alignItems:'center', justifyContent:'center',
+                  fontFamily:'var(--pa-mono)', fontSize:11, fontWeight:700,
+                  boxShadow:'0 2px 6px rgba(0,0,0,0.25)' }}>{rank+1}º</span>
+              )}
+              
               <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:6 }}>
                 <Pill tone="dark" size="sm">{s.type}</Pill>
                 <span style={{ fontSize:11, color:'var(--pa-muted)' }}>{s.area}</span>
+                <MapLink query={s.area} style={{ marginLeft:8 }} />
               </div>
               {s.note && (
                 <div style={{ fontFamily:'var(--pa-body)', fontSize:12.5, color:'var(--pa-ink)', lineHeight:1.4, minHeight:36 }}>
@@ -6016,7 +6106,7 @@ function DPhase5({ me }) {
         })}
       </div>
 
-      {vote && (
+      {myList.length > 0 && (
         <div style={{ marginTop:10, fontFamily:'var(--pa-body)', fontSize:13, color:'var(--pa-muted)' }}>
           O teu voto está guardado.{' '}
           <button onClick={() => { setVote(null); VoteStore.clearVote(me.id, 'acc'); if (window._paToast) window._paToast('Voto removido — podes votar de novo.', 'success'); }}
@@ -6028,6 +6118,7 @@ function DPhase5({ me }) {
 
       {me.isAdmin && !winner && (
         <DAdminBar hint="Votação em curso. Declara o vencedor quando estiver pronto.">
+          <VoteModeToggle kind="acc" mode={voteMode} isAdmin={me.isAdmin} hasVotes={Object.keys(appData.accVotes || {}).length > 0} />
           {suggestions.map((s) => (
             <Btn key={s.id} variant="soft" size="sm"
               onClick={() => { if (window.confirm(`Declarar "${s.type} em ${s.area}" como vencedor?`)) AppStore.setAccWinner(s.id); }}>
@@ -6358,6 +6449,7 @@ function DPhase8({ me }) {
     { id:'itin',    label:'Itinerário', icon:'📍' },
     { id:'ativ',    label:'Atividades', icon:'🎯' },
     { id:'compras', label:'Compras', icon:'🛒' },
+    { id:'bagagem', label:'Bagagem', icon:'🎒' },
   ];
 
   return (
@@ -6397,6 +6489,110 @@ function DPhase8({ me }) {
       {tab === 'itin'     && <PlanItinerario me={me} />}
       {tab === 'ativ'     && <PlanAtividades me={me} />}
       {tab === 'compras'  && <PlanCompras me={me} />}
+      {tab === 'bagagem'  && <PlanBagagem me={me} />}
+    </div>
+  );
+}
+
+// 🎒 Bagagem partilhada: "quem leva o quê". Itens de grupo (coluna, jogos,
+// kit primeiros socorros) com claim "levo eu" — evita 3 colunas e zero abre-latas.
+function PlanBagagem({ me }) {
+  const appData = useAppStore();
+  const plan = AppStore.getPlanning();
+  const packing = plan.packing || [];
+  const [name, setName] = dUseState2('');
+  const [isGroup, setIsGroup] = dUseState2(true);
+  const members = (typeof getEditionMembers === 'function') ? getEditionMembers(appData) : [];
+  const byId = (id) => members.find((m) => m.id === id) || null;
+
+  const add = () => {
+    const n = name.trim();
+    if (!n) return;
+    AppStore.updatePlanning((p) => ({ ...p, packing: [ ...(p.packing || []),
+      { id: 'pk_' + Date.now().toString(36), name: n.slice(0, 60), group: isGroup, claimedBy: null, by: me.id } ] }));
+    setName('');
+  };
+  const claim = (item) => {
+    AppStore.updatePlanning((p) => ({ ...p, packing: (p.packing || []).map((it) =>
+      it.id === item.id ? { ...it, claimedBy: it.claimedBy === me.id ? null : me.id } : it) }));
+  };
+  const remove = (item) => {
+    if (!window.confirm(`Tirar "${item.name}" da lista?`)) return;
+    AppStore.updatePlanning((p) => ({ ...p, packing: (p.packing || []).filter((it) => it.id !== item.id) }));
+  };
+
+  const groupItems = packing.filter((it) => it.group);
+  const unclaimed = groupItems.filter((it) => !it.claimedBy).length;
+  const personal = packing.filter((it) => !it.group);
+
+  const renderItem = (it) => {
+    const owner = it.claimedBy ? byId(it.claimedBy) : null;
+    const mine = it.claimedBy === me.id;
+    const canRemove = me.isAdmin || it.by === me.id;
+    return (
+      <div key={it.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px',
+        borderRadius:12, background:'#fff', border: owner ? '1px solid var(--pa-line)' : '1px dashed var(--pa-accent)' }}>
+        <span style={{ flex:1, fontFamily:'var(--pa-body)', fontSize:13.5, fontWeight:600, color:'var(--pa-ink)', minWidth:0, overflow:'hidden', textOverflow:'ellipsis' }}>{it.name}</span>
+        {it.group && (owner
+          ? <span style={{ display:'inline-flex', alignItems:'center', gap:6 }}>
+              <Avatar member={owner} size={20} />
+              <span style={{ fontFamily:'var(--pa-body)', fontSize:11.5, color:'var(--pa-muted)' }}>{mine ? 'levas tu' : owner.name}</span>
+            </span>
+          : <span style={{ fontFamily:'var(--pa-body)', fontSize:11.5, color:'var(--pa-accent)' }}>por atribuir</span>)}
+        {it.group && (
+          <button onClick={() => claim(it)} style={{ padding:'5px 10px', borderRadius:999, cursor:'pointer',
+            border: mine ? '1.5px solid var(--pa-accent)' : '1px solid var(--pa-line)',
+            background: mine ? 'rgba(217,119,87,0.1)' : '#fff', color: mine ? 'var(--pa-accent)' : 'var(--pa-ink)',
+            fontFamily:'var(--pa-mono)', fontSize:10, fontWeight:700 }}>
+            {mine ? '✓ levo eu' : 'levo eu'}
+          </button>
+        )}
+        {canRemove && (
+          <button onClick={() => remove(it)} aria-label={'Tirar ' + it.name} style={{ border:'none', background:'transparent', color:'var(--pa-muted)', cursor:'pointer', fontSize:14, padding:0 }}>×</button>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+      <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
+        <input value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') add(); }}
+          placeholder="Coluna de som, jogos, protetor solar…" maxLength={60}
+          style={{ flex:1, minWidth:180, padding:'11px 14px', borderRadius:12, border:'1px solid var(--pa-line)', background:'#fff',
+            fontFamily:'var(--pa-body)', fontSize:14, color:'var(--pa-ink)', outline:'none' }} />
+        <button onClick={() => setIsGroup((g) => !g)} title="Itens de grupo têm um responsável; pessoais são só lembrete para todos"
+          style={{ padding:'9px 13px', borderRadius:12, cursor:'pointer', border:'1px solid var(--pa-line)',
+            background: isGroup ? 'var(--pa-ink)' : '#fff', color: isGroup ? '#fff' : 'var(--pa-muted)',
+            fontFamily:'var(--pa-mono)', fontSize:10.5, fontWeight:700 }}>
+          {isGroup ? '👥 de grupo' : '🧍 pessoal'}
+        </button>
+        <Btn variant="accent" size="sm" onClick={add} disabled={!name.trim()}>Adicionar</Btn>
+      </div>
+
+      {packing.length === 0 && (
+        <div style={{ fontFamily:'var(--pa-body)', fontSize:13, color:'var(--pa-muted)', textAlign:'center', padding:'18px 0' }}>
+          A lista está vazia. Começa pelas coisas do grupo — coluna de som, jogos, kit de primeiros socorros…
+        </div>
+      )}
+
+      {groupItems.length > 0 && (
+        <div>
+          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:8 }}>
+            👥 Coisas do grupo {unclaimed > 0 ? `— ${unclaimed} por atribuir` : '— tudo atribuído ✓'}
+          </div>
+          <div style={{ display:'flex', flexDirection:'column', gap:6 }}>{groupItems.map(renderItem)}</div>
+        </div>
+      )}
+
+      {personal.length > 0 && (
+        <div>
+          <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:8 }}>
+            🧍 Não esquecer (cada um leva o seu)
+          </div>
+          <div style={{ display:'flex', flexDirection:'column', gap:6 }}>{personal.map(renderItem)}</div>
+        </div>
+      )}
     </div>
   );
 }
@@ -7128,12 +7324,21 @@ const MNavCtx = React.createContext({ onBackToHub: null, onEditProfile: null, me
 
 function MPhaseNav({ phase }) {
   const [open, setOpen] = mUseState(false);
+  const nav = React.useContext(MNavCtx); // nav.me → gates de admin no menu
   const total = D.phases.length;
   const go = (n) => { AppStore.setPhase(Math.max(1, Math.min(total, n))); AppStore.clearKey('deadline'); setOpen(false); };
   // Reiniciar a fase atual (paridade com o desktop): cada fase limpa a sua chave
   const resetKey = { 1:'rsvp', 2:'avail', 3:'locked', 4:'locSuggs', 5:'locVotes', 6:'accSuggs', 7:'accVotes' }[phase];
   const resetLabel = { 1:'as respostas', 2:'as disponibilidades', 3:'as datas trancadas', 4:'as sugestões de local', 5:'os votos de local', 6:'as sugestões de alojamento', 7:'os votos de alojamento' }[phase];
-  const doReset = () => { if (window.confirm(`Reiniciar ${resetLabel} desta fase?`)) { AppStore.clearKey(resetKey); setOpen(false); } };
+  const doReset = () => {
+    if (!window.confirm(`Reiniciar ${resetLabel} desta fase?`)) return;
+    AppStore.clearKey(resetKey);
+    // Reiniciar uma votação sem limpar o vencedor deixava a fase "decidida"
+    // com zero votos — o vencedor cai junto com os votos.
+    if (resetKey === 'locVotes') AppStore.clearKey('locWinner');
+    if (resetKey === 'accVotes') AppStore.clearKey('accWinner');
+    setOpen(false);
+  };
   return (
     <div role="navigation" aria-label="Navegação de fases" style={{ position:'relative', display:'flex', alignItems:'center', gap:3 }}>
       <button onClick={() => go(phase - 1)} disabled={phase === 1} aria-label="Fase anterior"
@@ -7164,6 +7369,7 @@ function MPhaseNav({ phase }) {
               </button>
             ))}
             <div style={{ borderTop:'1px solid var(--pa-line)', margin:'4px 0' }} />
+            {nav.me?.isAdmin && (<>
             <button onClick={() => { paOpenAnnounce(); setOpen(false); }} style={{
               width:'100%', textAlign:'left', padding:'8px 10px', borderRadius:8, border:'none', cursor:'pointer',
               background:'transparent', color:'var(--pa-ink)', fontFamily:'var(--pa-body)', fontSize:12.5, display:'flex', gap:8, alignItems:'center' }}>
@@ -7179,7 +7385,13 @@ function MPhaseNav({ phase }) {
               background:'transparent', color:'var(--pa-ink)', fontFamily:'var(--pa-body)', fontSize:12.5, display:'flex', gap:8, alignItems:'center' }}>
               <span style={{ fontSize:13 }}>⬇</span> Backup da edição
             </button>
-            {resetKey && (
+            </>)}
+            <button onClick={() => { paOpenBugReport(); setOpen(false); }} style={{
+              width:'100%', textAlign:'left', padding:'8px 10px', borderRadius:8, border:'none', cursor:'pointer',
+              background:'transparent', color:'var(--pa-ink)', fontFamily:'var(--pa-body)', fontSize:12.5, display:'flex', gap:8, alignItems:'center' }}>
+              <span style={{ fontSize:13 }}>🐞</span> Reportar um problema
+            </button>
+            {nav.me?.isAdmin && resetKey && (
               <>
                 <div style={{ borderTop:'1px solid var(--pa-line)', margin:'4px 0' }} />
                 <button onClick={doReset} style={{
@@ -7375,10 +7587,15 @@ function MPhase2({ me, onLogout, onOpenChat }) {
   const [name, setName] = mUseState('');
   const [city, setCity] = mUseState('');
 
-  const handleAdd = () => {
-    if (!name.trim()) return;
-    AppStore.addLocSuggestion({ id:'loc_'+Date.now().toString(36), name:name.trim(), city:city.trim(), tags:[], accent:'var(--pa-accent)', by:me.id });
-    setName(''); setCity(''); setAdding(false);
+  const [busyAdd, setBusyAdd] = mUseState(false);
+  const handleAdd = async () => {
+    if (!name.trim() || busyAdd) return;
+    setBusyAdd(true); // evita duplicados durante o geocoding
+    try {
+      const geo = await paGeocode([name.trim(), city.trim()].filter(Boolean).join(', '));
+      AppStore.addLocSuggestion({ id:'loc_'+Date.now().toString(36), name:name.trim(), city:city.trim(), tags:[], accent:'var(--pa-accent)', by:me.id, ...(geo ? { geo } : {}) });
+      setName(''); setCity(''); setAdding(false);
+    } finally { setBusyAdd(false); }
   };
 
   return (
@@ -7392,6 +7609,7 @@ function MPhase2({ me, onLogout, onOpenChat }) {
             <div style={{ minWidth:0 }}>
               <div style={{ fontFamily:'var(--pa-display)', fontSize:16, fontWeight:600 }}>{s.name}</div>
               {s.city && <div style={{ fontSize:11.5, color:'var(--pa-muted)', marginTop:2 }}>{s.city}</div>}
+              <MapLink query={[s.name, s.city].filter(Boolean).join(', ')} style={{ marginTop:4, display:'inline-block' }} />
             </div>
             <button onClick={() => AppStore.removeLocSuggestion(s.id)} aria-label="Remover"
               style={{ flexShrink:0, width:30, height:30, borderRadius:30, border:'1px solid var(--pa-line)', background:'transparent', cursor:'pointer', color:'var(--pa-muted)', fontSize:15, lineHeight:1 }}>×</button>
@@ -7423,7 +7641,7 @@ function MPhase2({ me, onLogout, onOpenChat }) {
                 fontFamily:'var(--pa-body)', fontSize:14, outline:'none', boxSizing:'border-box', marginBottom:12 }} />
             <div style={{ display:'flex', gap:8 }}>
               <button onClick={() => setAdding(false)} style={{ flex:1, padding:'10px', borderRadius:999, border:'1px solid var(--pa-line)', background:'transparent', cursor:'pointer', fontFamily:'var(--pa-body)', fontSize:13, fontWeight:600 }}>Cancelar</button>
-              <button onClick={handleAdd} disabled={!name.trim()} style={{ flex:1, padding:'10px', borderRadius:999, border:'none', background:'var(--pa-accent)', color:'#fff', cursor: name.trim()?'pointer':'default', fontFamily:'var(--pa-body)', fontSize:13, fontWeight:600, opacity: name.trim()?1:0.5 }}>Lançar</button>
+              <button onClick={handleAdd} disabled={!name.trim() || busyAdd} style={{ flex:1, padding:'10px', borderRadius:999, border:'none', background:'var(--pa-accent)', color:'#fff', cursor: name.trim() && !busyAdd?'pointer':'default', fontFamily:'var(--pa-body)', fontSize:13, fontWeight:600, opacity: name.trim() && !busyAdd?1:0.5 }}>{busyAdd ? 'A localizar…' : 'Lançar'}</button>
             </div>
           </div>
         )}
@@ -7461,9 +7679,22 @@ function MPhase3({ me, onLogout, onOpenChat }) {
   const [saved, setSaved] = mUseState(false);
   const [tieOpen, setTieOpen] = mUseState(false);
 
+  const voteMode = appData.locVoteMode || 'single';
+  const myList = paVoteList(vote);
   const handleVote = (id) => {
-    setVote(id);
-    VoteStore.setVote(me.id, 'loc', id);
+    if (voteMode === 'points') {
+      const cur = paVoteList(vote);
+      let next;
+      if (cur.includes(id)) next = cur.filter((x) => x !== id);
+      else if (cur.length < 3) next = [...cur, id];
+      else { if (window._paToast) window._paToast('Já tens 3 escolhas — toca numa para a trocar.', 'info'); return; }
+      if (next.length === 0) { setVote(null); VoteStore.clearVote(me.id, 'loc'); return; }
+      setVote(next);
+      VoteStore.setVote(me.id, 'loc', next);
+    } else {
+      setVote(id);
+      VoteStore.setVote(me.id, 'loc', id);
+    }
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -7488,18 +7719,31 @@ function MPhase3({ me, onLogout, onOpenChat }) {
     <MShell>
       <MHeader phase={5} onLogout={onLogout} onOpenChat={onOpenChat} />
       <MPhaseTitle kicker="Voto secreto" title={<>Onde queres<br/><span style={{ color:'var(--pa-accent)' }}>passar este?</span></>} />
+      {me.isAdmin && <div style={{ marginBottom:10 }}><VoteModeToggle kind="loc" mode={voteMode} isAdmin={true} hasVotes={Object.keys(appData.locVotes || {}).length > 0} /></div>}
+      <LocMap suggestions={suggestions} height={190} membersById={(id) => (typeof memberById === 'function' ? memberById(id) : null)} />
       <div className="pa-scroll" style={{ padding:'6px 16px 14px', flex:1, minHeight:0, overflow:'auto', display:'flex', flexDirection:'column', gap:10 }}>
-        <VotersRow doneIds={Object.keys(votes)} allMembers={inMembers} label="Já votaram" />
+        <VotersRow doneIds={Object.keys(votes).filter((id) => paVoteList(votes[id]).length > 0)} allMembers={inMembers} label="Já votaram" />
         {suggestions.map((s) => {
-          const sel = vote === s.id;
+          const sel = voteMode === 'points' ? myList.includes(s.id) : vote === s.id;
+          const rank = voteMode === 'points' ? myList.indexOf(s.id) : -1;
           const by = memberById(s.by) || { name:s.by, initials:'?' };
           return (
-            <button key={s.id} onClick={() => handleVote(s.id)} style={{
+            <button key={s.id} onClick={() => handleVote(s.id)} style={{ position:'relative',
               background:'#fff', borderRadius:14, textAlign:'left', padding:'14px 16px',
               border: sel?'2px solid var(--pa-accent)':'1px solid var(--pa-line)',
+              
               cursor:'pointer', position:'relative' }}>
+              {voteMode === 'points' && rank >= 0 && (
+                <span aria-label={`A tua ${rank+1}ª escolha`} style={{ position:'absolute', top:-8, left:-8, zIndex:3,
+                  width:26, height:26, borderRadius:26, background:'var(--pa-accent)', color:'#fff',
+                  display:'flex', alignItems:'center', justifyContent:'center',
+                  fontFamily:'var(--pa-mono)', fontSize:11, fontWeight:700,
+                  boxShadow:'0 2px 6px rgba(0,0,0,0.25)' }}>{rank+1}º</span>
+              )}
+              
               <div style={{ fontFamily:'var(--pa-display)', fontSize:17, fontWeight:600, letterSpacing:-0.3 }}>{s.name}</div>
               {s.city && <div style={{ fontSize:11.5, color:'var(--pa-muted)', marginTop:2 }}>{s.city}</div>}
+              <MapLink query={[s.name, s.city].filter(Boolean).join(', ')} style={{ marginTop:4, display:'inline-block' }} />
               <div style={{ marginTop:8, display:'flex', alignItems:'center', gap:6 }}>
                 <Avatar member={by} size={18} />
                 <span style={{ fontSize:10.5, color:'var(--pa-muted)' }}>{by.name}</span>
@@ -7514,9 +7758,11 @@ function MPhase3({ me, onLogout, onOpenChat }) {
             </button>
           );
         })}
-        {vote && (
+        {myList.length > 0 && (
           <div style={{ padding:'10px 14px', borderRadius:10, background:'rgba(107,142,111,0.12)', fontSize:12, color:'#3d5e44', textAlign:'center' }}>
-            {saved ? 'Voto guardado ✓' : `Voto em ${suggestions.find((s) => s.id === vote)?.name}`}
+            {saved ? 'Voto guardado ✓' : (voteMode === 'points'
+              ? 'Top: ' + myList.map((id, i) => `${i+1}º ${((id) => { const s = suggestions.find((x) => x.id === id); return s ? (s.name || s.area || s.type) : '?'; })(id)}`).join(' · ')
+              : `Voto em ${((id) => { const s = suggestions.find((x) => x.id === id); return s ? (s.name || s.area || s.type) : '?'; })(myList[0] || vote)}`)}
             <button onClick={() => { setVote(null); VoteStore.clearVote(me.id, 'loc'); if (window._paToast) window._paToast('Voto removido.', 'success'); }}
               style={{ display:'block', margin:'6px auto 0', border:'none', background:'transparent', color:'var(--pa-muted)', textDecoration:'underline', cursor:'pointer', fontFamily:'var(--pa-body)', fontSize:11.5, padding:0 }}>
               Remover o meu voto
@@ -7577,6 +7823,7 @@ function MPhase4({ me, onLogout, onOpenChat }) {
                   <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:4 }}>
                     <Pill tone="dark" size="sm">{s.type}</Pill>
                     <span style={{ fontSize:11, color:'var(--pa-muted)' }}>{s.area}</span>
+                <MapLink query={s.area} style={{ marginLeft:8 }} />
                   </div>
                   {s.note && <div style={{ fontSize:12.5, color:'var(--pa-ink)', lineHeight:1.4 }}>{s.note.length>60?s.note.slice(0,60)+'…':s.note}</div>}
                 </div>
@@ -7646,10 +7893,23 @@ function MPhase5({ me, onLogout, onOpenChat }) {
   const votingClosed = false;
   const isTie = !!tie;
 
+  const voteMode = appData.accVoteMode || 'single';
+  const myList = paVoteList(vote);
   const handleVote = (id) => {
     if (votingClosed) return;
-    setVote(id);
-    VoteStore.setVote(me.id, 'acc', id);
+    if (voteMode === 'points') {
+      const cur = paVoteList(vote);
+      let next;
+      if (cur.includes(id)) next = cur.filter((x) => x !== id);
+      else if (cur.length < 3) next = [...cur, id];
+      else { if (window._paToast) window._paToast('Já tens 3 escolhas — toca numa para a trocar.', 'info'); return; }
+      if (next.length === 0) { setVote(null); VoteStore.clearVote(me.id, 'acc'); return; }
+      setVote(next);
+      VoteStore.setVote(me.id, 'acc', next);
+    } else {
+      setVote(id);
+      VoteStore.setVote(me.id, 'acc', id);
+    }
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -7668,19 +7928,30 @@ function MPhase5({ me, onLogout, onOpenChat }) {
       <MHeader phase={7} onLogout={onLogout} onOpenChat={onOpenChat} />
       <div style={{ padding:'0 22px 4px' }}>
         <Pill tone="accent" size="sm">Voto secreto</Pill>
+        {me.isAdmin && <div style={{ margin:'8px 0 2px' }}><VoteModeToggle kind="acc" mode={voteMode} isAdmin={true} hasVotes={Object.keys(appData.accVotes || {}).length > 0} /></div>}
       </div>
       <MPhaseTitle title={<>Vota no <span style={{ color:'var(--pa-accent)' }}>alojamento.</span></>}
-        sub="Um por pessoa, secreto até fechar." />
+        sub={voteMode === 'points' ? 'Até 3 por ordem (3/2/1 pontos), secreto até fechar.' : 'Um por pessoa, secreto até fechar.'} />
 
       <div className="pa-scroll" style={{ padding:'6px 16px 14px', flex:1, minHeight:0, overflow:'auto', display:'flex', flexDirection:'column', gap:10 }}>
-        {!appData.accWinner && <VotersRow doneIds={Object.keys(votes)} allMembers={inMembers} label="Já votaram" />}
+        {!appData.accWinner && <VotersRow doneIds={Object.keys(votes).filter((id) => paVoteList(votes[id]).length > 0)} allMembers={inMembers} label="Já votaram" />}
         {suggestions.map((s) => {
-          const sel = vote === s.id;
+          const sel = voteMode === 'points' ? myList.includes(s.id) : vote === s.id;
+          const rank = voteMode === 'points' ? myList.indexOf(s.id) : -1;
           return (
-            <button key={s.id} onClick={() => handleVote(s.id)} style={{
+            <button key={s.id} onClick={() => handleVote(s.id)} style={{ position:'relative',
               background:'#fff', borderRadius:12, padding:'12px 14px',
               border: sel?'2px solid var(--pa-accent)':'1px solid var(--pa-line)',
+              
               cursor:votingClosed?'default':'pointer', textAlign:'left', position:'relative', width:'100%' }}>
+              {voteMode === 'points' && rank >= 0 && (
+                <span aria-label={`A tua ${rank+1}ª escolha`} style={{ position:'absolute', top:-8, left:-8, zIndex:3,
+                  width:26, height:26, borderRadius:26, background:'var(--pa-accent)', color:'#fff',
+                  display:'flex', alignItems:'center', justifyContent:'center',
+                  fontFamily:'var(--pa-mono)', fontSize:11, fontWeight:700,
+                  boxShadow:'0 2px 6px rgba(0,0,0,0.25)' }}>{rank+1}º</span>
+              )}
+              
               <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10 }}>
                 <div style={{ display:'flex', alignItems:'center', gap:6 }}>
                   <Pill tone="dark" size="sm">{s.type}</Pill>
@@ -7698,9 +7969,11 @@ function MPhase5({ me, onLogout, onOpenChat }) {
             </button>
           );
         })}
-        {vote && (
+        {myList.length > 0 && (
           <div style={{ padding:'10px 14px', borderRadius:10, background:'rgba(107,142,111,0.12)', fontSize:12, color:'#3d5e44', textAlign:'center' }}>
-            {saved ? 'Voto guardado ✓' : `Voto em ${suggestions.find((s) => s.id === vote)?.area || vote}`}
+            {saved ? 'Voto guardado ✓' : (voteMode === 'points'
+              ? 'Top: ' + myList.map((id, i) => `${i+1}º ${((id) => { const s = suggestions.find((x) => x.id === id); return s ? (s.name || s.area || s.type) : '?'; })(id)}`).join(' · ')
+              : `Voto em ${((id) => { const s = suggestions.find((x) => x.id === id); return s ? (s.name || s.area || s.type) : '?'; })(myList[0] || vote)}`)}
             <button onClick={() => { setVote(null); VoteStore.clearVote(me.id, 'acc'); if (window._paToast) window._paToast('Voto removido.', 'success'); }}
               style={{ display:'block', margin:'6px auto 0', border:'none', background:'transparent', color:'var(--pa-muted)', textDecoration:'underline', cursor:'pointer', fontFamily:'var(--pa-body)', fontSize:11.5, padding:0 }}>
               Remover o meu voto
@@ -7981,6 +8254,7 @@ function MPhase8({ me, onLogout, onOpenChat }) {
     { id:'itinerario', label:'Itinerário', icon:'📍' },
     { id:'atividades', label:'Atividades', icon:'🎯' },
     { id:'compras',    label:'Compras',    icon:'🛒' },
+    { id:'bagagem',    label:'Bagagem',    icon:'🎒' },
   ];
 
   return (
@@ -8018,6 +8292,7 @@ function MPhase8({ me, onLogout, onOpenChat }) {
         {tab === 'itinerario' && <PlanItinerario me={me} />}
         {tab === 'atividades' && <PlanAtividades me={me} />}
         {tab === 'compras'    && <PlanCompras me={me} />}
+        {tab === 'bagagem'    && <PlanBagagem me={me} />}
       </div>
     </MShell>
   );
@@ -8135,15 +8410,12 @@ function phaseComplete(phase, appData) {
   if (phase === 5) { // votar local
     if (inIds.length === 0) return false;
     const votes = appData.locVotes || {};
-    const allVoted = inIds.every(id => votes[id]);
+    const allVoted = inIds.every(id => paVoteList(votes[id]).length > 0);
     if (!allVoted) return false;
     // Se admin já desempatou, completo
     if (appData.locWinner) return true;
-    // Se há empate (sem vencedor escolhido), NÃO completa
-    const suggs = appData.locSuggs || [];
-    const tally = {};
-    suggs.forEach(s => { tally[s.id] = 0; });
-    Object.values(votes).forEach(v => { if (tally[v] !== undefined) tally[v]++; });
+    // Se há empate por PONTOS (sem vencedor escolhido), NÃO completa
+    const tally = paVoteTally(votes, appData.locSuggs || [], null);
     const sorted = Object.values(tally).sort((a,b) => b-a);
     if (sorted.length < 2) return true;
     return !(sorted[0] === sorted[1]);
@@ -8156,13 +8428,10 @@ function phaseComplete(phase, appData) {
   if (phase === 7) { // votar alojamento
     if (inIds.length === 0) return false;
     const votes = appData.accVotes || {};
-    const allVoted = inIds.every(id => votes[id]);
+    const allVoted = inIds.every(id => paVoteList(votes[id]).length > 0);
     if (!allVoted) return false;
     if (appData.accWinner) return true;
-    const suggs = appData.accSuggs || [];
-    const tally = {};
-    suggs.forEach(s => { tally[s.id] = 0; });
-    Object.values(votes).forEach(v => { if (tally[v] !== undefined) tally[v]++; });
+    const tally = paVoteTally(votes, appData.accSuggs || [], null);
     const sorted = Object.values(tally).sort((a,b) => b-a);
     if (sorted.length < 2) return true;
     return !(sorted[0] === sorted[1]);
@@ -8202,13 +8471,13 @@ function usePhaseProgress(phase, me) {
       pending = inMembers.filter(m => !suggs.some(s => s.by === m.id));
     } else if (phase === 5) { // votar local
       const votes = appData.locVotes || {};
-      pending = inMembers.filter(m => !votes[m.id]);
+      pending = inMembers.filter(m => paVoteList(votes[m.id]).length === 0);
     } else if (phase === 6) { // sugestões de alojamento
       const suggs = appData.accSuggs || [];
       pending = inMembers.filter(m => !suggs.some(s => s.by === m.id));
     } else if (phase === 7) { // votar alojamento
       const votes = appData.accVotes || {};
-      pending = inMembers.filter(m => !votes[m.id]);
+      pending = inMembers.filter(m => paVoteList(votes[m.id]).length === 0);
     }
   }
 
@@ -8450,15 +8719,135 @@ const { useState: tbUseState2, useEffect: tbUseEffect2, useRef: tbUseRef2 } = Re
 
 // Deteta empate nos votos da fase atual.
 // Se inIds for passado, conta apenas votos de quem está "in".
+// ─────────────────────────────────────────────────────────────
+// Votação: helpers centrais. Um voto pode ser:
+//   - string (modo clássico "1 voto") → 1 ponto
+//   - array [id1, id2, id3] (modo Top 3) → 3/2/1 pontos por posição
+// Tudo o resto (empates, quórum, vencedor) trabalha sobre PONTOS, o que
+// mantém os votos antigos 100% compatíveis (string = lista de 1 = 1 ponto).
+// ─────────────────────────────────────────────────────────────
+const PA_RANK_POINTS = [3, 2, 1];
+
+// Toggle do modo de votação (só admin). Mudar recomeça a votação da fase.
+function VoteModeToggle({ kind, mode, isAdmin, hasVotes }) {
+  if (!isAdmin) return null;
+  const change = (m) => {
+    if (m === mode) return;
+    const warn = hasVotes
+      ? 'Mudar o modo de votação RECOMEÇA a votação (os votos atuais são apagados). Continuar?'
+      : 'Mudar o modo de votação desta fase?';
+    if (!window.confirm(warn)) return;
+    AppStore.setVoteMode(kind, m);
+    if (window._paToast) window._paToast(m === 'points' ? 'Modo Top 3 ativado — cada um ordena até 3 favoritos.' : 'Modo 1 voto ativado.', 'success');
+  };
+  const btn = (m, label) => (
+    React.createElement('button', { key: m, onClick: () => change(m), style: {
+      padding: '5px 11px', borderRadius: 999, cursor: 'pointer',
+      border: mode === m ? '1.5px solid var(--pa-accent)' : '1px solid var(--pa-line)',
+      background: mode === m ? 'rgba(217,119,87,0.1)' : '#fff',
+      color: mode === m ? 'var(--pa-accent)' : 'var(--pa-muted)',
+      fontFamily: 'var(--pa-mono)', fontSize: 10.5, fontWeight: 700 } }, label)
+  );
+  return React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' } },
+    React.createElement('span', { style: { fontFamily: 'var(--pa-mono)', fontSize: 9.5, letterSpacing: 1, color: 'var(--pa-muted)', textTransform: 'uppercase' } }, 'Modo'),
+    btn('single', '1 voto'), btn('points', 'Top 3'));
+}
+Object.assign(window, { VoteModeToggle });
+function paVoteList(v) {
+  if (Array.isArray(v)) return v.filter(Boolean).slice(0, 3);
+  return v ? [v] : [];
+}
+function paVoteTally(votes, suggestions, inIds) {
+  const tally = {};
+  (suggestions || []).forEach((s) => { tally[s.id] = 0; });
+  Object.entries(votes || {}).forEach(([uid, v]) => {
+    if (inIds && Array.isArray(inIds) && !inIds.includes(uid)) return;
+    const list = paVoteList(v);
+    const single = list.length === 1;
+    list.forEach((id, i) => {
+      if (tally[id] === undefined) return;
+      tally[id] += single ? 1 : (PA_RANK_POINTS[i] || 0);
+    });
+  });
+  return tally;
+}
+Object.assign(window, { paVoteList, paVoteTally, PA_RANK_POINTS });
+
+// ─────────────────────────────────────────────────────────────
+// Mapa das sugestões: geocoding gratuito (Nominatim/OpenStreetMap) no momento
+// de sugerir — se resolver, a sugestão ganha coordenadas e aparece no mapa da
+// votação; se falhar, a sugestão segue na mesma (o mapa é bónus, nunca bloqueio).
+// ─────────────────────────────────────────────────────────────
+async function paGeocode(query) {
+  if (!query || !query.trim()) return null;
+  try {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 3500);
+    const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' + encodeURIComponent(query.trim());
+    const res = await fetch(url, { signal: ctl.signal, headers: { 'Accept': 'application/json' } });
+    clearTimeout(t);
+    if (!res.ok) return null;
+    const arr = await res.json();
+    if (!Array.isArray(arr) || !arr[0]) return null;
+    const { lat, lon } = arr[0];
+    const la = parseFloat(lat), lo = parseFloat(lon);
+    if (!isFinite(la) || !isFinite(lo)) return null;
+    return { lat: la, lng: lo };
+  } catch (e) { return null; }
+}
+function paMapsUrl(q) { return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q || ''); }
+
+// Link discreto "ver no mapa" para qualquer sugestão (Google Maps, custo zero).
+function MapLink({ query, style }) {
+  if (!query) return null;
+  return React.createElement('a', {
+    href: paMapsUrl(query), target: '_blank', rel: 'noopener noreferrer',
+    onClick: (e) => e.stopPropagation(),
+    style: Object.assign({ fontFamily: 'var(--pa-body)', fontSize: 11.5, color: 'var(--pa-muted)',
+      textDecoration: 'underline', cursor: 'pointer' }, style || {}),
+  }, '📍 ver no mapa');
+}
+
+// Mapa embebido (Leaflet + OpenStreetMap) com pins das sugestões geocodificadas.
+// Sem votos nos popups — a votação é secreta. Não renderiza sem coordenadas.
+function LocMap({ suggestions, height = 230, membersById }) {
+  const ref = React.useRef(null);
+  const mapRef = React.useRef(null);
+  const withGeo = (suggestions || []).filter((s) => s.geo && isFinite(s.geo.lat) && isFinite(s.geo.lng));
+  React.useEffect(() => {
+    if (!window.L || !ref.current || withGeo.length === 0) return;
+    const L = window.L;
+    const map = L.map(ref.current, { scrollWheelZoom: false, attributionControl: true });
+    mapRef.current = map;
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 18, attribution: '&copy; OpenStreetMap',
+    }).addTo(map);
+    const markers = withGeo.map((s) => {
+      const by = membersById ? membersById(s.by) : null;
+      const label = `<b>${(s.name || s.area || '').replace(/</g,'&lt;')}</b>` +
+        (s.city ? `<br/>${String(s.city).replace(/</g,'&lt;')}` : '') +
+        (by ? `<br/><span style="opacity:0.7">sugerido por ${String(by.name).replace(/</g,'&lt;')}</span>` : '');
+      return L.marker([s.geo.lat, s.geo.lng]).addTo(map).bindPopup(label);
+    });
+    const grp = L.featureGroup(markers);
+    map.fitBounds(grp.getBounds().pad(0.3), { maxZoom: 11 });
+    return () => { try { map.remove(); } catch (e) {} mapRef.current = null; };
+  }, [withGeo.map((s) => s.id + ':' + s.geo.lat).join(',')]);
+  if (withGeo.length === 0) return null;
+  return React.createElement('div', { style: { borderRadius: 14, overflow: 'hidden', border: '1px solid var(--pa-line)', marginBottom: 14 } },
+    React.createElement('div', { ref, style: { height, width: '100%', background: '#e8e4dc' } }),
+    withGeo.length < (suggestions || []).length &&
+      React.createElement('div', { style: { padding: '6px 10px', fontFamily: 'var(--pa-body)', fontSize: 10.5, color: 'var(--pa-muted)', background: '#fff' } },
+        (suggestions.length - withGeo.length) + ' sugestão(ões) sem localização no mapa — o link "ver no mapa" funciona na mesma.'));
+}
+Object.assign(window, { paGeocode, paMapsUrl, MapLink, LocMap });
+
 function detectTie(votes, suggestions, inIds) {
   if (!votes) return null;
-  const filteredVotes = inIds && Array.isArray(inIds)
-    ? Object.entries(votes).filter(([uid]) => inIds.includes(uid)).map(([_,v]) => v)
-    : Object.values(votes);
-  if (filteredVotes.length === 0) return null;
-  const tally = {};
-  suggestions.forEach(s => { tally[s.id] = 0; });
-  filteredVotes.forEach(id => { if (tally[id] !== undefined) tally[id]++; });
+  const nVoters = Object.entries(votes).filter(([uid, v]) =>
+    (!inIds || !Array.isArray(inIds) || inIds.includes(uid)) && paVoteList(v).length > 0).length;
+  if (nVoters === 0) return null;
+  const tally = paVoteTally(votes, suggestions, inIds);
   const sorted = Object.entries(tally).sort((a,b) => b[1] - a[1]);
   if (sorted.length < 2 || sorted[0][1] === 0) return null;
   const top = sorted[0][1];
@@ -9266,24 +9655,28 @@ function AdminMembersModal({ open, onClose }) {
 function AdminModalsHost({ me }) {
   const [announceOpen, setAnnounceOpen] = hUseState(false);
   const [membersOpen, setMembersOpen] = hUseState(false);
+  const [bugOpen, setBugOpen] = hUseState(false);
   hUseEffect(() => {
     const oa = () => setAnnounceOpen(true);
     const om = () => setMembersOpen(true);
+    const ob = () => setBugOpen(true);
     window.addEventListener('pa-admin-announce', oa);
     window.addEventListener('pa-admin-members', om);
-    return () => { window.removeEventListener('pa-admin-announce', oa); window.removeEventListener('pa-admin-members', om); };
+    window.addEventListener('pa-bug-report', ob);
+    return () => { window.removeEventListener('pa-admin-announce', oa); window.removeEventListener('pa-admin-members', om); window.removeEventListener('pa-bug-report', ob); };
   }, []);
-  if (!me?.isAdmin) return null;
   return (
     <>
-      <AdminAnnounceModal open={announceOpen} onClose={() => setAnnounceOpen(false)} me={me} />
-      <AdminMembersModal open={membersOpen} onClose={() => setMembersOpen(false)} />
+      {me?.isAdmin && <AdminAnnounceModal open={announceOpen} onClose={() => setAnnounceOpen(false)} me={me} />}
+      {me?.isAdmin && <AdminMembersModal open={membersOpen} onClose={() => setMembersOpen(false)} />}
+      <BugReportModal open={bugOpen} onClose={() => setBugOpen(false)} me={me} isAdmin={!!me?.isAdmin} />
     </>
   );
 }
-// Helpers globais para abrir os modais de admin a partir de qualquer sítio.
+// Helpers globais para abrir os modais a partir de qualquer sítio.
 function paOpenAnnounce() { window.dispatchEvent(new CustomEvent('pa-admin-announce')); }
 function paOpenMembers() { window.dispatchEvent(new CustomEvent('pa-admin-members')); }
+function paOpenBugReport() { window.dispatchEvent(new CustomEvent('pa-bug-report')); }
 
 // ─────────────────────────────────────────────────────────────
 // Editor de Edição — criar ou editar (número, título, subtítulo)
@@ -9687,7 +10080,7 @@ function EditionHub({ auth, onEnterEdition, narrow }) {
 }
 
 Object.assign(window, { PAModal, ProfileEditor, EditionEditor, EditionCard, EditionHub,
-  AnnouncementBanner, DatesChip, BugReportModal, AdminAnnounceModal, AdminMembersModal, AdminModalsHost, paOpenAnnounce, paOpenMembers });
+  AnnouncementBanner, DatesChip, BugReportModal, AdminAnnounceModal, AdminMembersModal, AdminModalsHost, paOpenAnnounce, paOpenMembers, paOpenBugReport });
 </script>
 
 <script type="text/babel">// Perdidos Algures — Live app entry. Boots the auth gate and routes the
