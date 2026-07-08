@@ -234,7 +234,7 @@ window.PA_DATA = {
   phase8: {
     tripStart: null, tripEnd: null, dayCount: 0,
     costs: { perPerson: 0, breakdown: [], paid: {} },
-    itinerary: [], activities: [], shopping: [], packing: [],
+    itinerary: [], activities: [], shopping: [], packing: [], pois: [],
   },
 
   history: [],
@@ -2475,7 +2475,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r44';
+window.PA_VERSION = '2026.06.01-r45';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -3269,14 +3269,14 @@ const AppStore = {
   },
 
   // ── Planeamento ──
-  getPlanning() { return this._cache().planData || { costs:{perPerson:0,breakdown:[],paid:{}}, itinerary:[],activities:[],shopping:[],packing:[] }; },
+  getPlanning() { return this._cache().planData || { costs:{perPerson:0,breakdown:[],paid:{}}, itinerary:[],activities:[],shopping:[],packing:[],pois:[] }; },
   async setPlanning(p) { await this._set('planData',p); },
   // Atualização segura do planeamento via função transformadora (read-modify-write).
   // Reduz drasticamente a janela de race quando vários editam custos/itinerário em simultâneo.
   async updatePlanning(transformFn) {
     const ed = EditionStore.active();
     if (!ed) return;
-    const emptyPlan = { costs:{ perPerson:0, breakdown:[], paid:{} }, itinerary:[], activities:[], shopping:[], packing:[] };
+    const emptyPlan = { costs:{ perPerson:0, breakdown:[], paid:{} }, itinerary:[], activities:[], shopping:[], packing:[], pois:[] };
     // Optimistic local
     const localPlan = this.getPlanning();
     _appCache = { ...(this._cache()), planData: transformFn(localPlan) };
@@ -5829,9 +5829,15 @@ function DPhase4({ me }) {
   const mineCount = suggestions.filter((s) => s.by === me.id).length;
   const [adding, setAdding] = dUseState2(false);
 
-  const handleAdd = (data) => {
-    AppStore.addAccSuggestion({ id:'acc_' + Date.now().toString(36), ...data, by: me.id });
-    setAdding(false);
+  const accBusyRef = React.useRef(false);
+  const handleAdd = async (data) => {
+    if (accBusyRef.current) return;
+    accBusyRef.current = true;
+    try {
+      const geo = await paGeocode(data.area || '');
+      AppStore.addAccSuggestion({ id:'acc_' + Date.now().toString(36), ...data, by: me.id, ...(geo ? { geo } : {}) });
+      setAdding(false);
+    } finally { accBusyRef.current = false; }
   };
 
   return (
@@ -6040,6 +6046,8 @@ function DPhase5({ me }) {
           : <>Onde é que <span style={{ color:'var(--pa-accent)' }}>dormimos mesmo?</span></>}
         sub={winner ? `${winner.price}€/noite${(appData.locked && paDaySpan(appData.locked.from, appData.locked.to) > 1 && paNum(winner.price) > 0) ? ` · ≈ ${Math.round(paNum(winner.price) * (paDaySpan(appData.locked.from, appData.locked.to) - 1))}€ p/ ${paDaySpan(appData.locked.from, appData.locked.to) - 1} noites` : ''} · sugerido por ${memberById(winner.by)?.name || winner.by}`
           : (voteMode === 'points' ? 'Voto secreto. Escolhe até 3 por ordem — 3/2/1 pontos.' : 'Voto secreto. Cada um vota num alojamento.')} />
+
+      <LocMap suggestions={suggestions} height={220} membersById={(id) => (typeof memberById === 'function' ? memberById(id) : null)} />
 
       {!winner && (
         <div style={{ marginBottom:18 }}>
@@ -6450,6 +6458,7 @@ function DPhase8({ me }) {
     { id:'ativ',    label:'Atividades', icon:'🎯' },
     { id:'compras', label:'Compras', icon:'🛒' },
     { id:'bagagem', label:'Bagagem', icon:'🎒' },
+    { id:'mapa',    label:'Mapa',    icon:'🗺' },
   ];
 
   return (
@@ -6490,6 +6499,7 @@ function DPhase8({ me }) {
       {tab === 'ativ'     && <PlanAtividades me={me} />}
       {tab === 'compras'  && <PlanCompras me={me} />}
       {tab === 'bagagem'  && <PlanBagagem me={me} />}
+      {tab === 'mapa'     && <TripMap me={me} />}
     </div>
   );
 }
@@ -7791,10 +7801,15 @@ function MPhase4({ me, onLogout, onOpenChat }) {
   const [price, setPrice] = mUseState('');
   const [link, setLink] = mUseState('');
 
-  const handleAdd = () => {
-    if (!area.trim()) return;
-    AppStore.addAccSuggestion({ id:'acc_'+Date.now().toString(36), type:'Casa', price:parseInt(price)||0, area:area.trim(), link, note:'', by:me.id });
-    setArea(''); setPrice(''); setLink(''); setAdding(false);
+  const [busyAcc, setBusyAcc] = mUseState(false);
+  const handleAdd = async () => {
+    if (!area.trim() || busyAcc) return;
+    setBusyAcc(true);
+    try {
+      const geo = await paGeocode(area.trim());
+      AppStore.addAccSuggestion({ id:'acc_'+Date.now().toString(36), type:'Casa', price:parseInt(price)||0, area:area.trim(), link, note:'', by:me.id, ...(geo ? { geo } : {}) });
+      setArea(''); setPrice(''); setLink(''); setAdding(false);
+    } finally { setBusyAcc(false); }
   };
 
   return (
@@ -7929,6 +7944,7 @@ function MPhase5({ me, onLogout, onOpenChat }) {
       <div style={{ padding:'0 22px 4px' }}>
         <Pill tone="accent" size="sm">Voto secreto</Pill>
         {me.isAdmin && <div style={{ margin:'8px 0 2px' }}><VoteModeToggle kind="acc" mode={voteMode} isAdmin={true} hasVotes={Object.keys(appData.accVotes || {}).length > 0} /></div>}
+        <div style={{ marginTop:8 }}><LocMap suggestions={suggestions} height={180} membersById={(id) => (typeof memberById === 'function' ? memberById(id) : null)} /></div>
       </div>
       <MPhaseTitle title={<>Vota no <span style={{ color:'var(--pa-accent)' }}>alojamento.</span></>}
         sub={voteMode === 'points' ? 'Até 3 por ordem (3/2/1 pontos), secreto até fechar.' : 'Um por pessoa, secreto até fechar.'} />
@@ -8255,6 +8271,7 @@ function MPhase8({ me, onLogout, onOpenChat }) {
     { id:'atividades', label:'Atividades', icon:'🎯' },
     { id:'compras',    label:'Compras',    icon:'🛒' },
     { id:'bagagem',    label:'Bagagem',    icon:'🎒' },
+    { id:'mapa',       label:'Mapa',       icon:'🗺' },
   ];
 
   return (
@@ -8293,6 +8310,7 @@ function MPhase8({ me, onLogout, onOpenChat }) {
         {tab === 'atividades' && <PlanAtividades me={me} />}
         {tab === 'compras'    && <PlanCompras me={me} />}
         {tab === 'bagagem'    && <PlanBagagem me={me} />}
+        {tab === 'mapa'       && <TripMap me={me} />}
       </div>
     </MShell>
   );
@@ -8840,7 +8858,98 @@ function LocMap({ suggestions, height = 230, membersById }) {
       React.createElement('div', { style: { padding: '6px 10px', fontFamily: 'var(--pa-body)', fontSize: 10.5, color: 'var(--pa-muted)', background: '#fff' } },
         (suggestions.length - withGeo.length) + ' sugestão(ões) sem localização no mapa — o link "ver no mapa" funciona na mesma.'));
 }
-Object.assign(window, { paGeocode, paMapsUrl, MapLink, LocMap });
+// Mapa da viagem (fase 8): estadia + local vencedores (automático) e pontos
+// de interesse adicionados pelo grupo. Pins coloridos: laranja=local,
+// escuro=estadia, verde=pontos de interesse.
+function TripMap({ me }) {
+  const appData = useAppStore();
+  const plan = AppStore.getPlanning();
+  const pois = plan.pois || [];
+  const [name, setName] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+  const ref = React.useRef(null);
+
+  // Pins automáticos: local e alojamento vencedores (se geocodificados)
+  const locWin = (appData.locSuggs || []).find((s) => s.id === appData.locWinner);
+  const accWin = (appData.accSuggs || []).find((s) => s.id === appData.accWinner);
+  const pins = [];
+  if (locWin && locWin.geo) pins.push({ id:'win-loc', kind:'local', color:'#d97757', name: locWin.name, sub: locWin.city || '', geo: locWin.geo });
+  if (accWin && accWin.geo) pins.push({ id:'win-acc', kind:'estadia', color:'#1f1a14', name: (accWin.type ? accWin.type + ' em ' : '') + (accWin.area || ''), sub:'a vossa estadia', geo: accWin.geo });
+  pois.forEach((p) => { if (p.geo) pins.push({ id:p.id, kind:'interesse', color:'#31a24c', name:p.name, sub:'', geo:p.geo }); });
+
+  React.useEffect(() => {
+    if (!window.L || !ref.current || pins.length === 0) return;
+    const L = window.L;
+    const map = L.map(ref.current, { scrollWheelZoom: false });
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18, attribution: '&copy; OpenStreetMap' }).addTo(map);
+    const ms = pins.map((p) => L.circleMarker([p.geo.lat, p.geo.lng], {
+      radius: 9, color: '#fff', weight: 2, fillColor: p.color, fillOpacity: 1,
+    }).addTo(map).bindPopup(`<b>${String(p.name).replace(/</g,'&lt;')}</b>${p.sub ? '<br/>' + String(p.sub).replace(/</g,'&lt;') : ''}`));
+    map.fitBounds(L.featureGroup(ms).getBounds().pad(0.3), { maxZoom: 13 });
+    return () => { try { map.remove(); } catch (e) {} };
+  }, [pins.map((p) => p.id + ':' + p.geo.lat).join(',')]);
+
+  const addPoi = async () => {
+    const n = name.trim();
+    if (!n || busy) return;
+    setBusy(true);
+    try {
+      const geo = await paGeocode(n);
+      if (!geo) {
+        if (window._paToast) window._paToast('Não encontrei esse sítio no mapa — tenta com a terra ao lado (ex: "Miradouro X, Gerês").', 'error');
+        return;
+      }
+      AppStore.updatePlanning((p) => ({ ...p, pois: [ ...(p.pois || []), { id:'poi_' + Date.now().toString(36), name: n.slice(0, 60), geo, by: me.id } ] }));
+      setName('');
+    } finally { setBusy(false); }
+  };
+  const removePoi = (poi) => {
+    if (!window.confirm(`Tirar "${poi.name}" do mapa?`)) return;
+    AppStore.updatePlanning((p) => ({ ...p, pois: (p.pois || []).filter((x) => x.id !== poi.id) }));
+  };
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+      {pins.length > 0 ? (
+        <div style={{ borderRadius:14, overflow:'hidden', border:'1px solid var(--pa-line)' }}>
+          <div ref={ref} style={{ height:260, width:'100%', background:'#e8e4dc' }} />
+          <div style={{ display:'flex', gap:12, flexWrap:'wrap', padding:'7px 12px', background:'#fff', fontFamily:'var(--pa-body)', fontSize:11, color:'var(--pa-muted)' }}>
+            <span>🟠 local</span><span>⚫ estadia</span><span>🟢 pontos de interesse</span>
+          </div>
+        </div>
+      ) : (
+        <div style={{ fontFamily:'var(--pa-body)', fontSize:13, color:'var(--pa-muted)', textAlign:'center', padding:'14px 0' }}>
+          O mapa ganha vida à medida que adicionas pontos de interesse — e o local e a estadia vencedores aparecem automaticamente.
+        </div>
+      )}
+
+      <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+        <input value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addPoi(); }}
+          placeholder="Praia, restaurante, miradouro… (nome + terra ajuda)" maxLength={60}
+          style={{ flex:1, minWidth:160, padding:'11px 14px', borderRadius:12, border:'1px solid var(--pa-line)', background:'#fff',
+            fontFamily:'var(--pa-body)', fontSize:14, color:'var(--pa-ink)', outline:'none' }} />
+        <Btn variant="accent" size="sm" onClick={addPoi} disabled={busy || !name.trim()}>{busy ? 'A localizar…' : '+ Ponto'}</Btn>
+      </div>
+
+      {pois.length > 0 && (
+        <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+          {pois.map((p) => {
+            const canRemove = me.isAdmin || p.by === me.id;
+            return (
+              <div key={p.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', borderRadius:12, background:'#fff', border:'1px solid var(--pa-line)' }}>
+                <span style={{ width:9, height:9, borderRadius:9, background:'#31a24c', flexShrink:0 }} />
+                <span style={{ flex:1, fontFamily:'var(--pa-body)', fontSize:13, fontWeight:600, minWidth:0, overflow:'hidden', textOverflow:'ellipsis' }}>{p.name}</span>
+                <MapLink query={p.name} />
+                {canRemove && <button onClick={() => removePoi(p)} aria-label={'Tirar ' + p.name} style={{ border:'none', background:'transparent', color:'var(--pa-muted)', cursor:'pointer', fontSize:14, padding:0 }}>×</button>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+Object.assign(window, { paGeocode, paMapsUrl, MapLink, LocMap, TripMap });
 
 function detectTie(votes, suggestions, inIds) {
   if (!votes) return null;
