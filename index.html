@@ -204,6 +204,23 @@ function paRangeLabel(from, to) {
   return (+f[2]) + ' ' + my(f).split(' ')[0] + ' – ' + (+t[2]) + ' ' + my(t);
 }
 // Nº de dias entre duas chaves, inclusive (substitui a antiga subtração numérica).
+// Um dia marcado no passado deixou de ser disponibilidade real: não conta para
+// contadores, quórum nem heat. (Hoje ainda conta.)
+function paIsPastDay(key) {
+  try {
+    const k = paNormDay(key);
+    if (!k) return false;
+    const [y, m, d] = String(k).split('-').map(Number);
+    if (!y || !m || !d) return false;
+    const now = new Date();
+    const today0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    return new Date(y, m - 1, d).getTime() < today0;
+  } catch (e) { return false; } // chave estranha nunca bloqueia a app
+}
+function paFutureDays(list) {
+  return (Array.isArray(list) ? list : []).filter((k) => !paIsPastDay(k));
+}
+
 function paDaySpan(from, to) {
   const p = (k) => { const a = paNormDay(k).split('-'); return new Date(+a[0], +a[1] - 1, +a[2]); };
   const ms = Math.abs(p(to) - p(from));
@@ -3567,7 +3584,8 @@ function Calendar({
   onMonth,
   renderCell,
   onCellClick,
-  dense = false
+  dense = false,
+  pastDisabled = false
 }) {
   const dows = ['S', 'T', 'Q', 'Q', 'S', 'S', 'D']; // Seg Ter Qua Qui Sex Sáb Dom
   // Modo multi-mês: com `mi` (índice em PA_MONTHS), o grid/título vêm do mês
@@ -3578,6 +3596,9 @@ function Calendar({
   // "Hoje" como guia visual (pontinho discreto), sem interferir com a seleção.
   const _now = new Date();
   const isToday = d => M && M.y === _now.getFullYear() && M.m === _now.getMonth() && d === _now.getDate();
+  // Dias já passados: não se marcam (nem se destrancam). Hoje ainda conta.
+  const _today0 = new Date(_now.getFullYear(), _now.getMonth(), _now.getDate()).getTime();
+  const isPast = d => !!(pastDisabled && M && new Date(M.y, M.m, d).getTime() < _today0);
   const canPrev = M ? mi > 0 : false;
   const canNext = M ? mi < PA_MONTHS.length - 1 : false;
   return /*#__PURE__*/React.createElement("div", {
@@ -3661,16 +3682,18 @@ function Calendar({
     }
   }, useGrid.map((day, i) => {
     const empty = day === null;
+    const past = !empty && isPast(day);
     return /*#__PURE__*/React.createElement("button", {
       key: i,
-      disabled: empty || !onCellClick,
-      onClick: () => day && onCellClick && onCellClick(day),
+      disabled: empty || !onCellClick || past,
+      title: past ? 'Dia já passado' : undefined,
+      onClick: () => day && !past && onCellClick && onCellClick(day),
       style: {
         aspectRatio: dense ? '1.4 / 1' : '1 / 1',
         border: 'none',
         padding: 0,
         background: 'transparent',
-        cursor: day && onCellClick ? 'pointer' : 'default',
+        cursor: day && onCellClick && !past ? 'pointer' : 'default',
         position: 'relative',
         minWidth: 0,
         maxWidth: '100%',
@@ -3690,7 +3713,7 @@ function Calendar({
         zIndex: 2,
         pointerEvents: 'none'
       }
-    }), !empty && (renderCell ? renderCell(day, i) : /*#__PURE__*/React.createElement("div", {
+    }), !empty && (renderCell ? renderCell(day, i, past) : /*#__PURE__*/React.createElement("div", {
       style: {
         width: '100%',
         height: '100%',
@@ -3745,7 +3768,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r52';
+window.PA_VERSION = '2026.06.01-r54';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -10110,7 +10133,7 @@ function DPhase6({
   const allAvail = appData.avail || {};
   // "Pronto" = a MESMA métrica do quórum da fase: pelo menos 1 dia marcado.
   // (A existência da chave não chega — uma lista vazia não é uma resposta.)
-  const submittedIds = Object.keys(allAvail).filter(id => Array.isArray(allAvail[id]) && allAvail[id].length > 0);
+  const submittedIds = Object.keys(allAvail).filter(id => paFutureDays(allAvail[id]).length > 0);
 
   // Mapa de calor do grupo em tempo real: outros (já guardado) + a minha seleção atual (local).
   // Conta APENAS quem está "in" — se alguém marcou e depois saiu, a disponibilidade não conta.
@@ -10226,36 +10249,38 @@ function DPhase6({
       border: '1px solid var(--pa-line)'
     }
   }, /*#__PURE__*/React.createElement(Calendar, {
+    pastDisabled: true,
     mi: mi,
     onMonth: setMi,
     onCellClick: d => toggle(paDayKey(PA_MONTHS[mi].y, PA_MONTHS[mi].m, d)),
-    renderCell: d => {
+    renderCell: (d, _i, past) => {
       const k = paDayKey(PA_MONTHS[mi].y, PA_MONTHS[mi].m, d);
       const sel = days.includes(k);
       const n = heat[k] || 0;
       const intensity = totalIn > 0 ? n / totalIn : 0;
       return /*#__PURE__*/React.createElement("div", {
-        title: n > 0 ? namesFor(k) : undefined,
+        title: past ? sel ? 'Dia já passado — a tua marca deixou de contar' : 'Dia já passado' : n > 0 ? namesFor(k) : undefined,
         style: {
           width: '100%',
           height: '100%',
           borderRadius: 8,
-          background: intensity > 0 ? `rgba(217,119,87,${0.10 + intensity * 0.55})` : '#fff',
-          color: 'var(--pa-ink)',
-          border: sel ? '2.5px solid var(--pa-accent)' : intensity === 0 ? '1px solid var(--pa-line)' : '1px solid transparent',
-          boxShadow: sel ? '0 0 0 2px rgba(217,119,87,0.22), 0 2px 8px rgba(217,119,87,0.28)' : 'none',
+          background: past ? sel ? 'rgba(31,26,20,0.10)' : 'rgba(31,26,20,0.03)' : intensity > 0 ? `rgba(217,119,87,${0.10 + intensity * 0.55})` : '#fff',
+          color: past ? 'var(--pa-muted)' : 'var(--pa-ink)',
+          border: past ? sel ? '2px dashed rgba(31,26,20,0.28)' : '1px solid var(--pa-line)' : sel ? '2.5px solid var(--pa-accent)' : intensity === 0 ? '1px solid var(--pa-line)' : '1px solid transparent',
+          boxShadow: !past && sel ? '0 0 0 2px rgba(217,119,87,0.22), 0 2px 8px rgba(217,119,87,0.28)' : 'none',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
           fontFamily: 'var(--pa-body)',
-          cursor: 'pointer',
+          cursor: past ? 'default' : 'pointer',
           transition: 'background 0.12s, box-shadow 0.12s'
         }
       }, /*#__PURE__*/React.createElement("div", {
         style: {
           fontSize: 14,
-          fontWeight: sel ? 700 : 600
+          fontWeight: sel && !past ? 700 : 600,
+          textDecoration: past && sel ? 'line-through' : 'none'
         }
       }, d), n > 0 && /*#__PURE__*/React.createElement("div", {
         style: {
@@ -10344,7 +10369,7 @@ function DPhase6({
       fontWeight: 600,
       letterSpacing: -0.5
     }
-  }, days.length, " ", /*#__PURE__*/React.createElement("span", {
+  }, paFutureDays(days).length, " ", /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 14,
       color: 'var(--pa-muted)',
@@ -10368,13 +10393,15 @@ function DPhase6({
     }
   }, "Estado do grupo"), allMembers.map(m => {
     const submitted = submittedIds.includes(m.id);
+    const isOut = (appData.rsvp || {})[m.id] === 'out';
     return /*#__PURE__*/React.createElement("div", {
       key: m.id,
       style: {
         display: 'flex',
         alignItems: 'center',
         gap: 10,
-        padding: '6px 0'
+        padding: '6px 0',
+        opacity: isOut ? 0.55 : 1
       }
     }, /*#__PURE__*/React.createElement(Avatar, {
       member: m,
@@ -10385,7 +10412,10 @@ function DPhase6({
         fontSize: 13,
         color: 'var(--pa-ink)'
       }
-    }, m.name), submitted ? /*#__PURE__*/React.createElement(Pill, {
+    }, m.name), isOut ? /*#__PURE__*/React.createElement(Pill, {
+      tone: "muted",
+      size: "sm"
+    }, "não vai") : submitted ? /*#__PURE__*/React.createElement(Pill, {
       tone: "success",
       size: "sm"
     }, "✓ pronto") : /*#__PURE__*/React.createElement(Pill, {
@@ -10536,23 +10566,25 @@ function DPhase7({
       border: '1px solid var(--pa-line)'
     }
   }, /*#__PURE__*/React.createElement(Calendar, {
+    pastDisabled: true,
     mi: mi,
     onMonth: setMi,
     onCellClick: me.isAdmin ? d => pickDay(paDayKey(PA_MONTHS[mi].y, PA_MONTHS[mi].m, d)) : undefined,
-    renderCell: d => {
+    renderCell: (d, _i, past) => {
       const k = paDayKey(PA_MONTHS[mi].y, PA_MONTHS[mi].m, d);
       const n = heat[k] || 0;
       const inRange = selFrom && k >= selFrom && k <= selTo;
       const isLocked = locked && k >= paNormDay(locked.from) && k <= paNormDay(locked.to);
       const intensity = totalIn > 0 ? n / totalIn : 0;
       return /*#__PURE__*/React.createElement("div", {
-        title: n > 0 ? namesFor(k) : undefined,
+        title: past ? 'Dia já passado' : n > 0 ? namesFor(k) : undefined,
         style: {
           width: '100%',
           height: '100%',
           borderRadius: 8,
-          background: isLocked ? 'var(--pa-accent)' : inRange ? 'var(--pa-ink)' : intensity > 0 ? `rgba(217,119,87,${0.10 + intensity * 0.6})` : '#fff',
-          color: isLocked || inRange ? '#fff' : 'var(--pa-ink)',
+          opacity: past && !isLocked ? 0.5 : 1,
+          background: isLocked ? 'var(--pa-accent)' : inRange ? 'var(--pa-ink)' : past ? 'rgba(31,26,20,0.03)' : intensity > 0 ? `rgba(217,119,87,${0.10 + intensity * 0.6})` : '#fff',
+          color: isLocked || inRange ? '#fff' : past ? 'var(--pa-muted)' : 'var(--pa-ink)',
           border: intensity === 0 && !inRange && !isLocked ? '1px solid var(--pa-line)' : 'none',
           display: 'flex',
           flexDirection: 'column',
@@ -14774,7 +14806,7 @@ function MPhase6({
   const allAvail = appData.avail || {};
   // "Pronto" = a MESMA métrica do quórum da fase: pelo menos 1 dia marcado.
   // (A existência da chave não chega — uma lista vazia não é uma resposta.)
-  const submittedIds = Object.keys(allAvail).filter(id => Array.isArray(allAvail[id]) && allAvail[id].length > 0);
+  const submittedIds = Object.keys(allAvail).filter(id => paFutureDays(allAvail[id]).length > 0);
   const inMembers = typeof getInMembers === 'function' ? getInMembers(appData) : allMembers;
   const totalIn = inMembers.length || allMembers.length;
   const inIds = mUseMemo(() => new Set(inMembers.map(m => m.id)), [inMembers]);
@@ -14817,7 +14849,7 @@ function MPhase6({
     onLogout: onLogout,
     onOpenChat: onOpenChat
   }), /*#__PURE__*/React.createElement(MPhaseTitle, {
-    kicker: `${days.length} dias marcados`,
+    kicker: `${paFutureDays(days).length} dias marcados`,
     title: /*#__PURE__*/React.createElement(React.Fragment, null, "Em que dias", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("span", {
       style: {
         color: 'var(--pa-accent)'
@@ -14883,24 +14915,25 @@ function MPhase6({
     }
   }, /*#__PURE__*/React.createElement(Calendar, {
     dense: true,
+    pastDisabled: true,
     mi: mi,
     onMonth: setMi,
     onCellClick: d => toggle(paDayKey(PA_MONTHS[mi].y, PA_MONTHS[mi].m, d)),
-    renderCell: d => {
+    renderCell: (d, _i, past) => {
       const k = paDayKey(PA_MONTHS[mi].y, PA_MONTHS[mi].m, d);
       const sel = days.includes(k);
       const n = heat[k] || 0;
       const intensity = totalIn > 0 ? n / totalIn : 0;
       return /*#__PURE__*/React.createElement("div", {
-        title: n > 0 ? namesFor(k) : undefined,
+        title: past ? 'Dia já passado' : n > 0 ? namesFor(k) : undefined,
         style: {
           width: '100%',
           height: '100%',
           borderRadius: 6,
-          background: intensity > 0 ? `rgba(217,119,87,${0.10 + intensity * 0.55})` : '#fff',
-          color: 'var(--pa-ink)',
-          border: sel ? '2px solid var(--pa-accent)' : intensity === 0 ? '1px solid var(--pa-line)' : '1px solid transparent',
-          boxShadow: sel ? '0 0 0 1.5px rgba(217,119,87,0.25)' : 'none',
+          background: past ? sel ? 'rgba(31,26,20,0.10)' : 'rgba(31,26,20,0.03)' : intensity > 0 ? `rgba(217,119,87,${0.10 + intensity * 0.55})` : '#fff',
+          color: past ? 'var(--pa-muted)' : 'var(--pa-ink)',
+          border: past ? sel ? '2px dashed rgba(31,26,20,0.28)' : '1px solid var(--pa-line)' : sel ? '2px solid var(--pa-accent)' : intensity === 0 ? '1px solid var(--pa-line)' : '1px solid transparent',
+          boxShadow: !past && sel ? '0 0 0 1.5px rgba(217,119,87,0.25)' : 'none',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
@@ -14910,8 +14943,9 @@ function MPhase6({
       }, /*#__PURE__*/React.createElement("div", {
         style: {
           fontSize: 12,
-          fontWeight: sel ? 700 : 600,
-          lineHeight: 1
+          fontWeight: sel && !past ? 700 : 600,
+          lineHeight: 1,
+          textDecoration: past && sel ? 'line-through' : 'none'
         }
       }, d), n > 0 && /*#__PURE__*/React.createElement("div", {
         style: {
@@ -15027,6 +15061,7 @@ function MPhase6({
     }
   }, "Estado do grupo · ", submittedIds.length, "/", allMembers.length), allMembers.map(m => {
     const submitted = submittedIds.includes(m.id);
+    const isOut = (appData.rsvp || {})[m.id] === 'out';
     return /*#__PURE__*/React.createElement("div", {
       key: m.id,
       style: {
@@ -15034,7 +15069,8 @@ function MPhase6({
         alignItems: 'center',
         gap: 12,
         padding: '9px 16px',
-        borderTop: '1px solid var(--pa-line)'
+        borderTop: '1px solid var(--pa-line)',
+        opacity: isOut ? 0.55 : 1
       }
     }, /*#__PURE__*/React.createElement(Avatar, {
       member: m,
@@ -15049,7 +15085,10 @@ function MPhase6({
         textOverflow: 'ellipsis',
         whiteSpace: 'nowrap'
       }
-    }, m.name), submitted ? /*#__PURE__*/React.createElement(Pill, {
+    }, m.name), isOut ? /*#__PURE__*/React.createElement(Pill, {
+      tone: "muted",
+      size: "sm"
+    }, "não vai") : submitted ? /*#__PURE__*/React.createElement(Pill, {
       tone: "success",
       size: "sm"
     }, "✓ pronto") : /*#__PURE__*/React.createElement(Pill, {
@@ -15207,10 +15246,11 @@ function MPhase7({
     }
   }, /*#__PURE__*/React.createElement(Calendar, {
     dense: true,
+    pastDisabled: true,
     mi: mi,
     onMonth: setMi,
     onCellClick: d => pickDay(paDayKey(PA_MONTHS[mi].y, PA_MONTHS[mi].m, d)),
-    renderCell: d => {
+    renderCell: (d, _i, past) => {
       const k = paDayKey(PA_MONTHS[mi].y, PA_MONTHS[mi].m, d);
       const n = heat[k] || 0;
       const inRange = range.from && k >= range.from && k <= (range.to || range.from);
@@ -15220,8 +15260,9 @@ function MPhase7({
           width: '100%',
           height: '100%',
           borderRadius: 7,
-          background: inRange ? 'var(--pa-ink)' : intensity > 0 ? `rgba(217,119,87,${0.10 + intensity * 0.6})` : '#fff',
-          color: inRange ? '#fff' : 'var(--pa-ink)',
+          opacity: past ? 0.5 : 1,
+          background: inRange ? 'var(--pa-ink)' : past ? 'rgba(31,26,20,0.03)' : intensity > 0 ? `rgba(217,119,87,${0.10 + intensity * 0.6})` : '#fff',
+          color: inRange ? '#fff' : past ? 'var(--pa-muted)' : 'var(--pa-ink)',
           border: intensity === 0 && !inRange ? '1px solid var(--pa-line)' : 'none',
           display: 'flex',
           flexDirection: 'column',
@@ -15649,6 +15690,15 @@ const {
 // ─────────────────────────────────────────────────────────────
 // Quem está "a bordo" (RSVP === 'in'). Inclui o admin se respondeu in.
 // ─────────────────────────────────────────────────────────────
+// Universo PARTICIPANTE de uma fase: toda a gente da edição exceto quem disse
+// explicitamente que não vai. Serve as listas de estado e os lembretes — quem
+// ainda não respondeu, ou respondeu "talvez", também precisa de ser chamado.
+// NÃO confundir com getInMembers (quórum de avanço = só os confirmados).
+function getActiveMembers(appData) {
+  const rsvp = appData && appData.rsvp || {};
+  const all = typeof getEditionMembers === 'function' ? getEditionMembers(appData) : typeof getAllMembers === 'function' ? getAllMembers() : [];
+  return all.filter(m => rsvp[m.id] !== 'out');
+}
 function getInMembers(appData) {
   const rsvp = appData.rsvp || {};
   const all = typeof getAllMembers === 'function' ? getAllMembers() : [];
@@ -15688,7 +15738,7 @@ function phaseComplete(phase, appData) {
     // disponibilidade
     if (inIds.length === 0) return false;
     const avail = appData.avail || {};
-    return inIds.every(id => Array.isArray(avail[id]) && avail[id].length > 0);
+    return inIds.every(id => paFutureDays(avail[id]).length > 0);
   }
   if (phase === 3) {
     // datas trancadas
@@ -15749,6 +15799,8 @@ function usePhaseProgress(phase, me) {
   const isComplete = phaseComplete(phase, appData);
   const allMembers = typeof getEditionMembers === 'function' ? getEditionMembers(appData) : typeof getAllMembers === 'function' ? getAllMembers() : [];
   const inMembers = phase === 1 ? allMembers : getInMembers(appData);
+  // Universo dos lembretes/estado: todos menos quem disse "fora".
+  const activeMembers = typeof getActiveMembers === 'function' ? getActiveMembers(appData) : allMembers;
 
   // Prazo opcional (countdown). Guardado em appData.deadline (ISO). Só o admin define.
   const deadline = appData.deadline || null;
@@ -15762,23 +15814,25 @@ function usePhaseProgress(phase, me) {
     } else if (phase === 2) {
       // disponibilidade
       const avail = appData.avail || {};
-      pending = inMembers.filter(m => !(Array.isArray(avail[m.id]) && avail[m.id].length > 0));
+      // Lembrar TODA a gente que não disse "fora" (inclui talvez / sem resposta):
+      // eram estes que ficavam esquecidos no lembrete.
+      pending = activeMembers.filter(m => paFutureDays(avail[m.id]).length === 0);
     } else if (phase === 4) {
       // sugestões de local
       const suggs = appData.locSuggs || [];
-      pending = inMembers.filter(m => !suggs.some(s => s.by === m.id));
+      pending = activeMembers.filter(m => !suggs.some(s => s.by === m.id));
     } else if (phase === 5) {
       // votar local
       const votes = appData.locVotes || {};
-      pending = inMembers.filter(m => paVoteList(votes[m.id]).length === 0);
+      pending = activeMembers.filter(m => paVoteList(votes[m.id]).length === 0);
     } else if (phase === 6) {
       // sugestões de alojamento
       const suggs = appData.accSuggs || [];
-      pending = inMembers.filter(m => !suggs.some(s => s.by === m.id));
+      pending = activeMembers.filter(m => !suggs.some(s => s.by === m.id));
     } else if (phase === 7) {
       // votar alojamento
       const votes = appData.accVotes || {};
-      pending = inMembers.filter(m => paVoteList(votes[m.id]).length === 0);
+      pending = activeMembers.filter(m => paVoteList(votes[m.id]).length === 0);
     }
   }
 
@@ -16344,7 +16398,10 @@ function paVoteTally(votes, suggestions, inIds) {
 Object.assign(window, {
   paVoteList,
   paVoteTally,
-  PA_RANK_POINTS
+  PA_RANK_POINTS,
+  getActiveMembers,
+  paIsPastDay,
+  paFutureDays
 });
 
 // ─────────────────────────────────────────────────────────────
