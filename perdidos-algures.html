@@ -89,6 +89,28 @@
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
   }
+
+/* ── Mapas: identidade visual moderna ── */
+.pa-map .leaflet-tile-pane {
+  /* Tom creme/quente da app sobre o Positron: base com identidade própria */
+  filter: sepia(0.16) saturate(0.88) contrast(1.02);
+}
+.pa-map .leaflet-popup-content-wrapper {
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(31,26,20,0.16);
+  border: 1px solid var(--pa-line);
+  font-family: var(--pa-body);
+}
+.pa-map .leaflet-popup-content { margin: 10px 14px; font-size: 12.5px; line-height: 1.45; color: var(--pa-ink); }
+.pa-map .leaflet-popup-tip { box-shadow: 0 4px 10px rgba(31,26,20,0.10); }
+.pa-map .leaflet-container { font-family: var(--pa-body); }
+@keyframes pa-pin-pop {
+  0% { transform: scale(0); opacity: 0; }
+  70% { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.pa-pin { animation: pa-pin-pop 0.28s ease-out both; transform-origin: bottom center; }
+.pa-dot { animation: pa-pin-pop 0.28s ease-out both; transform-origin: center; }
 </style>
 </head>
 <body>
@@ -2475,7 +2497,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r47';
+window.PA_VERSION = '2026.06.01-r49';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -5508,13 +5530,14 @@ function DPhase2({ me }) {
   const limit = D.phase2.perPersonLimit;
   const [adding, setAdding] = dUseState(false);
 
-  const handleAdd = ({ name, city, tags, accent, geo }) => {
-    // O geo vem do LocationPicker (pino confirmado à mão) — sem adivinhas.
+  const handleAdd = ({ name, city, tags, accent, geo, zone }) => {
+    // O geo/zone vêm do LocationPicker (pino ou região confirmados à mão).
     AppStore.addLocSuggestion({
       id: 'loc_' + Date.now().toString(36),
       name, city, tags: tags || [], accent: accent || 'var(--pa-accent)',
       by: me.id,
       ...(geo ? { geo } : {}),
+      ...(zone ? { zone } : {}),
     });
     setAdding(false);
   };
@@ -5658,7 +5681,7 @@ function DPhase3({ me }) {
 
   const inMembers = (typeof getInMembers === 'function') ? getInMembers(appData) : [];
 
-  const voteMode = appData.locVoteMode || 'single';
+  const voteMode = appData.locVoteMode || 'points' /* Top 3 por defeito */;
   const myList = paVoteList(vote);
   const handleVote = (id) => {
     if (voteMode === 'points') {
@@ -5993,7 +6016,7 @@ function DPhase5({ me }) {
   const [saved, setSaved] = dUseState2(false);
   const [tieOpen, setTieOpen] = dUseState2(false);
 
-  const voteMode = appData.accVoteMode || 'single';
+  const voteMode = appData.accVoteMode || 'points' /* Top 3 por defeito */;
   const myList = paVoteList(vote);
   const handleVote = (id) => {
     if (closed) return;
@@ -7690,7 +7713,7 @@ function MPhase3({ me, onLogout, onOpenChat }) {
   const [saved, setSaved] = mUseState(false);
   const [tieOpen, setTieOpen] = mUseState(false);
 
-  const voteMode = appData.locVoteMode || 'single';
+  const voteMode = appData.locVoteMode || 'points' /* Top 3 por defeito */;
   const myList = paVoteList(vote);
   const handleVote = (id) => {
     if (voteMode === 'points') {
@@ -7906,7 +7929,7 @@ function MPhase5({ me, onLogout, onOpenChat }) {
   const votingClosed = false;
   const isTie = !!tie;
 
-  const voteMode = appData.accVoteMode || 'single';
+  const voteMode = appData.accVoteMode || 'points' /* Top 3 por defeito */;
   const myList = paVoteList(vote);
   const handleVote = (id) => {
     if (votingClosed) return;
@@ -8431,7 +8454,8 @@ function phaseComplete(phase, appData) {
     // Se admin já desempatou, completo
     if (appData.locWinner) return true;
     // Se há empate por PONTOS (sem vencedor escolhido), NÃO completa
-    const tally = paVoteTally(votes, appData.locSuggs || [], null);
+    // Só votos de quem ESTÁ na aventura contam para o empate (removidos fora).
+    const tally = paVoteTally(votes, appData.locSuggs || [], inIds);
     const sorted = Object.values(tally).sort((a,b) => b-a);
     if (sorted.length < 2) return true;
     return !(sorted[0] === sorted[1]);
@@ -8447,7 +8471,7 @@ function phaseComplete(phase, appData) {
     const allVoted = inIds.every(id => paVoteList(votes[id]).length > 0);
     if (!allVoted) return false;
     if (appData.accWinner) return true;
-    const tally = paVoteTally(votes, appData.accSuggs || [], null);
+    const tally = paVoteTally(votes, appData.accSuggs || [], inIds);
     const sorted = Object.values(tally).sort((a,b) => b-a);
     if (sorted.length < 2) return true;
     return !(sorted[0] === sorted[1]);
@@ -8816,16 +8840,40 @@ function paMapsUrl(q) { return 'https://www.google.com/maps/search/?api=1&query=
 // Estética dos mapas: CARTO Voyager — tons quentes e limpos que assentam na
 // paleta da app; gratuito, sem chave, com suporte retina ({r}).
 function paTileLayer(L) {
-  return L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+  // CARTO Positron: o minimal moderno (fundo quase branco, tipografia discreta)
+  // que faz os pins e as zonas terracota saltarem — look "produto", não "wiki".
+  return L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
     maxZoom: 19, subdomains: 'abcd',
     attribution: '&copy; OpenStreetMap &copy; CARTO',
   });
 }
 // Zona sombreada (regiões: distrito/concelho/freguesia) com o accent da app.
 function paZoneLayer(L, zone) {
-  return L.geoJSON(zone, { style: { color: '#d97757', weight: 2, fillColor: '#d97757', fillOpacity: 0.18, dashArray: '4 3' } });
+  return L.geoJSON(zone, { style: { color: '#d97757', weight: 2.5, fillColor: '#d97757', fillOpacity: 0.22, dashArray: '4 3' } });
 }
-Object.assign(window, { paTileLayer, paZoneLayer });
+// Pinos modernos: gota SVG com anel branco e sombra (votações e picker).
+function paPinIcon(L, color = '#d97757') {
+  const svg = `<svg width="30" height="40" viewBox="0 0 30 40" xmlns="http://www.w3.org/2000/svg">
+    <path d="M15 0C6.7 0 0 6.7 0 15c0 10.5 15 25 15 25s15-14.5 15-25C30 6.7 23.3 0 15 0z" fill="${color}"/>
+    <circle cx="15" cy="14.5" r="5.5" fill="#fff"/>
+  </svg>`;
+  return L.divIcon({
+    className: 'pa-pin',
+    html: `<div style="filter: drop-shadow(0 3px 5px rgba(31,26,20,0.35));">${svg}</div>`,
+    iconSize: [30, 40], iconAnchor: [15, 38], popupAnchor: [0, -34],
+  });
+}
+// Círculo com ícone (mapa da viagem): estilo Airbnb/Google Maps novo.
+function paDotIcon(L, color, emoji) {
+  return L.divIcon({
+    className: 'pa-dot',
+    html: `<div style="width:32px;height:32px;border-radius:32px;background:${color};border:2.5px solid #fff;
+      box-shadow:0 3px 8px rgba(31,26,20,0.3);display:flex;align-items:center;justify-content:center;
+      font-size:15px;line-height:1;">${emoji}</div>`,
+    iconSize: [32, 32], iconAnchor: [16, 16], popupAnchor: [0, -18],
+  });
+}
+Object.assign(window, { paTileLayer, paZoneLayer, paPinIcon, paDotIcon });
 
 // Link discreto "ver no mapa" para qualquer sugestão (Google Maps, custo zero).
 function MapLink({ query, style }) {
@@ -8856,7 +8904,7 @@ function LocMap({ suggestions, height = 230, membersById }) {
         (s.city ? `<br/>${String(s.city).replace(/</g,'&lt;')}` : '') +
         (by ? `<br/><span style="opacity:0.7">sugerido por ${String(by.name).replace(/</g,'&lt;')}</span>` : '');
       // Regiões (Alentejo, Comporta…) aparecem como ZONA sombreada; sítios exatos como pino.
-      const layer = s.zone ? paZoneLayer(L, s.zone) : L.marker([s.geo.lat, s.geo.lng]);
+      const layer = s.zone ? paZoneLayer(L, s.zone) : L.marker([s.geo.lat, s.geo.lng], { icon: paPinIcon(L) });
       return layer.addTo(map).bindPopup(label);
     });
     const grp = L.featureGroup(layers);
@@ -8864,8 +8912,8 @@ function LocMap({ suggestions, height = 230, membersById }) {
     return () => { try { map.remove(); } catch (e) {} mapRef.current = null; };
   }, [withGeo.map((s) => s.id + ':' + s.geo.lat + (s.zone ? 'z' : '')).join(',')]);
   if (withGeo.length === 0) return null;
-  return React.createElement('div', { style: { borderRadius: 14, overflow: 'hidden', border: '1px solid var(--pa-line)', marginBottom: 14 } },
-    React.createElement('div', { ref, style: { height, width: '100%', background: '#e8e4dc' } }),
+  return React.createElement('div', { className: 'pa-map', style: { borderRadius: 14, overflow: 'hidden', border: '1px solid var(--pa-line)', marginBottom: 14 } },
+    React.createElement('div', { ref, style: { height, width: '100%', background: '#eee9df' } }),
     withGeo.length < (suggestions || []).length &&
       React.createElement('div', { style: { padding: '6px 10px', fontFamily: 'var(--pa-body)', fontSize: 10.5, color: 'var(--pa-muted)', background: '#fff' } },
         (suggestions.length - withGeo.length) + ' sugestão(ões) sem localização no mapa — o link "ver no mapa" funciona na mesma.'));
@@ -8888,6 +8936,12 @@ function LocationPicker({ onChange, placeholder = 'Procurar no mapa…', compact
   const ctlRef = React.useRef(null);
 
   const shortLabel = (dn) => String(dn || '').split(',').slice(0, 3).join(',');
+
+  // Ao desmontar: cancela o debounce e o pedido em voo (sem setState em morto).
+  React.useEffect(() => () => {
+    if (debRef.current) clearTimeout(debRef.current);
+    if (ctlRef.current) { try { ctlRef.current.abort(); } catch (e) {} }
+  }, []);
 
   // Autocomplete com debounce + cancelamento
   const onType = (v) => {
@@ -8947,7 +9001,7 @@ function LocationPicker({ onChange, placeholder = 'Procurar no mapa…', compact
       try { map.fitBounds(layer.getBounds().pad(0.08)); } catch (e) { map.setView([picked.lat, picked.lng], 9); }
     } else {
       map.setView([picked.lat, picked.lng], 14);
-      const mk = L.marker([picked.lat, picked.lng], { draggable: true }).addTo(map);
+      const mk = L.marker([picked.lat, picked.lng], { draggable: true, icon: paPinIcon(L) }).addTo(map);
       mk.on('dragend', () => { const ll = mk.getLatLng(); move(ll.lat, ll.lng); });
       map.on('click', (e) => { mk.setLatLng(e.latlng); move(e.latlng.lat, e.latlng.lng); });
     }
@@ -8983,8 +9037,8 @@ function LocationPicker({ onChange, placeholder = 'Procurar no mapa…', compact
         </div>
       )}
       {picked && (
-        <div style={{ borderRadius:12, overflow:'hidden', border:'1px solid var(--pa-accent)' }}>
-          <div ref={mapEl} style={{ height: compact ? 150 : 180, width:'100%', background:'#e8e4dc' }} />
+        <div className="pa-map" style={{ borderRadius:12, overflow:'hidden', border:'1px solid var(--pa-accent)' }}>
+          <div ref={mapEl} style={{ height: compact ? 150 : 180, width:'100%', background:'#eee9df' }} />
           <div style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 10px', background:'#fff' }}>
             <span style={{ flex:1, fontFamily:'var(--pa-body)', fontSize:11.5, color:'var(--pa-muted)', minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
               {picked.zone
@@ -9031,9 +9085,10 @@ function TripMap({ me }) {
     } else {
       const ms = pins.map((p) => {
         const popup = `<b>${String(p.name).replace(/</g,'&lt;')}</b>${p.sub ? '<br/>' + String(p.sub).replace(/</g,'&lt;') : ''}`;
+        const emoji = { local:'📍', estadia:'🏠', interesse:'⭐', atividade:'🎯' }[p.kind] || '📍';
         const layer = p.zone
           ? paZoneLayer(L, p.zone)
-          : L.circleMarker([p.geo.lat, p.geo.lng], { radius: 9, color: '#fff', weight: 2, fillColor: p.color, fillOpacity: 1 });
+          : L.marker([p.geo.lat, p.geo.lng], { icon: paDotIcon(L, p.color, emoji) });
         return layer.addTo(map).bindPopup(popup);
       });
       try { map.fitBounds(L.featureGroup(ms).getBounds().pad(0.2), { maxZoom: 13 }); } catch (e) { map.setView([pins[0].geo.lat, pins[0].geo.lng], 10); }
@@ -9056,11 +9111,11 @@ function TripMap({ me }) {
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-      <div style={{ borderRadius:14, overflow:'hidden', border:'1px solid var(--pa-line)' }}>
+      <div className="pa-map" style={{ borderRadius:14, overflow:'hidden', border:'1px solid var(--pa-line)' }}>
         <div ref={ref} style={{ height:260, width:'100%', background:'#eee9df' }} />
         <div style={{ display:'flex', gap:12, flexWrap:'wrap', padding:'7px 12px', background:'#fff', fontFamily:'var(--pa-body)', fontSize:11, color:'var(--pa-muted)' }}>
           {pins.length > 0
-            ? <><span>🟠 local</span><span>⚫ estadia</span><span>🟢 pontos de interesse</span><span>🔵 atividades</span></>
+            ? <><span>📍 local</span><span>🏠 estadia</span><span>⭐ pontos de interesse</span><span>🎯 atividades</span></>
             : <span>O local e a estadia vencedores aparecem aqui automaticamente — e podes juntar pontos de interesse já.</span>}
         </div>
       </div>

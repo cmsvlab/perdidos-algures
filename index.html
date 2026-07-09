@@ -89,6 +89,28 @@
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
   }
+
+/* ── Mapas: identidade visual moderna ── */
+.pa-map .leaflet-tile-pane {
+  /* Tom creme/quente da app sobre o Positron: base com identidade própria */
+  filter: sepia(0.16) saturate(0.88) contrast(1.02);
+}
+.pa-map .leaflet-popup-content-wrapper {
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(31,26,20,0.16);
+  border: 1px solid var(--pa-line);
+  font-family: var(--pa-body);
+}
+.pa-map .leaflet-popup-content { margin: 10px 14px; font-size: 12.5px; line-height: 1.45; color: var(--pa-ink); }
+.pa-map .leaflet-popup-tip { box-shadow: 0 4px 10px rgba(31,26,20,0.10); }
+.pa-map .leaflet-container { font-family: var(--pa-body); }
+@keyframes pa-pin-pop {
+  0% { transform: scale(0); opacity: 0; }
+  70% { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.pa-pin { animation: pa-pin-pop 0.28s ease-out both; transform-origin: bottom center; }
+.pa-dot { animation: pa-pin-pop 0.28s ease-out both; transform-origin: center; }
 </style>
 </head>
 <body>
@@ -3716,7 +3738,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r47';
+window.PA_VERSION = '2026.06.01-r49';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -8577,9 +8599,10 @@ function DPhase2({
     city,
     tags,
     accent,
-    geo
+    geo,
+    zone
   }) => {
-    // O geo vem do LocationPicker (pino confirmado à mão) — sem adivinhas.
+    // O geo/zone vêm do LocationPicker (pino ou região confirmados à mão).
     AppStore.addLocSuggestion({
       id: 'loc_' + Date.now().toString(36),
       name,
@@ -8589,6 +8612,9 @@ function DPhase2({
       by: me.id,
       ...(geo ? {
         geo
+      } : {}),
+      ...(zone ? {
+        zone
       } : {})
     });
     setAdding(false);
@@ -8954,7 +8980,7 @@ function DPhase3({
   const [saved, setSaved] = dUseState(false);
   const [tieOpen, setTieOpen] = dUseState(false);
   const inMembers = typeof getInMembers === 'function' ? getInMembers(appData) : [];
-  const voteMode = appData.locVoteMode || 'single';
+  const voteMode = appData.locVoteMode || 'points' /* Top 3 por defeito */;
   const myList = paVoteList(vote);
   const handleVote = id => {
     if (voteMode === 'points') {
@@ -9751,7 +9777,7 @@ function DPhase5({
   }, [appData.accVotes, me.id]);
   const [saved, setSaved] = dUseState2(false);
   const [tieOpen, setTieOpen] = dUseState2(false);
-  const voteMode = appData.accVoteMode || 'single';
+  const voteMode = appData.accVoteMode || 'points' /* Top 3 por defeito */;
   const myList = paVoteList(vote);
   const handleVote = id => {
     if (closed) return;
@@ -13948,7 +13974,7 @@ function MPhase3({
   }, [appData.locVotes, me.id]);
   const [saved, setSaved] = mUseState(false);
   const [tieOpen, setTieOpen] = mUseState(false);
-  const voteMode = appData.locVoteMode || 'single';
+  const voteMode = appData.locVoteMode || 'points' /* Top 3 por defeito */;
   const myList = paVoteList(vote);
   const handleVote = id => {
     if (voteMode === 'points') {
@@ -14496,7 +14522,7 @@ function MPhase5({
   }, [tie?.tiedIds?.join(','), appData.accWinner]);
   const votingClosed = false;
   const isTie = !!tie;
-  const voteMode = appData.accVoteMode || 'single';
+  const voteMode = appData.accVoteMode || 'points' /* Top 3 por defeito */;
   const myList = paVoteList(vote);
   const handleVote = id => {
     if (votingClosed) return;
@@ -16348,7 +16374,9 @@ function paMapsUrl(q) {
 // Estética dos mapas: CARTO Voyager — tons quentes e limpos que assentam na
 // paleta da app; gratuito, sem chave, com suporte retina ({r}).
 function paTileLayer(L) {
-  return L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+  // CARTO Positron: o minimal moderno (fundo quase branco, tipografia discreta)
+  // que faz os pins e as zonas terracota saltarem — look "produto", não "wiki".
+  return L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
     maxZoom: 19,
     subdomains: 'abcd',
     attribution: '&copy; OpenStreetMap &copy; CARTO'
@@ -16359,16 +16387,44 @@ function paZoneLayer(L, zone) {
   return L.geoJSON(zone, {
     style: {
       color: '#d97757',
-      weight: 2,
+      weight: 2.5,
       fillColor: '#d97757',
-      fillOpacity: 0.18,
+      fillOpacity: 0.22,
       dashArray: '4 3'
     }
   });
 }
+// Pinos modernos: gota SVG com anel branco e sombra (votações e picker).
+function paPinIcon(L, color = '#d97757') {
+  const svg = `<svg width="30" height="40" viewBox="0 0 30 40" xmlns="http://www.w3.org/2000/svg">
+    <path d="M15 0C6.7 0 0 6.7 0 15c0 10.5 15 25 15 25s15-14.5 15-25C30 6.7 23.3 0 15 0z" fill="${color}"/>
+    <circle cx="15" cy="14.5" r="5.5" fill="#fff"/>
+  </svg>`;
+  return L.divIcon({
+    className: 'pa-pin',
+    html: `<div style="filter: drop-shadow(0 3px 5px rgba(31,26,20,0.35));">${svg}</div>`,
+    iconSize: [30, 40],
+    iconAnchor: [15, 38],
+    popupAnchor: [0, -34]
+  });
+}
+// Círculo com ícone (mapa da viagem): estilo Airbnb/Google Maps novo.
+function paDotIcon(L, color, emoji) {
+  return L.divIcon({
+    className: 'pa-dot',
+    html: `<div style="width:32px;height:32px;border-radius:32px;background:${color};border:2.5px solid #fff;
+      box-shadow:0 3px 8px rgba(31,26,20,0.3);display:flex;align-items:center;justify-content:center;
+      font-size:15px;line-height:1;">${emoji}</div>`,
+    iconSize: [32, 32],
+    iconAnchor: [16, 16],
+    popupAnchor: [0, -18]
+  });
+}
 Object.assign(window, {
   paTileLayer,
-  paZoneLayer
+  paZoneLayer,
+  paPinIcon,
+  paDotIcon
 });
 
 // Link discreto "ver no mapa" para qualquer sugestão (Google Maps, custo zero).
@@ -16415,7 +16471,9 @@ function LocMap({
       const by = membersById ? membersById(s.by) : null;
       const label = `<b>${(s.name || s.area || '').replace(/</g, '&lt;')}</b>` + (s.city ? `<br/>${String(s.city).replace(/</g, '&lt;')}` : '') + (by ? `<br/><span style="opacity:0.7">sugerido por ${String(by.name).replace(/</g, '&lt;')}</span>` : '');
       // Regiões (Alentejo, Comporta…) aparecem como ZONA sombreada; sítios exatos como pino.
-      const layer = s.zone ? paZoneLayer(L, s.zone) : L.marker([s.geo.lat, s.geo.lng]);
+      const layer = s.zone ? paZoneLayer(L, s.zone) : L.marker([s.geo.lat, s.geo.lng], {
+        icon: paPinIcon(L)
+      });
       return layer.addTo(map).bindPopup(label);
     });
     const grp = L.featureGroup(layers);
@@ -16435,6 +16493,7 @@ function LocMap({
   }, [withGeo.map(s => s.id + ':' + s.geo.lat + (s.zone ? 'z' : '')).join(',')]);
   if (withGeo.length === 0) return null;
   return React.createElement('div', {
+    className: 'pa-map',
     style: {
       borderRadius: 14,
       overflow: 'hidden',
@@ -16446,7 +16505,7 @@ function LocMap({
     style: {
       height,
       width: '100%',
-      background: '#e8e4dc'
+      background: '#eee9df'
     }
   }), withGeo.length < (suggestions || []).length && React.createElement('div', {
     style: {
@@ -16576,7 +16635,8 @@ function LocationPicker({
     } else {
       map.setView([picked.lat, picked.lng], 14);
       const mk = L.marker([picked.lat, picked.lng], {
-        draggable: true
+        draggable: true,
+        icon: paPinIcon(L)
       }).addTo(map);
       mk.on('dragend', () => {
         const ll = mk.getLatLng();
@@ -16671,6 +16731,7 @@ function LocationPicker({
       color: 'var(--pa-ink)'
     }
   }, "📍 ", shortLabel(r.display_name))))), picked && /*#__PURE__*/React.createElement("div", {
+    className: "pa-map",
     style: {
       borderRadius: 12,
       overflow: 'hidden',
@@ -16681,7 +16742,7 @@ function LocationPicker({
     style: {
       height: compact ? 150 : 180,
       width: '100%',
-      background: '#e8e4dc'
+      background: '#eee9df'
     }
   }), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -16788,12 +16849,14 @@ function TripMap({
     } else {
       const ms = pins.map(p => {
         const popup = `<b>${String(p.name).replace(/</g, '&lt;')}</b>${p.sub ? '<br/>' + String(p.sub).replace(/</g, '&lt;') : ''}`;
-        const layer = p.zone ? paZoneLayer(L, p.zone) : L.circleMarker([p.geo.lat, p.geo.lng], {
-          radius: 9,
-          color: '#fff',
-          weight: 2,
-          fillColor: p.color,
-          fillOpacity: 1
+        const emoji = {
+          local: '📍',
+          estadia: '🏠',
+          interesse: '⭐',
+          atividade: '🎯'
+        }[p.kind] || '📍';
+        const layer = p.zone ? paZoneLayer(L, p.zone) : L.marker([p.geo.lat, p.geo.lng], {
+          icon: paDotIcon(L, p.color, emoji)
         });
         return layer.addTo(map).bindPopup(popup);
       });
@@ -16849,6 +16912,7 @@ function TripMap({
       gap: 12
     }
   }, /*#__PURE__*/React.createElement("div", {
+    className: "pa-map",
     style: {
       borderRadius: 14,
       overflow: 'hidden',
@@ -16872,7 +16936,7 @@ function TripMap({
       fontSize: 11,
       color: 'var(--pa-muted)'
     }
-  }, pins.length > 0 ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", null, "🟠 local"), /*#__PURE__*/React.createElement("span", null, "⚫ estadia"), /*#__PURE__*/React.createElement("span", null, "🟢 pontos de interesse"), /*#__PURE__*/React.createElement("span", null, "🔵 atividades")) : /*#__PURE__*/React.createElement("span", null, "O local e a estadia vencedores aparecem aqui automaticamente — e podes juntar pontos de interesse já."))), /*#__PURE__*/React.createElement("div", {
+  }, pins.length > 0 ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", null, "📍 local"), /*#__PURE__*/React.createElement("span", null, "🏠 estadia"), /*#__PURE__*/React.createElement("span", null, "⭐ pontos de interesse"), /*#__PURE__*/React.createElement("span", null, "🎯 atividades")) : /*#__PURE__*/React.createElement("span", null, "O local e a estadia vencedores aparecem aqui automaticamente — e podes juntar pontos de interesse já."))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
       flexDirection: 'column',
