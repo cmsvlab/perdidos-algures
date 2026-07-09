@@ -2504,12 +2504,14 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r51';
+window.PA_VERSION = '2026.06.01-r52';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
 // nunca a meio de uma ação. Recarrega uma única vez para mostrar a versão nova.
-if ('serviceWorker' in navigator) {
+// Firefox em navegação privada (e contextos não-seguros) DEFINEM a chave mas
+// deixam o valor undefined — verificar a existência da chave não chega.
+if (navigator.serviceWorker) {
   let refreshing = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (refreshing) return;

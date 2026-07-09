@@ -23,6 +23,9 @@
     --pa-muted: #6f6455;
     --pa-line: #e8e0d2;
     --pa-accent: #d97757;
+  /* Tom acessível do accent para SUPERFÍCIES com texto branco (WCAG AA 4.82:1).
+     O accent claro continua a servir de cor de marca em contornos e ícones. */
+  --pa-accent-strong: #b85436;
     --pa-display: 'Bricolage Grotesque', system-ui, sans-serif;
     --pa-body: 'Geist', system-ui, sans-serif;
     --pa-mono: 'Geist Mono', ui-monospace, monospace;
@@ -3333,7 +3336,7 @@ function Btn({
       border: 'none'
     },
     accent: {
-      bg: 'var(--pa-accent)',
+      bg: 'var(--pa-accent-strong)',
       fg: '#fff',
       border: 'none'
     },
@@ -3742,12 +3745,14 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r51';
+window.PA_VERSION = '2026.06.01-r52';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
 // nunca a meio de uma ação. Recarrega uma única vez para mostrar a versão nova.
-if ('serviceWorker' in navigator) {
+// Firefox em navegação privada (e contextos não-seguros) DEFINEM a chave mas
+// deixam o valor undefined — verificar a existência da chave não chega.
+if (navigator.serviceWorker) {
   let refreshing = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (refreshing) return;
@@ -5376,7 +5381,7 @@ function AuthPasswordField({
       outline: 'none',
       background: 'transparent',
       fontFamily: 'var(--pa-body)',
-      fontSize: 15,
+      fontSize: 16,
       color: 'var(--pa-ink)'
     }
   }), /*#__PURE__*/React.createElement("button", {
@@ -7240,7 +7245,7 @@ function TieMethodPublic({
       background: '#fff',
       border: '1px solid var(--pa-line)',
       fontFamily: 'var(--pa-body)',
-      fontSize: 13,
+      fontSize: 16,
       outline: 'none',
       resize: 'none',
       boxSizing: 'border-box'
@@ -8908,7 +8913,7 @@ function LocSuggestionForm({
       borderRadius: 10,
       border: '1px solid var(--pa-line)',
       fontFamily: 'var(--pa-body)',
-      fontSize: 13,
+      fontSize: 16,
       outline: 'none'
     }
   }), /*#__PURE__*/React.createElement("button", {
@@ -9113,7 +9118,7 @@ function DPhase3({
         width: 26,
         height: 26,
         borderRadius: 26,
-        background: 'var(--pa-accent)',
+        background: 'var(--pa-accent-strong)',
         color: '#fff',
         display: 'flex',
         alignItems: 'center',
@@ -9527,9 +9532,9 @@ function AccommodationCard({
       marginBottom: 8
     }
   }, acc.note), host && /*#__PURE__*/React.createElement("a", {
-    href: acc.link,
+    href: paSafeUrl(acc.link) || undefined,
     target: "_blank",
-    rel: "noreferrer",
+    rel: "noopener noreferrer",
     style: {
       display: 'inline-flex',
       alignItems: 'center',
@@ -9927,9 +9932,9 @@ function DPhase5({
       marginTop: 4
     }
   }, winner.price, "€/noite")), winner.link && /*#__PURE__*/React.createElement("a", {
-    href: winner.link,
+    href: paSafeUrl(winner.link) || undefined,
     target: "_blank",
-    rel: "noreferrer",
+    rel: "noopener noreferrer",
     style: {
       padding: '10px 16px',
       borderRadius: 999,
@@ -9973,7 +9978,7 @@ function DPhase5({
         width: 26,
         height: 26,
         borderRadius: 26,
-        background: 'var(--pa-accent)',
+        background: 'var(--pa-accent-strong)',
         color: '#fff',
         display: 'flex',
         alignItems: 'center',
@@ -11065,7 +11070,7 @@ function PlanBagagem({
       border: '1px solid var(--pa-line)',
       background: '#fff',
       fontFamily: 'var(--pa-body)',
-      fontSize: 14,
+      fontSize: 16,
       color: 'var(--pa-ink)',
       outline: 'none'
     }
@@ -11340,9 +11345,9 @@ function PlanEstadia({
       color: 'var(--pa-muted)'
     }
   }, by.name, " sugeriu")), acc.link && /*#__PURE__*/React.createElement("a", {
-    href: acc.link,
+    href: paSafeUrl(acc.link) || undefined,
     target: "_blank",
-    rel: "noreferrer",
+    rel: "noopener noreferrer",
     style: {
       padding: '8px 14px',
       borderRadius: 999,
@@ -12452,7 +12457,7 @@ function PlanAtividades({
       height: 22,
       borderRadius: 6,
       border: 'none',
-      background: 'var(--pa-accent)',
+      background: 'var(--pa-accent-strong)',
       color: '#fff',
       cursor: 'pointer',
       flexShrink: 0,
@@ -12701,7 +12706,7 @@ function PlanCompras({
       height: 22,
       borderRadius: 6,
       border: 'none',
-      background: 'var(--pa-accent)',
+      background: 'var(--pa-accent-strong)',
       color: '#fff',
       cursor: 'pointer',
       flexShrink: 0,
@@ -13855,7 +13860,7 @@ function MPhase2({
       borderRadius: 10,
       border: '1px solid var(--pa-line)',
       fontFamily: 'var(--pa-body)',
-      fontSize: 14,
+      fontSize: 16,
       outline: 'none',
       boxSizing: 'border-box',
       marginBottom: 8
@@ -13871,7 +13876,7 @@ function MPhase2({
       borderRadius: 10,
       border: '1px solid var(--pa-line)',
       fontFamily: 'var(--pa-body)',
-      fontSize: 14,
+      fontSize: 16,
       outline: 'none',
       boxSizing: 'border-box',
       marginBottom: 12
@@ -13910,7 +13915,7 @@ function MPhase2({
       padding: '10px',
       borderRadius: 999,
       border: 'none',
-      background: 'var(--pa-accent)',
+      background: 'var(--pa-accent-strong)',
       color: '#fff',
       cursor: name.trim() ? 'pointer' : 'default',
       fontFamily: 'var(--pa-body)',
@@ -14094,7 +14099,7 @@ function MPhase3({
         width: 26,
         height: 26,
         borderRadius: 26,
-        background: 'var(--pa-accent)',
+        background: 'var(--pa-accent-strong)',
         color: '#fff',
         display: 'flex',
         alignItems: 'center',
@@ -14372,9 +14377,9 @@ function MPhase4({
         gap: 10
       }
     }, s.link && /*#__PURE__*/React.createElement("a", {
-      href: s.link,
+      href: paSafeUrl(s.link) || undefined,
       target: "_blank",
-      rel: "noreferrer",
+      rel: "noopener noreferrer",
       style: {
         fontFamily: 'var(--pa-mono)',
         fontSize: 10.5,
@@ -14399,7 +14404,7 @@ function MPhase4({
     onClick: () => setAdding(true),
     style: {
       marginTop: 4,
-      background: 'var(--pa-accent)',
+      background: 'var(--pa-accent-strong)',
       color: '#fff',
       border: 'none',
       borderRadius: 999,
@@ -14426,7 +14431,7 @@ function MPhase4({
       borderRadius: 10,
       border: '1px solid var(--pa-line)',
       fontFamily: 'var(--pa-body)',
-      fontSize: 14,
+      fontSize: 16,
       outline: 'none',
       boxSizing: 'border-box',
       marginBottom: 8
@@ -14442,7 +14447,7 @@ function MPhase4({
       borderRadius: 10,
       border: '1px solid var(--pa-line)',
       fontFamily: 'var(--pa-body)',
-      fontSize: 14,
+      fontSize: 16,
       outline: 'none',
       boxSizing: 'border-box',
       marginBottom: 8
@@ -14450,14 +14455,14 @@ function MPhase4({
   }), /*#__PURE__*/React.createElement("input", {
     value: link,
     onChange: e => setLink(e.target.value),
-    placeholder: "Link (airbnb, booking...)",
+    placeholder: "Link",
     style: {
       width: '100%',
       padding: '10px 12px',
       borderRadius: 10,
       border: '1px solid var(--pa-line)',
       fontFamily: 'var(--pa-body)',
-      fontSize: 14,
+      fontSize: 16,
       outline: 'none',
       boxSizing: 'border-box',
       marginBottom: 12
@@ -14496,7 +14501,7 @@ function MPhase4({
       padding: '10px',
       borderRadius: 999,
       border: 'none',
-      background: 'var(--pa-accent)',
+      background: 'var(--pa-accent-strong)',
       color: '#fff',
       cursor: area.trim() ? 'pointer' : 'default',
       fontFamily: 'var(--pa-body)',
@@ -14644,7 +14649,7 @@ function MPhase5({
         width: 26,
         height: 26,
         borderRadius: 26,
-        background: 'var(--pa-accent)',
+        background: 'var(--pa-accent-strong)',
         color: '#fff',
         display: 'flex',
         alignItems: 'center',
@@ -14977,7 +14982,7 @@ function MPhase6({
       padding: '14px',
       borderRadius: 999,
       border: 'none',
-      background: 'var(--pa-accent)',
+      background: 'var(--pa-accent-strong)',
       color: '#fff',
       cursor: 'pointer',
       fontFamily: 'var(--pa-body)',
@@ -15979,7 +15984,7 @@ function DeadlineControl({
       borderRadius: 10,
       border: '1px solid var(--pa-line)',
       fontFamily: 'var(--pa-body)',
-      fontSize: 13,
+      fontSize: 16,
       color: 'var(--pa-ink)'
     }
   }), /*#__PURE__*/React.createElement(Btn, {
@@ -16444,6 +16449,22 @@ function paFocusMap(id) {
     }
   }));
 }
+
+// Links de utilizador (ex: Airbnb do alojamento) NUNCA vão crus para o href:
+// um "javascript:..." executaria código. Só http/https passam.
+function paSafeUrl(u) {
+  const s = String(u || '').trim();
+  if (!s) return null;
+  try {
+    const url = new URL(s.includes('://') ? s : 'https://' + s);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null;
+  } catch (e) {
+    return null;
+  }
+}
+Object.assign(window, {
+  paSafeUrl
+});
 function MapLink({
   targetId,
   hasGeo,
@@ -17068,7 +17089,7 @@ function TripMap({
       border: '1px solid var(--pa-line)',
       background: '#fff',
       fontFamily: 'var(--pa-body)',
-      fontSize: 14,
+      fontSize: 16,
       color: 'var(--pa-ink)',
       outline: 'none'
     }
@@ -17469,7 +17490,7 @@ function PointsVote({
         width: 28,
         height: 28,
         borderRadius: 8,
-        background: 'var(--pa-accent)',
+        background: 'var(--pa-accent-strong)',
         color: '#fff',
         display: 'flex',
         alignItems: 'center',
@@ -18202,7 +18223,7 @@ function BugReportModal({
       borderRadius: 12,
       border: '1px solid var(--pa-line)',
       fontFamily: 'var(--pa-body)',
-      fontSize: 14,
+      fontSize: 16,
       color: 'var(--pa-ink)',
       resize: 'vertical',
       outline: 'none',
@@ -18535,7 +18556,7 @@ function AdminAnnounceModal({
     onChange: e => setText(e.target.value),
     rows: 3,
     maxLength: 600,
-    placeholder: "Escreve o anúncio... (ex: A votação fecha hoje às 22h!)",
+    placeholder: "Escreve o anúncio",
     style: {
       width: '100%',
       boxSizing: 'border-box',
@@ -18544,7 +18565,7 @@ function AdminAnnounceModal({
       borderRadius: 12,
       border: '1px solid var(--pa-line)',
       fontFamily: 'var(--pa-body)',
-      fontSize: 14,
+      fontSize: 16,
       background: '#fff',
       color: 'var(--pa-ink)'
     }
