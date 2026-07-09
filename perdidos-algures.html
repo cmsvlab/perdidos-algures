@@ -2527,7 +2527,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r55';
+window.PA_VERSION = '2026.06.01-r56';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -2700,6 +2700,19 @@ let _session = (() => {
   try { return JSON.parse(localStorage.getItem('pa-session') || 'null'); }
   catch { try { return JSON.parse(sessionStorage.getItem('pa-session') || 'null'); } catch { return null; } }
 })();
+// Hash da password guardado APENAS em memória (perde-se ao recarregar).
+// Serve para autorizar ações destrutivas no servidor sem pedir a password
+// a cada clique. Nunca é escrito em disco.
+let _sessionHash = null;
+async function paRequireHash(reason) {
+  if (_sessionHash) return _sessionHash;
+  const pw = window.prompt((reason || 'Confirma a tua password') + ':');
+  if (!pw) return null;
+  _sessionHash = await sha256(pw);
+  return _sessionHash;
+}
+Object.assign(window, { paRequireHash });
+
 function _saveSession(u)  {
   _session = u;
   try { localStorage.setItem('pa-session', JSON.stringify(u)); } catch {}
@@ -2726,6 +2739,7 @@ const AuthStore = {
   },
   getSession()    { return _session; },
   setSession(u)   { _saveSession(u); },
+  clearHash()     { _sessionHash = null; },
   clearSession()  { _clearSession(); },
   initialsFromName(name) {
     const p = (name||'').trim().split(/\s+/);
@@ -2760,6 +2774,7 @@ const AuthStore = {
       verified = !!authRows?.length && authRows[0].pass_hash === hash;
     }
     if (!verified) throw new Error('Password errada.');
+    _sessionHash = hash; // memória apenas
     const session = _profileToSession(profile);
     _saveSession(session);
     await this.refreshUsers();
@@ -2779,7 +2794,17 @@ const AuthStore = {
       .insert({ name:n, display_name:n, initials:this.initialsFromName(n), color:this.colorFromName(n), photo_url:photoDataUrl||null, is_admin:false })
       .select().single();
     if (insertErr) throw new Error('Erro ao criar conta: ' + insertErr.message);
-    const { error: authInsErr } = await _sb.from('profiles_auth').insert({ profile_id: inserted.id, pass_hash: passHash });
+    // A tabela das credenciais está fechada: a criação passa por um RPC seguro.
+    // (Fallback direto enquanto a migração de segurança não tiver sido corrida.)
+    let authInsErr = null;
+    try {
+      const { error: rpcErr } = await _sb.rpc('auth_set_password', { p_profile_id: inserted.id, p_hash: passHash });
+      if (rpcErr) throw rpcErr;
+    } catch (e) {
+      const r = await _sb.from('profiles_auth').insert({ profile_id: inserted.id, pass_hash: passHash });
+      authInsErr = r.error;
+    }
+    _sessionHash = passHash; // memória apenas
     if (authInsErr) throw new Error('Erro ao guardar password: ' + authInsErr.message);
     const session = _profileToSession(inserted);
     _saveSession(session);
@@ -2899,7 +2924,22 @@ const EditionStore = {
   async unarchive(id) { return this.update(id, { status: 'active', archived_at: null }); },
 
   async remove(id) {
-    const { error } = await _sb.from('editions').delete().eq('id', id);
+    // DELETE direto está bloqueado pela RLS: passa pelo RPC que confirma que
+    // és admin e que sabes a password. Fallback direto se o RPC não existir.
+    const me = AuthStore.getSession();
+    let error = null;
+    try {
+      const hash = await paRequireHash('Confirma a password para apagar a aventura');
+      if (!hash) throw new Error('cancelado');
+      const { data: ok, error: rpcErr } = await _sb.rpc('edition_delete', { p_edition_id: id, p_admin_id: me?.id, p_hash: hash });
+      if (rpcErr) throw rpcErr;
+      if (ok === false) { _sessionHash = null; throw new Error('Password errada ou não és admin.'); }
+    } catch (e) {
+      if (e && e.message === 'cancelado') return;
+      if (e && /Password errada/.test(e.message)) throw e;
+      const r = await _sb.from('editions').delete().eq('id', id);
+      error = r.error;
+    }
     if (error) throw new Error('Erro ao eliminar: ' + error.message);
     _editionsCache = _editionsCache.filter(e => e.id !== id);
     if (_activeEditionId === id) this.setActive(null);
@@ -3643,7 +3683,18 @@ async function pushChatMessage(msg) {
 async function deleteChatMessage(id) {
   _chatCache=(_chatCache||[]).filter(m=>m.id!==id);  // optimista
   _chatListeners.forEach(fn=>fn(_chatCache.slice()));
-  const { error } = await _sb.from('chat_messages').delete().eq('id',id);
+  const me = AuthStore.getSession();
+  let error = null;
+  try {
+    const hash = await paRequireHash('Confirma a password para apagar a mensagem');
+    if (!hash) return;
+    const { data: ok, error: rpcErr } = await _sb.rpc('chat_delete', { p_message_id: id, p_profile_id: me?.id, p_hash: hash });
+    if (rpcErr) throw rpcErr;
+    if (ok === false) { _sessionHash = null; error = { message: 'Sem permissão para apagar esta mensagem.' }; }
+  } catch (e) {
+    const r = await _sb.from('chat_messages').delete().eq('id', id);
+    error = r.error;
+  }
   if (error) console.error('[PA Chat] erro a apagar', error.message);
 }
 
@@ -3721,12 +3772,20 @@ const BugReportStore = {
     return data || [];
   },
   async remove(id) {
-    const { error } = await _sb.from('bug_reports').delete().eq('id', id);
+    const me = AuthStore.getSession();
+    const hash = await paRequireHash('Confirma a password para apagar o report');
+    if (!hash) return;
+    const { data: n, error } = await _sb.rpc('bug_reports_clear', { p_admin_id: me?.id, p_hash: hash, p_report_id: id });
     if (error) throw new Error(error.message);
+    if (n === -1) { _sessionHash = null; throw new Error('Password errada ou não és admin.'); }
   },
   async removeAll() {
-    const { error } = await _sb.from('bug_reports').delete().gte('created_at', '1970-01-01');
+    const me = AuthStore.getSession();
+    const hash = await paRequireHash('Confirma a password para apagar todos os reports');
+    if (!hash) return;
+    const { data: n, error } = await _sb.rpc('bug_reports_clear', { p_admin_id: me?.id, p_hash: hash, p_report_id: null });
     if (error) throw new Error(error.message);
+    if (n === -1) { _sessionHash = null; throw new Error('Password errada ou não és admin.'); }
   },
 };
 Object.assign(window, { BugReportStore, readBugImage });
@@ -3757,6 +3816,7 @@ Object.assign(window, {
     const register = async (opts)     => { const s=await AuthStore.register(opts);    setUser(s); return s; };
     const updateProfile = async (opts) => { const s=await AuthStore.updateProfile(opts); setUser(s); return s; };
     const logout   = ()               => {
+      _sessionHash = null; // credencial em memória some ao sair
       try { if (typeof EditionStore !== 'undefined') EditionStore.setActive(null); } catch {}
       AuthStore.clearSession();
       setUser(null);
