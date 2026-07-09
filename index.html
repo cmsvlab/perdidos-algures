@@ -3768,7 +3768,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r54';
+window.PA_VERSION = '2026.06.01-r55';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -3987,10 +3987,20 @@ const AuthStore = {
     if (!profiles?.length) throw new Error('Conta não encontrada. Regista-te primeiro.');
     const profile = profiles[0];
     const hash = await sha256(password);
-    const { data: authRows, error: authErr } = await _sb.from('profiles_auth')
-      .select('pass_hash').eq('profile_id', profile.id).limit(1);
-    if (authErr) throw new Error('Erro de base de dados: ' + authErr.message);
-    if (!authRows?.length || authRows[0].pass_hash !== hash) throw new Error('Password errada.');
+    // A verificação acontece NO SERVIDOR (RPC): o hash guardado nunca é enviado
+    // ao cliente. Fallback ao método antigo enquanto a migração não for corrida.
+    let verified = null;
+    try {
+      const { data: okRpc, error: rpcErr } = await _sb.rpc('auth_verify', { p_profile_id: profile.id, p_hash: hash });
+      if (!rpcErr) verified = !!okRpc;
+    } catch (e) { verified = null; }
+    if (verified === null) {
+      const { data: authRows, error: authErr } = await _sb.from('profiles_auth')
+        .select('pass_hash').eq('profile_id', profile.id).limit(1);
+      if (authErr) throw new Error('Erro de base de dados: ' + authErr.message);
+      verified = !!authRows?.length && authRows[0].pass_hash === hash;
+    }
+    if (!verified) throw new Error('Password errada.');
     const session = _profileToSession(profile);
     _saveSession(session);
     await this.refreshUsers();
@@ -4486,11 +4496,33 @@ const AppStore = {
   async setLocVote(uid,id)      { await this._merge('locVotes', { [uid]:id }); },
   // Reset pessoal: limpar a própria disponibilidade (remove a chave — sem
   // resposta —, para todos os indicadores voltarem coerentemente a "a marcar").
+  // Remove UMA chave de um objeto partilhado sem apagar o trabalho dos outros.
+  // (O _set escreve o objeto inteiro a partir do cache local, que pode estar
+  //  até 5s desatualizado: dois utilizadores em simultâneo perdiam dados.)
+  async _deleteKeyFresh(field, key) {
+    const ed = EditionStore.active();
+    if (!ed) return;
+    let fresh = null;
+    try {
+      const { data } = await _sb.from('editions').select('data').eq('id', ed.id).single();
+      fresh = (data && data.data) || {};
+    } catch (e) { fresh = { ...(ed.data || {}) }; } // offline: melhor esforço
+    const obj = { ...((fresh && fresh[field]) || {}) };
+    if (!(key in obj)) { // nada a fazer; só sincroniza o cache
+      _appCache = { ...(this._cache()), ...fresh };
+      this._notify();
+      return;
+    }
+    delete obj[key];
+    const newData = { ...fresh, [field]: obj };
+    _appCache = { ...(this._cache()), ...newData };
+    this._notify();
+    if (ed) ed.data = newData;
+    await this._updateWithRetry(ed.id, newData, field);
+  },
+
   async clearAvailability(uid) {
-    const avail = { ...(this._cache().avail || {}) };
-    if (!(uid in avail)) return;
-    delete avail[uid];
-    await this._set('avail', avail);
+    await this._deleteKeyFresh('avail', uid);
   },
 
   // Modo de votação da fase (single | points). Mudar de modo RECOMEÇA a
@@ -4505,18 +4537,22 @@ const AppStore = {
 
   // Reset pessoal: remover o próprio voto (volta a "por votar").
   async clearVote(uid, kind) {
-    const key = kind === 'acc' ? 'accVotes' : 'locVotes';
-    const votes = { ...(this._cache()[key] || {}) };
-    if (!(uid in votes)) return;
-    delete votes[uid];
-    await this._set(key, votes);
+    await this._deleteKeyFresh(kind === 'acc' ? 'accVotes' : 'locVotes', uid);
   },
 
   // Depois de remover uma sugestão, limpa votos que apontavam para ela e o
   // vencedor se era ela (reabre a decisão). Só escreve se houver mesmo órfãos,
   // por isso no caso comum (apagar na fase de sugestões, sem votos) não custa nada.
   async _cleanupOrphanVotes(votesKey, winnerKey, removedId) {
-    const d = this._cache();
+    // Ler fresco: senão apagávamos votos que outros deram enquanto o cache envelhecia.
+    let d = this._cache();
+    const ed0 = EditionStore.active();
+    if (ed0) {
+      try {
+        const { data } = await _sb.from('editions').select('data').eq('id', ed0.id).single();
+        if (data && data.data) { d = data.data; _appCache = { ...(this._cache()), ...d }; }
+      } catch (e) {}
+    }
     const votes = d[votesKey] || {};
     // Suporta voto simples (string) e Top 3 (array): remove o id apagado do
     // voto; se a lista ficar vazia, a pessoa volta a "por votar".
@@ -16507,6 +16543,22 @@ function paFocusMap(id) {
   }));
 }
 
+// Guarda contra cliques repetidos em ações que criam/apagam coisas.
+// Enquanto a promessa não resolve, novas invocações da MESMA ação são ignoradas.
+const _paBusy = new Set();
+async function paOnce(key, fn) {
+  if (_paBusy.has(key)) return;
+  _paBusy.add(key);
+  try {
+    return await fn();
+  } finally {
+    _paBusy.delete(key);
+  }
+}
+Object.assign(window, {
+  paOnce
+});
+
 // Links de utilizador (ex: Airbnb do alojamento) NUNCA vão crus para o href:
 // um "javascript:..." executaria código. Só http/https passam.
 function paSafeUrl(u) {
@@ -19726,14 +19778,14 @@ function EditionHub({
     }, isAdmin && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(Btn, {
       variant: "accent",
       size: "sm",
-      onClick: async () => {
+      onClick: () => paOnce('approve:' + p.id, async () => {
         try {
           await EditionStore.approveProposal(p.id);
           if (window._paToast) window._paToast(`"${p.title}" aprovada — já é oficial!`, 'success');
         } catch (e) {
           if (window._paToast) window._paToast('Falhou: ' + e.message, 'error');
         }
-      }
+      })
     }, "✓ Aprovar"), /*#__PURE__*/React.createElement(Btn, {
       variant: "ghost",
       size: "sm",
