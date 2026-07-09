@@ -138,8 +138,6 @@
 <!-- Supabase JS v2 -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="anonymous" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
 
@@ -3768,7 +3766,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r56';
+window.PA_VERSION = '2026.06.01-r58';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -4828,6 +4826,11 @@ let _chatCache = null;
 const _chatListeners = new Set();
 
 const ChatStore = {
+  // Ao sair da app o chat deixa de consultar o servidor (poupa rede e bateria).
+  stop() {
+    if (this._pollingInterval) { clearInterval(this._pollingInterval); this._pollingInterval = null; }
+    try { _sb.getChannels().filter((c) => c.topic && c.topic.includes('chat')).forEach((c) => _sb.removeChannel(c)); } catch (e) {}
+  },
   _visibilitySetup: false,
   _setupVisibility() {
     if (this._visibilitySetup) return;
@@ -5058,6 +5061,7 @@ Object.assign(window, {
     const updateProfile = async (opts) => { const s=await AuthStore.updateProfile(opts); setUser(s); return s; };
     const logout   = ()               => {
       _sessionHash = null; // credencial em memória some ao sair
+      try { if (typeof ChatStore !== 'undefined') ChatStore.stop(); } catch (e) {}
       try { if (typeof EditionStore !== 'undefined') EditionStore.setActive(null); } catch {}
       AuthStore.clearSession();
       setUser(null);
@@ -16538,6 +16542,40 @@ async function paGeocode(query) {
 }
 // Estética dos mapas: CARTO Voyager — tons quentes e limpos que assentam na
 // paleta da app; gratuito, sem chave, com suporte retina ({r}).
+// Leaflet só é descarregado quando um mapa aparece: poupa ~150KB no arranque
+// de quem nunca abre um mapa (a maioria das visitas). Uma vez carregado, o
+// service worker guarda-o em cache para as próximas.
+let _leafletPromise = null;
+function paLoadLeaflet() {
+  if (window.L) return Promise.resolve(window.L);
+  if (_leafletPromise) return _leafletPromise;
+  _leafletPromise = new Promise((resolve, reject) => {
+    try {
+      const css = document.createElement('link');
+      css.rel = 'stylesheet';
+      css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      css.crossOrigin = 'anonymous';
+      document.head.appendChild(css);
+      const js = document.createElement('script');
+      js.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+      js.crossOrigin = 'anonymous';
+      js.async = true;
+      js.onload = () => resolve(window.L);
+      js.onerror = () => {
+        _leafletPromise = null;
+        reject(new Error('leaflet'));
+      };
+      document.head.appendChild(js);
+    } catch (e) {
+      _leafletPromise = null;
+      reject(e);
+    }
+  });
+  return _leafletPromise;
+}
+Object.assign(window, {
+  paLoadLeaflet
+});
 function paTileLayer(L) {
   // CARTO Positron: o minimal moderno (fundo quase branco, tipografia discreta)
   // que faz os pins e as zonas terracota saltarem — look "produto", não "wiki".
@@ -16667,9 +16705,14 @@ function LocMap({
 }) {
   const ref = React.useRef(null);
   const mapRef = React.useRef(null);
+  const [leafletTick, setLeafletTick] = React.useState(0); // re-render quando o Leaflet chega
   const withGeo = (suggestions || []).filter(s => s.geo && isFinite(s.geo.lat) && isFinite(s.geo.lng));
   React.useEffect(() => {
-    if (!window.L || !ref.current || withGeo.length === 0) return;
+    if (withGeo.length === 0 || !ref.current) return;
+    if (!window.L) {
+      paLoadLeaflet().then(() => setLeafletTick(t => t + 1)).catch(() => {});
+      return;
+    }
     const L = window.L;
     const map = L.map(ref.current, {
       scrollWheelZoom: false,
@@ -16738,9 +16781,8 @@ function LocMap({
       } catch (e) {}
       mapRef.current = null;
     };
-  }, [withGeo.map(s => s.id + ':' + s.geo.lat + (s.zone ? 'z' : '')).join(',')]);
+  }, [withGeo.map(s => s.id + ':' + s.geo.lat + (s.zone ? 'z' : '')).join(','), leafletTick]);
   if (withGeo.length === 0) return null;
-  if (!window.L) return null; // sem Leaflet (rede/bloqueador): a app segue sem mapa
   return React.createElement('div', {
     className: 'pa-map',
     style: {
@@ -16786,6 +16828,7 @@ function LocationPicker({
   const mapEl = React.useRef(null);
   const debRef = React.useRef(null);
   const ctlRef = React.useRef(null);
+  const [leafletTick, setLeafletTick] = React.useState(0);
   const shortLabel = dn => String(dn || '').split(',').slice(0, 3).join(',');
 
   // Ao desmontar: cancela o debounce e o pedido em voo (sem setState em morto).
@@ -16836,6 +16879,9 @@ function LocationPicker({
     }, 750);
   };
   const choose = r => {
+    try {
+      paLoadLeaflet();
+    } catch (e) {} // adianta o download enquanto o React atualiza
     const p = {
       lat: parseFloat(r.lat),
       lng: parseFloat(r.lon),
@@ -16877,7 +16923,11 @@ function LocationPicker({
 
   // Mini-mapa de confirmação: pin arrastável + toque no mapa move
   React.useEffect(() => {
-    if (!picked || !window.L || !mapEl.current) return;
+    if (!picked || !mapEl.current) return;
+    if (!window.L) {
+      paLoadLeaflet().then(() => setLeafletTick(t => t + 1)).catch(() => {});
+      return;
+    }
     const L = window.L;
     const map = L.map(mapEl.current, {
       scrollWheelZoom: false
@@ -16915,7 +16965,7 @@ function LocationPicker({
         map.remove();
       } catch (e) {}
     };
-  }, [picked ? picked.zone ? 'zone' : 'pin' : 'off']); // monta/desmonta; o marker segue os ajustes sem reinit
+  }, [picked ? picked.zone ? 'zone' : 'pin' : 'off', leafletTick]); // monta/desmonta; o marker segue os ajustes sem reinit
 
   return /*#__PURE__*/React.createElement("div", {
     style: {
@@ -17003,7 +17053,7 @@ function LocationPicker({
   }, /*#__PURE__*/React.createElement("div", {
     ref: mapEl,
     style: {
-      height: window.L ? compact ? 150 : 180 : 0,
+      height: compact ? 150 : 180,
       width: '100%',
       background: '#eee9df'
     }
@@ -17049,6 +17099,8 @@ Object.assign(window, {
 function TripMap({
   me
 }) {
+  const [leafletTick, setLeafletTick] = React.useState(0);
+  const [mapFailed, setMapFailed] = React.useState(false);
   const appData = useAppStore();
   const plan = AppStore.getPlanning();
   const pois = plan.pois || [];
@@ -17100,7 +17152,11 @@ function TripMap({
     });
   });
   React.useEffect(() => {
-    if (!window.L || !ref.current) return;
+    if (!ref.current) return;
+    if (!window.L) {
+      paLoadLeaflet().then(() => setLeafletTick(t => t + 1)).catch(() => setMapFailed(true));
+      return;
+    }
     const L = window.L;
     const map = L.map(ref.current, {
       scrollWheelZoom: false
@@ -17167,7 +17223,7 @@ function TripMap({
         map.remove();
       } catch (e) {}
     };
-  }, [pins.map(p => p.id + ':' + p.geo.lat + (p.zone ? 'z' : '')).join(',')]);
+  }, [pins.map(p => p.id + ':' + p.geo.lat + (p.zone ? 'z' : '')).join(','), leafletTick]);
   const [poiGeo, setPoiGeo] = React.useState(null);
   const [pickerKey, setPickerKey] = React.useState(0); // reset do picker após adicionar
   const addPoi = () => {
@@ -17212,7 +17268,7 @@ function TripMap({
       overflow: 'hidden',
       border: '1px solid var(--pa-line)'
     }
-  }, !window.L && /*#__PURE__*/React.createElement("div", {
+  }, mapFailed && /*#__PURE__*/React.createElement("div", {
     style: {
       padding: '22px 16px',
       textAlign: 'center',
@@ -17221,10 +17277,10 @@ function TripMap({
       color: 'var(--pa-muted)',
       background: '#fff'
     }
-  }, "Não consegui carregar o mapa (rede ou bloqueador). Os pontos continuam guardados — recarrega a página para tentar de novo."), /*#__PURE__*/React.createElement("div", {
+  }, "Não consegui carregar o mapa (rede ou bloqueador). Os pontos continuam guardados — tenta recarregar a página."), /*#__PURE__*/React.createElement("div", {
     ref: ref,
     style: {
-      height: window.L ? 260 : 0,
+      height: mapFailed ? 0 : 260,
       width: '100%',
       background: '#eee9df'
     }
@@ -18757,7 +18813,7 @@ function AdminAnnounceModal({
       borderRadius: 12,
       border: '1px solid var(--pa-line)',
       fontFamily: 'var(--pa-body)',
-      fontSize: 14,
+      fontSize: 16,
       background: '#fff',
       color: 'var(--pa-ink)'
     }
@@ -19279,7 +19335,7 @@ function EditionEditor({
       border: '1px solid var(--pa-line)',
       background: '#fff',
       fontFamily: 'var(--pa-body)',
-      fontSize: 14,
+      fontSize: 16,
       color: 'var(--pa-ink)',
       cursor: 'pointer',
       appearance: 'auto'

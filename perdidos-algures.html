@@ -138,8 +138,6 @@
 <!-- Supabase JS v2 -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="anonymous" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
@@ -2527,7 +2525,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r56';
+window.PA_VERSION = '2026.06.01-r58';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -3587,6 +3585,11 @@ let _chatCache = null;
 const _chatListeners = new Set();
 
 const ChatStore = {
+  // Ao sair da app o chat deixa de consultar o servidor (poupa rede e bateria).
+  stop() {
+    if (this._pollingInterval) { clearInterval(this._pollingInterval); this._pollingInterval = null; }
+    try { _sb.getChannels().filter((c) => c.topic && c.topic.includes('chat')).forEach((c) => _sb.removeChannel(c)); } catch (e) {}
+  },
   _visibilitySetup: false,
   _setupVisibility() {
     if (this._visibilitySetup) return;
@@ -3817,6 +3820,7 @@ Object.assign(window, {
     const updateProfile = async (opts) => { const s=await AuthStore.updateProfile(opts); setUser(s); return s; };
     const logout   = ()               => {
       _sessionHash = null; // credencial em memória some ao sair
+      try { if (typeof ChatStore !== 'undefined') ChatStore.stop(); } catch (e) {}
       try { if (typeof EditionStore !== 'undefined') EditionStore.setActive(null); } catch {}
       AuthStore.clearSession();
       setUser(null);
@@ -8993,6 +8997,33 @@ async function paGeocode(query) {
 }
 // Estética dos mapas: CARTO Voyager — tons quentes e limpos que assentam na
 // paleta da app; gratuito, sem chave, com suporte retina ({r}).
+// Leaflet só é descarregado quando um mapa aparece: poupa ~150KB no arranque
+// de quem nunca abre um mapa (a maioria das visitas). Uma vez carregado, o
+// service worker guarda-o em cache para as próximas.
+let _leafletPromise = null;
+function paLoadLeaflet() {
+  if (window.L) return Promise.resolve(window.L);
+  if (_leafletPromise) return _leafletPromise;
+  _leafletPromise = new Promise((resolve, reject) => {
+    try {
+      const css = document.createElement('link');
+      css.rel = 'stylesheet';
+      css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      css.crossOrigin = 'anonymous';
+      document.head.appendChild(css);
+      const js = document.createElement('script');
+      js.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+      js.crossOrigin = 'anonymous';
+      js.async = true;
+      js.onload = () => resolve(window.L);
+      js.onerror = () => { _leafletPromise = null; reject(new Error('leaflet')); };
+      document.head.appendChild(js);
+    } catch (e) { _leafletPromise = null; reject(e); }
+  });
+  return _leafletPromise;
+}
+Object.assign(window, { paLoadLeaflet });
+
 function paTileLayer(L) {
   // CARTO Positron: o minimal moderno (fundo quase branco, tipografia discreta)
   // que faz os pins e as zonas terracota saltarem — look "produto", não "wiki".
@@ -9070,9 +9101,11 @@ function MapLink({ targetId, hasGeo, style }) {
 function LocMap({ suggestions, height = 230, membersById }) {
   const ref = React.useRef(null);
   const mapRef = React.useRef(null);
+  const [leafletTick, setLeafletTick] = React.useState(0); // re-render quando o Leaflet chega
   const withGeo = (suggestions || []).filter((s) => s.geo && isFinite(s.geo.lat) && isFinite(s.geo.lng));
   React.useEffect(() => {
-    if (!window.L || !ref.current || withGeo.length === 0) return;
+    if (withGeo.length === 0 || !ref.current) return;
+    if (!window.L) { paLoadLeaflet().then(() => setLeafletTick((t) => t + 1)).catch(() => {}); return; }
     const L = window.L;
     const map = L.map(ref.current, { scrollWheelZoom: false, attributionControl: true });
     mapRef.current = map;
@@ -9110,9 +9143,8 @@ function LocMap({ suggestions, height = 230, membersById }) {
     if (ro && ref.current) ro.observe(ref.current);
     setTimeout(() => map.invalidateSize(), 60); // primeiro paint dentro de tabs
     return () => { window.removeEventListener('pa-map-focus', onFocus); try { if (ro) ro.disconnect(); map.remove(); } catch (e) {} mapRef.current = null; };
-  }, [withGeo.map((s) => s.id + ':' + s.geo.lat + (s.zone ? 'z' : '')).join(',')]);
+  }, [withGeo.map((s) => s.id + ':' + s.geo.lat + (s.zone ? 'z' : '')).join(','), leafletTick]);
   if (withGeo.length === 0) return null;
-  if (!window.L) return null; // sem Leaflet (rede/bloqueador): a app segue sem mapa
   return React.createElement('div', { className: 'pa-map', style: { borderRadius: 14, overflow: 'hidden', border: '1px solid var(--pa-line)', marginBottom: 14 } },
     React.createElement('div', { ref, style: { height, width: '100%', background: '#eee9df' } }),
     withGeo.length < (suggestions || []).length &&
@@ -9135,6 +9167,7 @@ function LocationPicker({ onChange, placeholder = 'Procurar no mapa…', compact
   const mapEl = React.useRef(null);
   const debRef = React.useRef(null);
   const ctlRef = React.useRef(null);
+  const [leafletTick, setLeafletTick] = React.useState(0);
 
   const shortLabel = (dn) => String(dn || '').split(',').slice(0, 3).join(',');
 
@@ -9167,6 +9200,7 @@ function LocationPicker({ onChange, placeholder = 'Procurar no mapa…', compact
   };
 
   const choose = (r) => {
+    try { paLoadLeaflet(); } catch (e) {} // adianta o download enquanto o React atualiza
     const p = { lat: parseFloat(r.lat), lng: parseFloat(r.lon), label: shortLabel(r.display_name) };
     // Se o resultado é uma REGIÃO (tem polígono), guardamos a forma sombreada —
     // com teto de peso (25KB) para nunca inchar a base de dados.
@@ -9192,7 +9226,8 @@ function LocationPicker({ onChange, placeholder = 'Procurar no mapa…', compact
 
   // Mini-mapa de confirmação: pin arrastável + toque no mapa move
   React.useEffect(() => {
-    if (!picked || !window.L || !mapEl.current) return;
+    if (!picked || !mapEl.current) return;
+    if (!window.L) { paLoadLeaflet().then(() => setLeafletTick((t) => t + 1)).catch(() => {}); return; }
     const L = window.L;
     const map = L.map(mapEl.current, { scrollWheelZoom: false });
     paTileLayer(L).addTo(map);
@@ -9210,7 +9245,7 @@ function LocationPicker({ onChange, placeholder = 'Procurar no mapa…', compact
     if (ro && mapEl.current) ro.observe(mapEl.current);
     setTimeout(() => map.invalidateSize(), 60);
     return () => { try { if (ro) ro.disconnect(); map.remove(); } catch (e) {} };
-  }, [picked ? (picked.zone ? 'zone' : 'pin') : 'off']); // monta/desmonta; o marker segue os ajustes sem reinit
+  }, [picked ? (picked.zone ? 'zone' : 'pin') : 'off', leafletTick]); // monta/desmonta; o marker segue os ajustes sem reinit
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
@@ -9242,7 +9277,7 @@ function LocationPicker({ onChange, placeholder = 'Procurar no mapa…', compact
       )}
       {picked && (
         <div className="pa-map" style={{ borderRadius:12, overflow:'hidden', border:'1px solid var(--pa-accent)' }}>
-          <div ref={mapEl} style={{ height: window.L ? (compact ? 150 : 180) : 0, width:'100%', background:'#eee9df' }} />
+          <div ref={mapEl} style={{ height: compact ? 150 : 180, width:'100%', background:'#eee9df' }} />
           <div style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 10px', background:'#fff' }}>
             <span style={{ flex:1, fontFamily:'var(--pa-body)', fontSize:11.5, color:'var(--pa-muted)', minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
               {picked.zone
@@ -9263,6 +9298,8 @@ Object.assign(window, { LocationPicker });
 // de interesse adicionados pelo grupo. Pins coloridos: laranja=local,
 // escuro=estadia, verde=pontos de interesse.
 function TripMap({ me }) {
+  const [leafletTick, setLeafletTick] = React.useState(0);
+  const [mapFailed, setMapFailed] = React.useState(false);
   const appData = useAppStore();
   const plan = AppStore.getPlanning();
   const pois = plan.pois || [];
@@ -9279,7 +9316,8 @@ function TripMap({ me }) {
   (plan.activities || []).forEach((a) => { if (a.geo) pins.push({ id:a.id, kind:'atividade', color:'#4a7fb5', name:a.text, sub:'atividade planeada', geo:a.geo, zone:a.zone }); });
 
   React.useEffect(() => {
-    if (!window.L || !ref.current) return;
+    if (!ref.current) return;
+    if (!window.L) { paLoadLeaflet().then(() => setLeafletTick((t) => t + 1)).catch(() => setMapFailed(true)); return; }
     const L = window.L;
     const map = L.map(ref.current, { scrollWheelZoom: false });
     paTileLayer(L).addTo(map);
@@ -9316,7 +9354,7 @@ function TripMap({ me }) {
     if (ro && ref.current) ro.observe(ref.current);
     setTimeout(() => map.invalidateSize(), 60); // o tab "Mapa" só existe ao ser aberto
     return () => { window.removeEventListener('pa-map-focus', onFocus); try { if (ro) ro.disconnect(); map.remove(); } catch (e) {} };
-  }, [pins.map((p) => p.id + ':' + p.geo.lat + (p.zone ? 'z' : '')).join(',')]);
+  }, [pins.map((p) => p.id + ':' + p.geo.lat + (p.zone ? 'z' : '')).join(','), leafletTick]);
 
   const [poiGeo, setPoiGeo] = React.useState(null);
   const [pickerKey, setPickerKey] = React.useState(0); // reset do picker após adicionar
@@ -9334,12 +9372,13 @@ function TripMap({ me }) {
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
       <div className="pa-map" style={{ borderRadius:14, overflow:'hidden', border:'1px solid var(--pa-line)' }}>
-        {!window.L && (
+
+        {mapFailed && (
           <div style={{ padding:'22px 16px', textAlign:'center', fontFamily:'var(--pa-body)', fontSize:12.5, color:'var(--pa-muted)', background:'#fff' }}>
-            Não consegui carregar o mapa (rede ou bloqueador). Os pontos continuam guardados — recarrega a página para tentar de novo.
+            Não consegui carregar o mapa (rede ou bloqueador). Os pontos continuam guardados — tenta recarregar a página.
           </div>
         )}
-        <div ref={ref} style={{ height: window.L ? 260 : 0, width:'100%', background:'#eee9df' }} />
+        <div ref={ref} style={{ height: mapFailed ? 0 : 260, width:'100%', background:'#eee9df' }} />
         <div style={{ display:'flex', gap:12, flexWrap:'wrap', padding:'7px 12px', background:'#fff', fontFamily:'var(--pa-body)', fontSize:11, color:'var(--pa-muted)' }}>
           {pins.length > 0
             ? <><span>📍 local</span><span>🏠 estadia</span><span>⭐ pontos de interesse</span><span>🎯 atividades</span></>
@@ -10061,7 +10100,7 @@ function AdminAnnounceModal({ open, onClose, me }) {
           <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:6 }}>Para quem</div>
           <select value={target} onChange={(e) => setTarget(e.target.value)}
             style={{ width:'100%', boxSizing:'border-box', padding:'10px 12px', borderRadius:12, border:'1px solid var(--pa-line)',
-              fontFamily:'var(--pa-body)', fontSize:14, background:'#fff', color:'var(--pa-ink)' }}>
+              fontFamily:'var(--pa-body)', fontSize:16, background:'#fff', color:'var(--pa-ink)' }}>
             <option value="all">📢 Todos (vista geral)</option>
             {members.map((m) => <option key={m.id} value={m.id}>👤 {m.name}</option>)}
           </select>
@@ -10305,7 +10344,7 @@ function EditionEditor({ open, onClose, edition, me, proposeMode = false }) {
             {allProfiles.some((m) => !invited.has(m.id)) && (
               <select value="" onChange={(e) => { if (e.target.value) toggleInvite(e.target.value); }}
                 style={{ width:'100%', padding:'11px 12px', borderRadius:12, border:'1px solid var(--pa-line)', background:'#fff',
-                  fontFamily:'var(--pa-body)', fontSize:14, color:'var(--pa-ink)', cursor:'pointer', appearance:'auto' }}>
+                  fontFamily:'var(--pa-body)', fontSize:16, color:'var(--pa-ink)', cursor:'pointer', appearance:'auto' }}>
                 <option value="" disabled>+ Adicionar pessoa…</option>
                 {allProfiles.filter((m) => !invited.has(m.id)).map((m) => (
                   <option key={m.id} value={m.id}>{m.name}</option>
