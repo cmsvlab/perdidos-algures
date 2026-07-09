@@ -23,6 +23,9 @@
     --pa-muted: #6f6455;
     --pa-line: #e8e0d2;
     --pa-accent: #d97757;
+  /* Tom acessível do accent para SUPERFÍCIES com texto branco (WCAG AA 4.82:1).
+     O accent claro continua a servir de cor de marca em contornos e ícones. */
+  --pa-accent-strong: #b85436;
     --pa-display: 'Bricolage Grotesque', system-ui, sans-serif;
     --pa-body: 'Geist', system-ui, sans-serif;
     --pa-mono: 'Geist Mono', ui-monospace, monospace;
@@ -109,8 +112,12 @@
   70% { transform: scale(1.08); opacity: 1; }
   100% { transform: scale(1); opacity: 1; }
 }
-.pa-pin { animation: pa-pin-pop 0.28s ease-out both; transform-origin: bottom center; }
-.pa-dot { animation: pa-pin-pop 0.28s ease-out both; transform-origin: center; }
+/* IMPORTANTE: o Leaflet posiciona o marcador com transform:translate3d na raiz.
+   Animar `transform` na raiz apaga a posição (pino ia parar ao canto do mapa).
+   Por isso animamos SEMPRE um invólucro interior. */
+.pa-pin-inner { animation: pa-pin-pop 0.28s ease-out both; transform-origin: bottom center; }
+.pa-dot-inner { animation: pa-pin-pop 0.28s ease-out both; transform-origin: center; }
+@media (prefers-reduced-motion: reduce) { .pa-pin-inner, .pa-dot-inner { animation: none; } }
 </style>
 </head>
 <body>
@@ -242,7 +249,7 @@ window.PA_DATA = {
   phase3: { deadline: null, votedBy: [], pendingBy: [], results: {}, winnerId: null },
   phase4: {
     deadline: null, perPersonLimit: null, locationName: '',
-    types: ['Casa', 'Apartamento', 'Glamping', 'Hostel', 'Hotel', 'Outro'],
+    types: ['Casa', 'Apartamento', 'Camping', 'Hostel', 'Hotel', 'Outro'],
     suggestions: [], submittedBy: {},
   },
   phase5: { deadline: null, votedBy: [], pendingBy: [], results: {}, winnerId: null },
@@ -2284,7 +2291,7 @@ function Pill({ children, tone = 'default', size = 'md' }) {
 function Btn({ children, onClick, variant = 'primary', size = 'md', icon, style = {}, disabled = false }) {
   const variants = {
     primary: { bg: 'var(--pa-ink)', fg: '#fff', border: 'none' },
-    accent:  { bg: 'var(--pa-accent)', fg: '#fff', border: 'none' },
+    accent:  { bg: 'var(--pa-accent-strong)', fg: '#fff', border: 'none' },
     ghost:   { bg: 'transparent', fg: 'var(--pa-ink)', border: '1px solid var(--pa-line)' },
     soft:    { bg: '#fff', fg: 'var(--pa-ink)', border: '1px solid var(--pa-line)' },
     danger:  { bg: 'transparent', fg: '#8a4220', border: '1px solid #8a4220' },
@@ -2497,7 +2504,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r49';
+window.PA_VERSION = '2026.06.01-r51';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -3799,7 +3806,7 @@ function LoginScreen({ auth, onSwitch, narrow }) {
       </div>
 
       <form onSubmit={submit} style={{ marginTop: 28, display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <Field label="O teu nome" placeholder="Rita / Tiago / ..." value={name} onChange={setName} />
+        <Field label="O teu nome" placeholder="O teu nome" value={name} onChange={setName} />
         <AuthPasswordField label="Password" value={pw} onChange={setPw} />
         {err && <AuthError msg={err} />}
         <button type="submit" disabled={busy} style={{
@@ -3891,7 +3898,7 @@ function RegisterScreen({ auth, onSwitch, narrow }) {
         </button>
         <input ref={fileRef} type="file" accept="image/*" onChange={onPick} style={{ display: 'none' }} />
 
-        <Field label="Como te chamas" placeholder="Tiago, Matilde, ..." value={name} onChange={setName} />
+        <Field label="Como te chamas" placeholder="O teu nome" value={name} onChange={setName} />
         <AuthPasswordField label="Password" value={pw} onChange={setPw} />
         <AuthPasswordField label="Repete" value={pw2} onChange={setPw2} />
 
@@ -3933,7 +3940,7 @@ function AuthPasswordField({ label, value, onChange }) {
           type={show ? 'text' : 'password'} placeholder="••••••••"
           style={{
             flex: 1, border: 'none', outline: 'none', background: 'transparent',
-            fontFamily: 'var(--pa-body)', fontSize: 15, color: 'var(--pa-ink)',
+            fontFamily: 'var(--pa-body)', fontSize: 16, color: 'var(--pa-ink)',
           }} />
         <button type="button" onClick={() => setShow((s) => !s)} style={{
           border: 'none', background: 'transparent', cursor: 'pointer',
@@ -4091,7 +4098,7 @@ function ChatPanel({ me, compact = false }) {
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={onKey}
-            placeholder="Escreve algo..." maxLength={500}
+            placeholder="Mensagem" maxLength={500}
             rows={1}
             style={{
               width: '100%', padding: '10px 14px', borderRadius: 18,
@@ -4918,7 +4925,7 @@ function TieMethodPublic({ tied, me, onResolve, onBack }) {
     rita:    { choice: tied[0].id, comment: 'Bouzas tem o melhor jantar pós-praia.' },
     matilde: { choice: tied[1].id, comment: 'Cíes só uma vez na vida. A noite na ilha é outra coisa.' },
     tiago:   { choice: tied[0].id, comment: 'Já lá fui — a casa é mesmo bonita.' },
-    joao:    { choice: tied[1].id, comment: 'Glamping é uma vibe completamente diferente.' },
+    joao:    { choice: tied[1].id, comment: 'Camping é uma vibe completamente diferente.' },
   });
   const [myPick, setMyPick] = tbUseState(null);
   const [myComment, setMyComment] = tbUseState('');
@@ -4955,8 +4962,8 @@ function TieMethodPublic({ tied, me, onResolve, onBack }) {
             })}
           </div>
           <textarea value={myComment} onChange={(e) => setMyComment(e.target.value)}
-            placeholder="Em duas linhas, porquê este?" rows={2}
-            style={{ width: '100%', padding: '10px 12px', borderRadius: 8, background: '#fff', border: '1px solid var(--pa-line)', fontFamily: 'var(--pa-body)', fontSize: 13, outline: 'none', resize: 'none', boxSizing: 'border-box' }} />
+            placeholder="Escreve o anúncio" rows={2}
+            style={{ width: '100%', padding: '10px 12px', borderRadius: 8, background: '#fff', border: '1px solid var(--pa-line)', fontFamily: 'var(--pa-body)', fontSize: 16, outline: 'none', resize: 'none', boxSizing: 'border-box' }} />
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
             <Btn variant="accent" size="sm" disabled={!myPick} onClick={() => setSubmitted(true)}>Declarar</Btn>
           </div>
@@ -5621,7 +5628,7 @@ function LocSuggestionForm({ onCancel, onSubmit }) {
   const [tag, setTag] = dUseState('');
   const [tags, setTags] = dUseState([]);
   const [geo, setGeo] = dUseState(null); // escolhido no mapa (picker), nunca adivinhado
-  const ok = name.trim() && city.trim();
+  const ok = !!name.trim(); // só o nome é obrigatório; o resto é opcional
 
   const addTag = () => {
     const t = tag.trim();
@@ -5636,8 +5643,8 @@ function LocSuggestionForm({ onCancel, onSubmit }) {
         <button onClick={onCancel} style={{ border:'none', background:'transparent', cursor:'pointer', color:'var(--pa-muted)', fontSize:18, padding:4 }}>×</button>
       </div>
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
-        <Field label="Nome do sítio" placeholder="Ilhas Cíes, Comporta..." value={name} onChange={setName} />
-        <Field label="Cidade / país" placeholder="Vigo, ES" value={city} onChange={setCity} />
+        <Field label="Nome do sítio" placeholder="" value={name} onChange={setName} />
+        <Field label="Cidade / país (opcional)" placeholder="" value={city} onChange={setCity} />
       </div>
       <div style={{ marginBottom:14 }}>
         <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:6 }}>Tags</div>
@@ -5651,14 +5658,14 @@ function LocSuggestionForm({ onCancel, onSubmit }) {
         </div>
         <div style={{ display:'flex', gap:8 }}>
           <input value={tag} onChange={(e) => setTag(e.target.value)} onKeyDown={(e) => { if (e.key==='Enter') { e.preventDefault(); addTag(); } }}
-            placeholder="Praia, Cidade, Glamping..."
-            style={{ flex:1, padding:'8px 12px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:13, outline:'none' }} />
+            placeholder="Adicionar etiqueta"
+            style={{ flex:1, padding:'8px 12px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:16, outline:'none' }} />
           <button onClick={addTag} style={{ padding:'8px 14px', borderRadius:10, border:'none', background:'var(--pa-ink)', color:'#fff', cursor:'pointer', fontSize:12, fontWeight:600 }}>+</button>
         </div>
       </div>
             <div style={{ margin:'10px 0 12px' }}>
         <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:6 }}>Localização no mapa (opcional)</div>
-        <LocationPicker onChange={setGeo} placeholder="Procura o sítio exato…" />
+        <LocationPicker onChange={setGeo} placeholder="Procurar no mapa" />
       </div>
 <div style={{ display:'flex', justifyContent:'flex-end', gap:8 }}>
         <Btn variant="ghost" size="sm" onClick={onCancel}>Cancelar</Btn>
@@ -5743,7 +5750,7 @@ function DPhase3({ me }) {
               cursor:'pointer', padding:0, position:'relative' }}>
               {voteMode === 'points' && rank >= 0 && (
                 <span aria-label={`A tua ${rank+1}ª escolha`} style={{ position:'absolute', top:8, left:8, zIndex:3,
-                  width:26, height:26, borderRadius:26, background:'var(--pa-accent)', color:'#fff',
+                  width:26, height:26, borderRadius:26, background:'var(--pa-accent-strong)', color:'#fff',
                   display:'flex', alignItems:'center', justifyContent:'center',
                   fontFamily:'var(--pa-mono)', fontSize:11, fontWeight:700,
                   boxShadow:'0 2px 6px rgba(0,0,0,0.25)' }}>{rank+1}º</span>
@@ -5761,7 +5768,7 @@ function DPhase3({ me }) {
               <div style={{ padding:'12px 14px 14px' }}>
                 <div style={{ fontFamily:'var(--pa-display)', fontSize:16, fontWeight:600, letterSpacing:-0.2, lineHeight:1.15 }}>{s.name}</div>
                 <div style={{ fontSize:11, color:'var(--pa-muted)', marginTop:2 }}>{s.city}</div>
-                <MapLink query={[s.name, s.city].filter(Boolean).join(', ')} style={{ marginTop:4, display:'inline-block' }} />
+                <MapLink targetId={s.id} hasGeo={!!s.geo} style={{ marginTop:4, display:'inline-block' }} />
                 <div style={{ marginTop:10, display:'flex', alignItems:'center', gap:6 }}>
                   <Avatar member={by} size={18} />
                   <span style={{ fontSize:10.5, color:'var(--pa-muted)' }}>por {by.name}</span>
@@ -5926,7 +5933,7 @@ function AccommodationCard({ acc, me }) {
               </div>
             )}
             {host && (
-              <a href={acc.link} target="_blank" rel="noreferrer" style={{
+              <a href={paSafeUrl(acc.link) || undefined} target="_blank" rel="noopener noreferrer" style={{
                 display:'inline-flex', alignItems:'center', gap:6,
                 fontFamily:'var(--pa-mono)', fontSize:11.5, color:'var(--pa-accent)', fontWeight:600, textDecoration:'none' }}>
                 <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
@@ -5988,14 +5995,14 @@ function AccommodationForm({ onCancel, onSubmit }) {
             ))}
           </div>
         </div>
-        <Field label="€ por noite" placeholder="65" prefix="€" value={price} onChange={setPrice} />
+        <Field label="€ por noite" placeholder="" prefix="€" value={price} onChange={setPrice} />
       </div>
-      <div style={{ marginBottom:10 }}><Field label="Zona / bairro" placeholder="Centro histórico, praia..." value={area} onChange={setArea} /></div>
-      <div style={{ marginBottom:10 }}><Field label="Link" placeholder="https://airbnb.com/..." value={link} onChange={setLink} prefix="🔗" /></div>
-      <div style={{ marginBottom:14 }}><Field label="Comentário" textarea placeholder="O que tem de especial? Já lá foste?" value={note} onChange={setNote} /></div>
+      <div style={{ marginBottom:10 }}><Field label="Morada" placeholder="" value={area} onChange={setArea} /></div>
+      <div style={{ marginBottom:10 }}><Field label="Link" placeholder="" value={link} onChange={setLink} prefix="🔗" /></div>
+      <div style={{ marginBottom:14 }}><Field label="Comentário" textarea placeholder="" value={note} onChange={setNote} /></div>
             <div style={{ margin:'10px 0 12px' }}>
         <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:6 }}>Localização no mapa (opcional)</div>
-        <LocationPicker onChange={setAccGeo} placeholder="Procura a casa/zona exata…" />
+        <LocationPicker onChange={setAccGeo} placeholder="Procurar no mapa" />
       </div>
 <div style={{ display:'flex', justifyContent:'flex-end', gap:8 }}>
         <Btn variant="ghost" size="sm" onClick={onCancel}>Cancelar</Btn>
@@ -6091,7 +6098,7 @@ function DPhase5({ me }) {
             </div>
           </div>
           {winner.link && (
-            <a href={winner.link} target="_blank" rel="noreferrer" style={{
+            <a href={paSafeUrl(winner.link) || undefined} target="_blank" rel="noopener noreferrer" style={{
               padding:'10px 16px', borderRadius:999, background:'rgba(255,255,255,0.12)',
               color:'#fff', textDecoration:'none', fontFamily:'var(--pa-body)', fontSize:13, fontWeight:600 }}>Ver anúncio →</a>
           )}
@@ -6111,7 +6118,7 @@ function DPhase5({ me }) {
               cursor: closed?'default':'pointer', position:'relative' }}>
               {voteMode === 'points' && rank >= 0 && (
                 <span aria-label={`A tua ${rank+1}ª escolha`} style={{ position:'absolute', top:-8, left:-8, zIndex:3,
-                  width:26, height:26, borderRadius:26, background:'var(--pa-accent)', color:'#fff',
+                  width:26, height:26, borderRadius:26, background:'var(--pa-accent-strong)', color:'#fff',
                   display:'flex', alignItems:'center', justifyContent:'center',
                   fontFamily:'var(--pa-mono)', fontSize:11, fontWeight:700,
                   boxShadow:'0 2px 6px rgba(0,0,0,0.25)' }}>{rank+1}º</span>
@@ -6120,7 +6127,7 @@ function DPhase5({ me }) {
               <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:6 }}>
                 <Pill tone="dark" size="sm">{s.type}</Pill>
                 <span style={{ fontSize:11, color:'var(--pa-muted)' }}>{s.area}</span>
-                <MapLink query={s.area} style={{ marginLeft:8 }} />
+                <MapLink targetId={s.id} hasGeo={!!s.geo} style={{ marginLeft:8 }} />
               </div>
               {s.note && (
                 <div style={{ fontFamily:'var(--pa-body)', fontSize:12.5, color:'var(--pa-ink)', lineHeight:1.4, minHeight:36 }}>
@@ -6590,9 +6597,9 @@ function PlanBagagem({ me }) {
     <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
       <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center' }}>
         <input value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') add(); }}
-          placeholder="Coluna de som, jogos, protetor solar…" maxLength={60}
+          placeholder="Adicionar item" maxLength={60}
           style={{ flex:1, minWidth:180, padding:'11px 14px', borderRadius:12, border:'1px solid var(--pa-line)', background:'#fff',
-            fontFamily:'var(--pa-body)', fontSize:14, color:'var(--pa-ink)', outline:'none' }} />
+            fontFamily:'var(--pa-body)', fontSize:16, color:'var(--pa-ink)', outline:'none' }} />
         <button onClick={() => setIsGroup((g) => !g)} title="Itens de grupo têm um responsável; pessoais são só lembrete para todos"
           style={{ padding:'9px 13px', borderRadius:12, cursor:'pointer', border:'1px solid var(--pa-line)',
             background: isGroup ? 'var(--pa-ink)' : '#fff', color: isGroup ? '#fff' : 'var(--pa-muted)',
@@ -6703,7 +6710,7 @@ function PlanEstadia({ appData }) {
                 <span style={{ fontSize:12, color:'var(--pa-muted)' }}>{by.name} sugeriu</span>
               </div>
               {acc.link && (
-                <a href={acc.link} target="_blank" rel="noreferrer" style={{
+                <a href={paSafeUrl(acc.link) || undefined} target="_blank" rel="noopener noreferrer" style={{
                   padding:'8px 14px', borderRadius:999, background:'var(--pa-ink)', color:'#fff',
                   textDecoration:'none', fontFamily:'var(--pa-body)', fontSize:12.5, fontWeight:600 }}>Ver anúncio →</a>
               )}
@@ -6906,7 +6913,7 @@ function PlanCustos({ me }) {
             <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>Nova despesa</div>
             <button onClick={()=>{ setOpen(false); resetForm(); }} style={{ border:'none', background:'transparent', cursor:'pointer', color:'var(--pa-muted)', fontSize:18, padding:0 }}>×</button>
           </div>
-          <Field placeholder="Ex: Combustível, Supermercado, Airbnb..." value={desc} onChange={setDesc} />
+          <Field placeholder="Descrição" value={desc} onChange={setDesc} />
           <Field placeholder="Valor total (€)" value={amount} onChange={setAmount} prefix="€" />
 
           <div>
@@ -7086,7 +7093,7 @@ function PlanItinerario({ me }) {
           </label>
           <Field placeholder="Hora (opcional)" value={time} onChange={setTime} prefix="🕐" />
         </div>
-        <Field placeholder="O que fazer? (Ex: Miradouro da Senhora do Monte)" value={what} onChange={setWhat} />
+        <Field placeholder="O que fazer" value={what} onChange={setWhat} />
         <Btn variant="accent" onClick={add} disabled={!what.trim()}>+ Adicionar</Btn>
       </div>
 
@@ -7149,9 +7156,9 @@ function PlanAtividades({ me }) {
     <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
       <div style={{ background:'#fff', border:'1px solid var(--pa-line)', borderRadius:14, padding:16, display:'flex', gap:8 }}>
         <input value={text} onChange={(e)=>setText(e.target.value)} onKeyDown={(e)=>{ if(e.key==='Enter'){ e.preventDefault(); add(); } }}
-          placeholder="Surf ao pôr do sol, restaurante X..." maxLength={100} style={{ flex:1, minWidth:0, boxSizing:'border-box', padding:'10px 14px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:16, outline:'none' }} />
+          placeholder="Adicionar atividade" maxLength={100} style={{ flex:1, minWidth:0, boxSizing:'border-box', padding:'10px 14px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:16, outline:'none' }} />
       <div style={{ margin:'8px 0' }}>
-        <LocationPicker key={actPickerKey} compact onChange={setActGeo} placeholder="Onde? (opcional — aparece no mapa da viagem)" />
+        <LocationPicker key={actPickerKey} compact onChange={setActGeo} placeholder="Onde (opcional)" />
       </div>
         <Btn variant="accent" onClick={add} disabled={!text.trim()} style={{ flexShrink:0 }}>+</Btn>
       </div>
@@ -7178,7 +7185,7 @@ function PlanAtividades({ me }) {
           <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>Feito ({done.length})</div>
           {done.map(a => (
             <div key={a.id} style={{ background:'rgba(31,26,20,0.03)', borderRadius:12, padding:'10px 14px', display:'flex', alignItems:'center', gap:10 }}>
-              <button onClick={()=>toggle(a.id)} style={{ width:22, height:22, borderRadius:6, border:'none', background:'var(--pa-accent)', color:'#fff', cursor:'pointer', flexShrink:0, padding:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13 }}>✓</button>
+              <button onClick={()=>toggle(a.id)} style={{ width:22, height:22, borderRadius:6, border:'none', background:'var(--pa-accent-strong)', color:'#fff', cursor:'pointer', flexShrink:0, padding:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13 }}>✓</button>
               <div style={{ flex:1, fontFamily:'var(--pa-body)', fontSize:13.5, color:'var(--pa-muted)', textDecoration:'line-through' }}>{a.text}</div>
               {(me?.isAdmin || a.by === me?.id) && <button onClick={()=>remove(a.id)} style={{ border:'none', background:'transparent', cursor:'pointer', color:'var(--pa-muted)', fontSize:16, padding:0 }}>×</button>}
             </div>
@@ -7232,7 +7239,7 @@ function PlanCompras({ me }) {
     <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
       <div style={{ background:'#fff', border:'1px solid var(--pa-line)', borderRadius:14, padding:16, display:'flex', gap:8 }}>
         <input value={text} onChange={(e)=>setText(e.target.value)} onKeyDown={(e)=>{ if(e.key==='Enter'){ e.preventDefault(); add(); } }}
-          placeholder="Protetor solar..." maxLength={100} style={{ flex:1, minWidth:0, boxSizing:'border-box', padding:'10px 14px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:16, outline:'none' }} />
+          placeholder="Adicionar item" maxLength={100} style={{ flex:1, minWidth:0, boxSizing:'border-box', padding:'10px 14px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:16, outline:'none' }} />
         <input value={qty} onChange={(e)=>setQty(e.target.value)} placeholder="Qtd" maxLength={8} style={{ width:56, flexShrink:0, boxSizing:'border-box', padding:'10px 8px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:16, outline:'none', textAlign:'center' }} />
         <Btn variant="accent" onClick={add} disabled={!text.trim()} style={{ flexShrink:0 }}>+</Btn>
       </div>
@@ -7259,7 +7266,7 @@ function PlanCompras({ me }) {
           </div>
           {done.map(s => (
             <div key={s.id} style={{ background:'rgba(31,26,20,0.03)', borderRadius:12, padding:'10px 14px', display:'flex', alignItems:'center', gap:10 }}>
-              <button onClick={()=>toggle(s.id)} style={{ width:22, height:22, borderRadius:6, border:'none', background:'var(--pa-accent)', color:'#fff', cursor:'pointer', flexShrink:0, padding:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13 }}>✓</button>
+              <button onClick={()=>toggle(s.id)} style={{ width:22, height:22, borderRadius:6, border:'none', background:'var(--pa-accent-strong)', color:'#fff', cursor:'pointer', flexShrink:0, padding:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13 }}>✓</button>
               <div style={{ flex:1, fontFamily:'var(--pa-body)', fontSize:13.5, color:'var(--pa-muted)', textDecoration:'line-through' }}>{s.text}</div>
               {s.qty && <Pill size="sm" tone="muted">×{s.qty}</Pill>}
             </div>
@@ -7642,7 +7649,7 @@ function MPhase2({ me, onLogout, onOpenChat }) {
             <div style={{ minWidth:0 }}>
               <div style={{ fontFamily:'var(--pa-display)', fontSize:16, fontWeight:600 }}>{s.name}</div>
               {s.city && <div style={{ fontSize:11.5, color:'var(--pa-muted)', marginTop:2 }}>{s.city}</div>}
-              <MapLink query={[s.name, s.city].filter(Boolean).join(', ')} style={{ marginTop:4, display:'inline-block' }} />
+              <MapLink targetId={s.id} hasGeo={!!s.geo} style={{ marginTop:4, display:'inline-block' }} />
             </div>
             <button onClick={() => AppStore.removeLocSuggestion(s.id)} aria-label="Remover"
               style={{ flexShrink:0, width:30, height:30, borderRadius:30, border:'1px solid var(--pa-line)', background:'transparent', cursor:'pointer', color:'var(--pa-muted)', fontSize:15, lineHeight:1 }}>×</button>
@@ -7668,14 +7675,14 @@ function MPhase2({ me, onLogout, onOpenChat }) {
           <div style={{ background:'#fff', borderRadius:14, padding:16, border:'2px solid var(--pa-accent)' }}>
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nome do sítio" maxLength={80}
               style={{ width:'100%', padding:'10px 12px', borderRadius:10, border:'1px solid var(--pa-line)',
-                fontFamily:'var(--pa-body)', fontSize:14, outline:'none', boxSizing:'border-box', marginBottom:8 }} />
+                fontFamily:'var(--pa-body)', fontSize:16, outline:'none', boxSizing:'border-box', marginBottom:8 }} />
             <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Cidade, País" maxLength={80}
               style={{ width:'100%', padding:'10px 12px', borderRadius:10, border:'1px solid var(--pa-line)',
-                fontFamily:'var(--pa-body)', fontSize:14, outline:'none', boxSizing:'border-box', marginBottom:12 }} />
+                fontFamily:'var(--pa-body)', fontSize:16, outline:'none', boxSizing:'border-box', marginBottom:12 }} />
             <div style={{ marginBottom:8 }}><LocationPicker compact onChange={setMGeo} placeholder="Sítio exato no mapa (opcional)" /></div>
             <div style={{ display:'flex', gap:8 }}>
               <button onClick={() => setAdding(false)} style={{ flex:1, padding:'10px', borderRadius:999, border:'1px solid var(--pa-line)', background:'transparent', cursor:'pointer', fontFamily:'var(--pa-body)', fontSize:13, fontWeight:600 }}>Cancelar</button>
-              <button onClick={handleAdd} disabled={!name.trim()} style={{ flex:1, padding:'10px', borderRadius:999, border:'none', background:'var(--pa-accent)', color:'#fff', cursor: name.trim()?'pointer':'default', fontFamily:'var(--pa-body)', fontSize:13, fontWeight:600, opacity: name.trim()?1:0.5 }}>Lançar</button>
+              <button onClick={handleAdd} disabled={!name.trim()} style={{ flex:1, padding:'10px', borderRadius:999, border:'none', background:'var(--pa-accent-strong)', color:'#fff', cursor: name.trim()?'pointer':'default', fontFamily:'var(--pa-body)', fontSize:13, fontWeight:600, opacity: name.trim()?1:0.5 }}>Lançar</button>
             </div>
           </div>
         )}
@@ -7769,7 +7776,7 @@ function MPhase3({ me, onLogout, onOpenChat }) {
               cursor:'pointer', position:'relative' }}>
               {voteMode === 'points' && rank >= 0 && (
                 <span aria-label={`A tua ${rank+1}ª escolha`} style={{ position:'absolute', top:-8, left:-8, zIndex:3,
-                  width:26, height:26, borderRadius:26, background:'var(--pa-accent)', color:'#fff',
+                  width:26, height:26, borderRadius:26, background:'var(--pa-accent-strong)', color:'#fff',
                   display:'flex', alignItems:'center', justifyContent:'center',
                   fontFamily:'var(--pa-mono)', fontSize:11, fontWeight:700,
                   boxShadow:'0 2px 6px rgba(0,0,0,0.25)' }}>{rank+1}º</span>
@@ -7777,7 +7784,7 @@ function MPhase3({ me, onLogout, onOpenChat }) {
               
               <div style={{ fontFamily:'var(--pa-display)', fontSize:17, fontWeight:600, letterSpacing:-0.3 }}>{s.name}</div>
               {s.city && <div style={{ fontSize:11.5, color:'var(--pa-muted)', marginTop:2 }}>{s.city}</div>}
-              <MapLink query={[s.name, s.city].filter(Boolean).join(', ')} style={{ marginTop:4, display:'inline-block' }} />
+              <MapLink targetId={s.id} hasGeo={!!s.geo} style={{ marginTop:4, display:'inline-block' }} />
               <div style={{ marginTop:8, display:'flex', alignItems:'center', gap:6 }}>
                 <Avatar member={by} size={18} />
                 <span style={{ fontSize:10.5, color:'var(--pa-muted)' }}>{by.name}</span>
@@ -7858,7 +7865,7 @@ function MPhase4({ me, onLogout, onOpenChat }) {
                   <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:4 }}>
                     <Pill tone="dark" size="sm">{s.type}</Pill>
                     <span style={{ fontSize:11, color:'var(--pa-muted)' }}>{s.area}</span>
-                <MapLink query={s.area} style={{ marginLeft:8 }} />
+                <MapLink targetId={s.id} hasGeo={!!s.geo} style={{ marginLeft:8 }} />
                   </div>
                   {s.note && <div style={{ fontSize:12.5, color:'var(--pa-ink)', lineHeight:1.4 }}>{s.note.length>60?s.note.slice(0,60)+'…':s.note}</div>}
                 </div>
@@ -7871,7 +7878,7 @@ function MPhase4({ me, onLogout, onOpenChat }) {
                 </div>
                 <div style={{ display:'flex', alignItems:'center', gap:10 }}>
                   {s.link && (
-                    <a href={s.link} target="_blank" rel="noreferrer" style={{ fontFamily:'var(--pa-mono)', fontSize:10.5, color:'var(--pa-accent)', fontWeight:600, textDecoration:'none' }}>ver →</a>
+                    <a href={paSafeUrl(s.link) || undefined} target="_blank" rel="noopener noreferrer" style={{ fontFamily:'var(--pa-mono)', fontSize:10.5, color:'var(--pa-accent)', fontWeight:600, textDecoration:'none' }}>ver →</a>
                   )}
                   {(mine || me.isAdmin) && (
                     <button onClick={() => AppStore.removeAccSuggestion(s.id)} aria-label="Remover"
@@ -7885,23 +7892,23 @@ function MPhase4({ me, onLogout, onOpenChat }) {
 
         {!adding && (
           <button onClick={() => setAdding(true)} style={{
-            marginTop:4, background:'var(--pa-accent)', color:'#fff', border:'none',
+            marginTop:4, background:'var(--pa-accent-strong)', color:'#fff', border:'none',
             borderRadius:999, padding:'14px', cursor:'pointer',
             fontFamily:'var(--pa-body)', fontSize:14, fontWeight:600 }}>+ Lançar alojamento</button>
         )}
 
         {adding && (
           <div style={{ background:'#fff', borderRadius:14, padding:16, border:'2px solid var(--pa-accent)' }}>
-            <input value={area} onChange={(e) => setArea(e.target.value)} placeholder="Zona / bairro"
-              style={{ width:'100%', padding:'10px 12px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:14, outline:'none', boxSizing:'border-box', marginBottom:8 }} />
+            <input value={area} onChange={(e) => setArea(e.target.value)} placeholder="Morada"
+              style={{ width:'100%', padding:'10px 12px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:16, outline:'none', boxSizing:'border-box', marginBottom:8 }} />
             <input value={price} onChange={(e) => setPrice(e.target.value)} placeholder="€ por noite" type="number"
-              style={{ width:'100%', padding:'10px 12px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:14, outline:'none', boxSizing:'border-box', marginBottom:8 }} />
-            <input value={link} onChange={(e) => setLink(e.target.value)} placeholder="Link (airbnb, booking...)"
-              style={{ width:'100%', padding:'10px 12px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:14, outline:'none', boxSizing:'border-box', marginBottom:12 }} />
+              style={{ width:'100%', padding:'10px 12px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:16, outline:'none', boxSizing:'border-box', marginBottom:8 }} />
+            <input value={link} onChange={(e) => setLink(e.target.value)} placeholder="Link"
+              style={{ width:'100%', padding:'10px 12px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:16, outline:'none', boxSizing:'border-box', marginBottom:12 }} />
             <div style={{ marginBottom:8 }}><LocationPicker compact onChange={setMAccGeo} placeholder="Casa/zona exata no mapa (opcional)" /></div>
             <div style={{ display:'flex', gap:8 }}>
               <button onClick={() => setAdding(false)} style={{ flex:1, padding:'10px', borderRadius:999, border:'1px solid var(--pa-line)', background:'transparent', cursor:'pointer', fontFamily:'var(--pa-body)', fontSize:13, fontWeight:600 }}>Cancelar</button>
-              <button onClick={handleAdd} disabled={!area.trim()} style={{ flex:1, padding:'10px', borderRadius:999, border:'none', background:'var(--pa-accent)', color:'#fff', cursor: area.trim()?'pointer':'default', fontFamily:'var(--pa-body)', fontSize:13, fontWeight:600, opacity: area.trim()?1:0.5 }}>Lançar</button>
+              <button onClick={handleAdd} disabled={!area.trim()} style={{ flex:1, padding:'10px', borderRadius:999, border:'none', background:'var(--pa-accent-strong)', color:'#fff', cursor: area.trim()?'pointer':'default', fontFamily:'var(--pa-body)', fontSize:13, fontWeight:600, opacity: area.trim()?1:0.5 }}>Lançar</button>
             </div>
           </div>
         )}
@@ -7983,7 +7990,7 @@ function MPhase5({ me, onLogout, onOpenChat }) {
               cursor:votingClosed?'default':'pointer', textAlign:'left', position:'relative', width:'100%' }}>
               {voteMode === 'points' && rank >= 0 && (
                 <span aria-label={`A tua ${rank+1}ª escolha`} style={{ position:'absolute', top:-8, left:-8, zIndex:3,
-                  width:26, height:26, borderRadius:26, background:'var(--pa-accent)', color:'#fff',
+                  width:26, height:26, borderRadius:26, background:'var(--pa-accent-strong)', color:'#fff',
                   display:'flex', alignItems:'center', justifyContent:'center',
                   fontFamily:'var(--pa-mono)', fontSize:11, fontWeight:700,
                   boxShadow:'0 2px 6px rgba(0,0,0,0.25)' }}>{rank+1}º</span>
@@ -8115,7 +8122,7 @@ function MPhase6({ me, onLogout, onOpenChat }) {
         </div>
         <button onClick={() => { AppStore.setAvailability(me.id, days); if (window._paToast) window._paToast('Disponibilidade guardada!', 'success'); }}
           style={{ marginTop:14, width:'100%', padding:'14px', borderRadius:999, border:'none',
-            background:'var(--pa-accent)', color:'#fff', cursor:'pointer',
+            background:'var(--pa-accent-strong)', color:'#fff', cursor:'pointer',
             fontFamily:'var(--pa-body)', fontSize:14, fontWeight:600 }}>
           Guardar disponibilidade
         </button>
@@ -8607,7 +8614,7 @@ function DeadlineControl({ deadline, onSet, onClear, narrow }) {
   return (
     <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
       <input type="datetime-local" value={val} onChange={(e)=>setVal(e.target.value)}
-        style={{ padding:'7px 10px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:13, color:'var(--pa-ink)' }} />
+        style={{ padding:'7px 10px', borderRadius:10, border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:16, color:'var(--pa-ink)' }} />
       <Btn variant="accent" size="sm" disabled={!val} onClick={() => {
         const iso = new Date(val).toISOString();
         if (new Date(iso).getTime() > Date.now()) { onSet(iso); setOpen(false); }
@@ -8835,8 +8842,6 @@ async function paGeocode(query) {
     return { lat: la, lng: lo };
   } catch (e) { return null; }
 }
-function paMapsUrl(q) { return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q || ''); }
-
 // Estética dos mapas: CARTO Voyager — tons quentes e limpos que assentam na
 // paleta da app; gratuito, sem chave, com suporte retina ({r}).
 function paTileLayer(L) {
@@ -8858,8 +8863,8 @@ function paPinIcon(L, color = '#d97757') {
     <circle cx="15" cy="14.5" r="5.5" fill="#fff"/>
   </svg>`;
   return L.divIcon({
-    className: 'pa-pin',
-    html: `<div style="filter: drop-shadow(0 3px 5px rgba(31,26,20,0.35));">${svg}</div>`,
+    className: 'pa-pin', // sem animação aqui: a raiz é posicionada pelo Leaflet
+    html: `<div class="pa-pin-inner" style="filter: drop-shadow(0 3px 5px rgba(31,26,20,0.35));">${svg}</div>`,
     iconSize: [30, 40], iconAnchor: [15, 38], popupAnchor: [0, -34],
   });
 }
@@ -8867,7 +8872,7 @@ function paPinIcon(L, color = '#d97757') {
 function paDotIcon(L, color, emoji) {
   return L.divIcon({
     className: 'pa-dot',
-    html: `<div style="width:32px;height:32px;border-radius:32px;background:${color};border:2.5px solid #fff;
+    html: `<div class="pa-dot-inner" style="width:32px;height:32px;border-radius:32px;background:${color};border:2.5px solid #fff;
       box-shadow:0 3px 8px rgba(31,26,20,0.3);display:flex;align-items:center;justify-content:center;
       font-size:15px;line-height:1;">${emoji}</div>`,
     iconSize: [32, 32], iconAnchor: [16, 16], popupAnchor: [0, -18],
@@ -8875,13 +8880,27 @@ function paDotIcon(L, color, emoji) {
 }
 Object.assign(window, { paTileLayer, paZoneLayer, paPinIcon, paDotIcon });
 
-// Link discreto "ver no mapa" para qualquer sugestão (Google Maps, custo zero).
-function MapLink({ query, style }) {
-  if (!query) return null;
-  return React.createElement('a', {
-    href: paMapsUrl(query), target: '_blank', rel: 'noopener noreferrer',
-    onClick: (e) => e.stopPropagation(),
-    style: Object.assign({ fontFamily: 'var(--pa-body)', fontSize: 11.5, color: 'var(--pa-muted)',
+// "Ver no mapa" = focar o mapa INTEGRADO da app (nunca sair para o Google).
+// Dispara um evento que os mapas montados ouvem; sem localização, não aparece.
+function paFocusMap(id) { window.dispatchEvent(new CustomEvent('pa-map-focus', { detail: { id } })); }
+
+// Links de utilizador (ex: Airbnb do alojamento) NUNCA vão crus para o href:
+// um "javascript:..." executaria código. Só http/https passam.
+function paSafeUrl(u) {
+  const s = String(u || '').trim();
+  if (!s) return null;
+  try {
+    const url = new URL(s.includes('://') ? s : 'https://' + s);
+    return (url.protocol === 'http:' || url.protocol === 'https:') ? url.href : null;
+  } catch (e) { return null; }
+}
+Object.assign(window, { paSafeUrl });
+function MapLink({ targetId, hasGeo, style }) {
+  if (!targetId || !hasGeo) return null;
+  return React.createElement('button', {
+    onClick: (e) => { e.stopPropagation(); paFocusMap(targetId); },
+    style: Object.assign({ border: 'none', background: 'transparent', padding: 0,
+      fontFamily: 'var(--pa-body)', fontSize: 11.5, color: 'var(--pa-muted)',
       textDecoration: 'underline', cursor: 'pointer' }, style || {}),
   }, '📍 ver no mapa');
 }
@@ -8904,14 +8923,36 @@ function LocMap({ suggestions, height = 230, membersById }) {
         (s.city ? `<br/>${String(s.city).replace(/</g,'&lt;')}` : '') +
         (by ? `<br/><span style="opacity:0.7">sugerido por ${String(by.name).replace(/</g,'&lt;')}</span>` : '');
       // Regiões (Alentejo, Comporta…) aparecem como ZONA sombreada; sítios exatos como pino.
-      const layer = s.zone ? paZoneLayer(L, s.zone) : L.marker([s.geo.lat, s.geo.lng], { icon: paPinIcon(L) });
+      const title = (s.name || s.area || 'sugestão') + (s.zone ? ' (zona)' : '');
+      const layer = s.zone ? paZoneLayer(L, s.zone) : L.marker([s.geo.lat, s.geo.lng], { icon: paPinIcon(L), title, alt: title, keyboard: true });
       return layer.addTo(map).bindPopup(label);
     });
     const grp = L.featureGroup(layers);
     try { map.fitBounds(grp.getBounds().pad(0.15), { maxZoom: 11 }); } catch (e) { map.setView([withGeo[0].geo.lat, withGeo[0].geo.lng], 9); }
-    return () => { try { map.remove(); } catch (e) {} mapRef.current = null; };
+    // "Ver no mapa" nos cartões: aproxima e abre o popup do alvo.
+    const byId = {};
+    withGeo.forEach((s, i) => { byId[s.id] = layers[i]; });
+    const onFocus = (ev) => {
+      const layer = byId[ev.detail && ev.detail.id];
+      if (!layer) return;
+      const target = ref.current && ref.current.closest ? ref.current.closest('.pa-map') : null;
+      if (target && target.scrollIntoView) target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      try {
+        if (layer.getBounds) map.flyToBounds(layer.getBounds().pad(0.12), { duration: 0.6 });
+        else map.flyTo(layer.getLatLng(), 13, { duration: 0.6 });
+      } catch (e) {}
+      setTimeout(() => { try { layer.openPopup(); } catch (e) {} }, 650);
+    };
+    window.addEventListener('pa-map-focus', onFocus);
+
+    // Container pode mudar de tamanho (tab, rotação, teclado): reavaliar.
+    const ro = (typeof ResizeObserver !== 'undefined') ? new ResizeObserver(() => map.invalidateSize()) : null;
+    if (ro && ref.current) ro.observe(ref.current);
+    setTimeout(() => map.invalidateSize(), 60); // primeiro paint dentro de tabs
+    return () => { window.removeEventListener('pa-map-focus', onFocus); try { if (ro) ro.disconnect(); map.remove(); } catch (e) {} mapRef.current = null; };
   }, [withGeo.map((s) => s.id + ':' + s.geo.lat + (s.zone ? 'z' : '')).join(',')]);
   if (withGeo.length === 0) return null;
+  if (!window.L) return null; // sem Leaflet (rede/bloqueador): a app segue sem mapa
   return React.createElement('div', { className: 'pa-map', style: { borderRadius: 14, overflow: 'hidden', border: '1px solid var(--pa-line)', marginBottom: 14 } },
     React.createElement('div', { ref, style: { height, width: '100%', background: '#eee9df' } }),
     withGeo.length < (suggestions || []).length &&
@@ -9005,14 +9046,17 @@ function LocationPicker({ onChange, placeholder = 'Procurar no mapa…', compact
       mk.on('dragend', () => { const ll = mk.getLatLng(); move(ll.lat, ll.lng); });
       map.on('click', (e) => { mk.setLatLng(e.latlng); move(e.latlng.lat, e.latlng.lng); });
     }
-    return () => { try { map.remove(); } catch (e) {} };
+    const ro = (typeof ResizeObserver !== 'undefined') ? new ResizeObserver(() => map.invalidateSize()) : null;
+    if (ro && mapEl.current) ro.observe(mapEl.current);
+    setTimeout(() => map.invalidateSize(), 60);
+    return () => { try { if (ro) ro.disconnect(); map.remove(); } catch (e) {} };
   }, [picked ? (picked.zone ? 'zone' : 'pin') : 'off']); // monta/desmonta; o marker segue os ajustes sem reinit
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
       {!picked && (
         <div style={{ position:'relative' }}>
-          <input value={query} onChange={(e) => onType(e.target.value)} placeholder={'📍 ' + placeholder} maxLength={80}
+          <input value={query} onChange={(e) => onType(e.target.value)} placeholder={placeholder} maxLength={80}
             style={{ width:'100%', boxSizing:'border-box', padding: compact ? '9px 12px' : '11px 14px', borderRadius:12,
               border:'1px solid var(--pa-line)', background:'#fff', fontFamily:'var(--pa-body)',
               fontSize: compact ? 13 : 14, color:'var(--pa-ink)', outline:'none' }} />
@@ -9038,7 +9082,7 @@ function LocationPicker({ onChange, placeholder = 'Procurar no mapa…', compact
       )}
       {picked && (
         <div className="pa-map" style={{ borderRadius:12, overflow:'hidden', border:'1px solid var(--pa-accent)' }}>
-          <div ref={mapEl} style={{ height: compact ? 150 : 180, width:'100%', background:'#eee9df' }} />
+          <div ref={mapEl} style={{ height: window.L ? (compact ? 150 : 180) : 0, width:'100%', background:'#eee9df' }} />
           <div style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 10px', background:'#fff' }}>
             <span style={{ flex:1, fontFamily:'var(--pa-body)', fontSize:11.5, color:'var(--pa-muted)', minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
               {picked.zone
@@ -9079,6 +9123,7 @@ function TripMap({ me }) {
     const L = window.L;
     const map = L.map(ref.current, { scrollWheelZoom: false });
     paTileLayer(L).addTo(map);
+    let msRef = [];
     if (pins.length === 0) {
       // Sem pontos ainda: o mapa aparece na mesma, centrado em Portugal.
       map.setView([39.6, -8.0], 6);
@@ -9088,12 +9133,29 @@ function TripMap({ me }) {
         const emoji = { local:'📍', estadia:'🏠', interesse:'⭐', atividade:'🎯' }[p.kind] || '📍';
         const layer = p.zone
           ? paZoneLayer(L, p.zone)
-          : L.marker([p.geo.lat, p.geo.lng], { icon: paDotIcon(L, p.color, emoji) });
+          : L.marker([p.geo.lat, p.geo.lng], { icon: paDotIcon(L, p.color, emoji), title: p.name, alt: `${p.kind}: ${p.name}`, keyboard: true });
         return layer.addTo(map).bindPopup(popup);
       });
       try { map.fitBounds(L.featureGroup(ms).getBounds().pad(0.2), { maxZoom: 13 }); } catch (e) { map.setView([pins[0].geo.lat, pins[0].geo.lng], 10); }
+      msRef = ms;
     }
-    return () => { try { map.remove(); } catch (e) {} };
+    const byId = {};
+    if (pins.length) pins.forEach((p, i) => { byId[p.id] = msRef[i]; });
+    const onFocus = (ev) => {
+      const layer = byId[ev.detail && ev.detail.id];
+      if (!layer) return;
+      try {
+        if (layer.getBounds) map.flyToBounds(layer.getBounds().pad(0.12), { duration: 0.6 });
+        else map.flyTo(layer.getLatLng(), 14, { duration: 0.6 });
+      } catch (e) {}
+      setTimeout(() => { try { layer.openPopup(); } catch (e) {} }, 650);
+    };
+    window.addEventListener('pa-map-focus', onFocus);
+
+    const ro = (typeof ResizeObserver !== 'undefined') ? new ResizeObserver(() => map.invalidateSize()) : null;
+    if (ro && ref.current) ro.observe(ref.current);
+    setTimeout(() => map.invalidateSize(), 60); // o tab "Mapa" só existe ao ser aberto
+    return () => { window.removeEventListener('pa-map-focus', onFocus); try { if (ro) ro.disconnect(); map.remove(); } catch (e) {} };
   }, [pins.map((p) => p.id + ':' + p.geo.lat + (p.zone ? 'z' : '')).join(',')]);
 
   const [poiGeo, setPoiGeo] = React.useState(null);
@@ -9112,7 +9174,12 @@ function TripMap({ me }) {
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
       <div className="pa-map" style={{ borderRadius:14, overflow:'hidden', border:'1px solid var(--pa-line)' }}>
-        <div ref={ref} style={{ height:260, width:'100%', background:'#eee9df' }} />
+        {!window.L && (
+          <div style={{ padding:'22px 16px', textAlign:'center', fontFamily:'var(--pa-body)', fontSize:12.5, color:'var(--pa-muted)', background:'#fff' }}>
+            Não consegui carregar o mapa (rede ou bloqueador). Os pontos continuam guardados — recarrega a página para tentar de novo.
+          </div>
+        )}
+        <div ref={ref} style={{ height: window.L ? 260 : 0, width:'100%', background:'#eee9df' }} />
         <div style={{ display:'flex', gap:12, flexWrap:'wrap', padding:'7px 12px', background:'#fff', fontFamily:'var(--pa-body)', fontSize:11, color:'var(--pa-muted)' }}>
           {pins.length > 0
             ? <><span>📍 local</span><span>🏠 estadia</span><span>⭐ pontos de interesse</span><span>🎯 atividades</span></>
@@ -9122,10 +9189,10 @@ function TripMap({ me }) {
 
       <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
         <input value={name} onChange={(e) => setName(e.target.value)}
-          placeholder="Nome do ponto: praia, restaurante, miradouro…" maxLength={60}
+          placeholder="Nome do ponto" maxLength={60}
           style={{ width:'100%', boxSizing:'border-box', padding:'11px 14px', borderRadius:12, border:'1px solid var(--pa-line)', background:'#fff',
-            fontFamily:'var(--pa-body)', fontSize:14, color:'var(--pa-ink)', outline:'none' }} />
-        <LocationPicker key={pickerKey} compact onChange={setPoiGeo} placeholder="Procura e confirma o pino no mapa" />
+            fontFamily:'var(--pa-body)', fontSize:16, color:'var(--pa-ink)', outline:'none' }} />
+        <LocationPicker key={pickerKey} compact onChange={setPoiGeo} placeholder="Procurar no mapa" />
         <Btn variant="accent" size="sm" onClick={addPoi} disabled={!name.trim() || !poiGeo}
           title={!poiGeo ? 'Escolhe primeiro o sítio no mapa' : ''}>+ Adicionar ao mapa</Btn>
       </div>
@@ -9138,7 +9205,7 @@ function TripMap({ me }) {
               <div key={p.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 12px', borderRadius:12, background:'#fff', border:'1px solid var(--pa-line)' }}>
                 <span style={{ width:9, height:9, borderRadius:9, background:'#31a24c', flexShrink:0 }} />
                 <span style={{ flex:1, fontFamily:'var(--pa-body)', fontSize:13, fontWeight:600, minWidth:0, overflow:'hidden', textOverflow:'ellipsis' }}>{p.name}</span>
-                <MapLink query={p.name} />
+                <MapLink targetId={p.id} hasGeo={!!p.geo} />
                 {canRemove && <button onClick={() => removePoi(p)} aria-label={'Tirar ' + p.name} style={{ border:'none', background:'transparent', color:'var(--pa-muted)', cursor:'pointer', fontSize:14, padding:0 }}>×</button>}
               </div>
             );
@@ -9148,7 +9215,7 @@ function TripMap({ me }) {
     </div>
   );
 }
-Object.assign(window, { paGeocode, paMapsUrl, MapLink, LocMap, TripMap });
+Object.assign(window, { paGeocode, paFocusMap, MapLink, LocMap, TripMap });
 
 function detectTie(votes, suggestions, inIds) {
   if (!votes) return null;
@@ -9389,7 +9456,7 @@ function PointsVote({ tiedItems, me, onResolve, onCancel, voteKey }) {
           return (
             <div key={id} style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 12px',
               background:'#fff', borderRadius:12, border:'1px solid var(--pa-line)' }}>
-              <div style={{ width:28, height:28, borderRadius:8, background:'var(--pa-accent)', color:'#fff',
+              <div style={{ width:28, height:28, borderRadius:8, background:'var(--pa-accent-strong)', color:'#fff',
                 display:'flex', alignItems:'center', justifyContent:'center', fontFamily:'var(--pa-display)', fontWeight:700, fontSize:13, flexShrink:0 }}>
                 {idx + 1}
               </div>
@@ -9700,9 +9767,9 @@ function BugReportModal({ open, onClose, me, isAdmin }) {
               Encontraste algo estranho? Descreve o que aconteceu (e onde) — um screenshot ajuda imenso.
             </div>
             <textarea value={desc} onChange={(e) => setDesc(e.target.value)} rows={4} maxLength={800}
-              placeholder="Ex: Na fase 2, no Chrome do meu Android, os dias do calendário saem do sítio..."
+              placeholder="O que aconteceu, e onde"
               style={{ width:'100%', boxSizing:'border-box', padding:'12px 14px', borderRadius:12, border:'1px solid var(--pa-line)',
-                fontFamily:'var(--pa-body)', fontSize:14, color:'var(--pa-ink)', resize:'vertical', outline:'none', background:'#fff' }} />
+                fontFamily:'var(--pa-body)', fontSize:16, color:'var(--pa-ink)', resize:'vertical', outline:'none', background:'#fff' }} />
             <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
               <label style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'9px 14px', borderRadius:12,
                 border:'1px dashed var(--pa-line)', background:'#fff', cursor:'pointer',
@@ -9827,9 +9894,9 @@ function AdminAnnounceModal({ open, onClose, me }) {
     <PAModal open={open} onClose={onClose} title="Anúncios" maxWidth={500}>
       <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
         <textarea value={text} onChange={(e) => setText(e.target.value)} rows={3} maxLength={600}
-          placeholder="Escreve o anúncio... (ex: A votação fecha hoje às 22h!)"
+          placeholder="Escreve o anúncio"
           style={{ width:'100%', boxSizing:'border-box', resize:'vertical', padding:'11px 13px', borderRadius:12,
-            border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:14, background:'#fff', color:'var(--pa-ink)' }} />
+            border:'1px solid var(--pa-line)', fontFamily:'var(--pa-body)', fontSize:16, background:'#fff', color:'var(--pa-ink)' }} />
         <div>
           <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:6 }}>Para quem</div>
           <select value={target} onChange={(e) => setTarget(e.target.value)}
@@ -10047,8 +10114,8 @@ function EditionEditor({ open, onClose, edition, me, proposeMode = false }) {
             Tens uma ideia? Propõe a aventura — fica a aguardar aprovação do admin e, se for aprovada, arranca como edição a sério.
           </div>
         )}
-        <Field label="Nome da aventura" value={title} onChange={setTitle} placeholder="Fim de semana na serra, Roadtrip pelo Alentejo..." />
-        <Field label="Descrição (opcional)" value={subtitle} onChange={setSubtitle} placeholder="Algures no mundo." />
+        <Field label="Nome da aventura" value={title} onChange={setTitle} placeholder="" />
+        <Field label="Descrição (opcional)" value={subtitle} onChange={setSubtitle} placeholder="" />
         {!isNew && !proposeMode && (
           <Field label="Número da edição" value={number} onChange={setNumber} placeholder="1" />
         )}

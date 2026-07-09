@@ -109,8 +109,12 @@
   70% { transform: scale(1.08); opacity: 1; }
   100% { transform: scale(1); opacity: 1; }
 }
-.pa-pin { animation: pa-pin-pop 0.28s ease-out both; transform-origin: bottom center; }
-.pa-dot { animation: pa-pin-pop 0.28s ease-out both; transform-origin: center; }
+/* IMPORTANTE: o Leaflet posiciona o marcador com transform:translate3d na raiz.
+   Animar `transform` na raiz apaga a posição (pino ia parar ao canto do mapa).
+   Por isso animamos SEMPRE um invólucro interior. */
+.pa-pin-inner { animation: pa-pin-pop 0.28s ease-out both; transform-origin: bottom center; }
+.pa-dot-inner { animation: pa-pin-pop 0.28s ease-out both; transform-origin: center; }
+@media (prefers-reduced-motion: reduce) { .pa-pin-inner, .pa-dot-inner { animation: none; } }
 </style>
 </head>
 <body>
@@ -241,7 +245,7 @@ window.PA_DATA = {
   phase3: { deadline: null, votedBy: [], pendingBy: [], results: {}, winnerId: null },
   phase4: {
     deadline: null, perPersonLimit: null, locationName: '',
-    types: ['Casa', 'Apartamento', 'Glamping', 'Hostel', 'Hotel', 'Outro'],
+    types: ['Casa', 'Apartamento', 'Camping', 'Hostel', 'Hotel', 'Outro'],
     suggestions: [], submittedBy: {},
   },
   phase5: { deadline: null, votedBy: [], pendingBy: [], results: {}, winnerId: null },
@@ -3738,7 +3742,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r49';
+window.PA_VERSION = '2026.06.01-r51';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -5105,7 +5109,7 @@ function LoginScreen({
     }
   }, /*#__PURE__*/React.createElement(Field, {
     label: "O teu nome",
-    placeholder: "Rita / Tiago / ...",
+    placeholder: "O teu nome",
     value: name,
     onChange: setName
   }), /*#__PURE__*/React.createElement(AuthPasswordField, {
@@ -5277,7 +5281,7 @@ function RegisterScreen({
     }
   }), /*#__PURE__*/React.createElement(Field, {
     label: "Como te chamas",
-    placeholder: "Tiago, Matilde, ...",
+    placeholder: "O teu nome",
     value: name,
     onChange: setName
   }), /*#__PURE__*/React.createElement(AuthPasswordField, {
@@ -5675,7 +5679,7 @@ function ChatPanel({
     value: text,
     onChange: e => setText(e.target.value),
     onKeyDown: onKey,
-    placeholder: "Escreve algo...",
+    placeholder: "Mensagem",
     maxLength: 500,
     rows: 1,
     style: {
@@ -7153,7 +7157,7 @@ function TieMethodPublic({
     },
     joao: {
       choice: tied[1].id,
-      comment: 'Glamping é uma vibe completamente diferente.'
+      comment: 'Camping é uma vibe completamente diferente.'
     }
   });
   const [myPick, setMyPick] = tbUseState(null);
@@ -7227,7 +7231,7 @@ function TieMethodPublic({
   })), /*#__PURE__*/React.createElement("textarea", {
     value: myComment,
     onChange: e => setMyComment(e.target.value),
-    placeholder: "Em duas linhas, porquê este?",
+    placeholder: "Escreve o anúncio",
     rows: 2,
     style: {
       width: '100%',
@@ -8786,7 +8790,8 @@ function LocSuggestionForm({
   const [tag, setTag] = dUseState('');
   const [tags, setTags] = dUseState([]);
   const [geo, setGeo] = dUseState(null); // escolhido no mapa (picker), nunca adivinhado
-  const ok = name.trim() && city.trim();
+  const ok = !!name.trim(); // só o nome é obrigatório; o resto é opcional
+
   const addTag = () => {
     const t = tag.trim();
     if (t && !tags.includes(t)) setTags([...tags, t]);
@@ -8833,12 +8838,12 @@ function LocSuggestionForm({
     }
   }, /*#__PURE__*/React.createElement(Field, {
     label: "Nome do sítio",
-    placeholder: "Ilhas Cíes, Comporta...",
+    placeholder: "",
     value: name,
     onChange: setName
   }), /*#__PURE__*/React.createElement(Field, {
-    label: "Cidade / país",
-    placeholder: "Vigo, ES",
+    label: "Cidade / país (opcional)",
+    placeholder: "",
     value: city,
     onChange: setCity
   })), /*#__PURE__*/React.createElement("div", {
@@ -8896,7 +8901,7 @@ function LocSuggestionForm({
         addTag();
       }
     },
-    placeholder: "Praia, Cidade, Glamping...",
+    placeholder: "Adicionar etiqueta",
     style: {
       flex: 1,
       padding: '8px 12px',
@@ -8933,7 +8938,7 @@ function LocSuggestionForm({
     }
   }, "Localização no mapa (opcional)"), /*#__PURE__*/React.createElement(LocationPicker, {
     onChange: setGeo,
-    placeholder: "Procura o sítio exato…"
+    placeholder: "Procurar no mapa"
   })), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
@@ -9167,7 +9172,8 @@ function DPhase3({
         marginTop: 2
       }
     }, s.city), /*#__PURE__*/React.createElement(MapLink, {
-      query: [s.name, s.city].filter(Boolean).join(', '),
+      targetId: s.id,
+      hasGeo: !!s.geo,
       style: {
         marginTop: 4,
         display: 'inline-block'
@@ -9681,7 +9687,7 @@ function AccommodationForm({
     }
   }, t)))), /*#__PURE__*/React.createElement(Field, {
     label: "€ por noite",
-    placeholder: "65",
+    placeholder: "",
     prefix: "€",
     value: price,
     onChange: setPrice
@@ -9690,8 +9696,8 @@ function AccommodationForm({
       marginBottom: 10
     }
   }, /*#__PURE__*/React.createElement(Field, {
-    label: "Zona / bairro",
-    placeholder: "Centro histórico, praia...",
+    label: "Morada",
+    placeholder: "",
     value: area,
     onChange: setArea
   })), /*#__PURE__*/React.createElement("div", {
@@ -9700,7 +9706,7 @@ function AccommodationForm({
     }
   }, /*#__PURE__*/React.createElement(Field, {
     label: "Link",
-    placeholder: "https://airbnb.com/...",
+    placeholder: "",
     value: link,
     onChange: setLink,
     prefix: "🔗"
@@ -9711,7 +9717,7 @@ function AccommodationForm({
   }, /*#__PURE__*/React.createElement(Field, {
     label: "Comentário",
     textarea: true,
-    placeholder: "O que tem de especial? Já lá foste?",
+    placeholder: "",
     value: note,
     onChange: setNote
   })), /*#__PURE__*/React.createElement("div", {
@@ -9729,7 +9735,7 @@ function AccommodationForm({
     }
   }, "Localização no mapa (opcional)"), /*#__PURE__*/React.createElement(LocationPicker, {
     onChange: setAccGeo,
-    placeholder: "Procura a casa/zona exata…"
+    placeholder: "Procurar no mapa"
   })), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
@@ -9993,7 +9999,8 @@ function DPhase5({
         color: 'var(--pa-muted)'
       }
     }, s.area), /*#__PURE__*/React.createElement(MapLink, {
-      query: s.area,
+      targetId: s.id,
+      hasGeo: !!s.geo,
       style: {
         marginLeft: 8
       }
@@ -11048,7 +11055,7 @@ function PlanBagagem({
     onKeyDown: e => {
       if (e.key === 'Enter') add();
     },
-    placeholder: "Coluna de som, jogos, protetor solar…",
+    placeholder: "Adicionar item",
     maxLength: 60,
     style: {
       flex: 1,
@@ -11675,7 +11682,7 @@ function PlanCustos({
       padding: 0
     }
   }, "×")), /*#__PURE__*/React.createElement(Field, {
-    placeholder: "Ex: Combustível, Supermercado, Airbnb...",
+    placeholder: "Descrição",
     value: desc,
     onChange: setDesc
   }), /*#__PURE__*/React.createElement(Field, {
@@ -12174,7 +12181,7 @@ function PlanItinerario({
     onChange: setTime,
     prefix: "🕐"
   })), /*#__PURE__*/React.createElement(Field, {
-    placeholder: "O que fazer? (Ex: Miradouro da Senhora do Monte)",
+    placeholder: "O que fazer",
     value: what,
     onChange: setWhat
   }), /*#__PURE__*/React.createElement(Btn, {
@@ -12326,7 +12333,7 @@ function PlanAtividades({
         add();
       }
     },
-    placeholder: "Surf ao pôr do sol, restaurante X...",
+    placeholder: "Adicionar atividade",
     maxLength: 100,
     style: {
       flex: 1,
@@ -12347,7 +12354,7 @@ function PlanAtividades({
     key: actPickerKey,
     compact: true,
     onChange: setActGeo,
-    placeholder: "Onde? (opcional — aparece no mapa da viagem)"
+    placeholder: "Onde (opcional)"
   })), /*#__PURE__*/React.createElement(Btn, {
     variant: "accent",
     onClick: add,
@@ -12560,7 +12567,7 @@ function PlanCompras({
         add();
       }
     },
-    placeholder: "Protetor solar...",
+    placeholder: "Adicionar item",
     maxLength: 100,
     style: {
       flex: 1,
@@ -13762,7 +13769,8 @@ function MPhase2({
       marginTop: 2
     }
   }, s.city), /*#__PURE__*/React.createElement(MapLink, {
-    query: [s.name, s.city].filter(Boolean).join(', '),
+    targetId: s.id,
+    hasGeo: !!s.geo,
     style: {
       marginTop: 4,
       display: 'inline-block'
@@ -14110,7 +14118,8 @@ function MPhase3({
         marginTop: 2
       }
     }, s.city), /*#__PURE__*/React.createElement(MapLink, {
-      query: [s.name, s.city].filter(Boolean).join(', '),
+      targetId: s.id,
+      hasGeo: !!s.geo,
       style: {
         marginTop: 4,
         display: 'inline-block'
@@ -14315,7 +14324,8 @@ function MPhase4({
         color: 'var(--pa-muted)'
       }
     }, s.area), /*#__PURE__*/React.createElement(MapLink, {
-      query: s.area,
+      targetId: s.id,
+      hasGeo: !!s.geo,
       style: {
         marginLeft: 8
       }
@@ -14409,7 +14419,7 @@ function MPhase4({
   }, /*#__PURE__*/React.createElement("input", {
     value: area,
     onChange: e => setArea(e.target.value),
-    placeholder: "Zona / bairro",
+    placeholder: "Morada",
     style: {
       width: '100%',
       padding: '10px 12px',
@@ -15695,7 +15705,8 @@ function phaseComplete(phase, appData) {
     // Se admin já desempatou, completo
     if (appData.locWinner) return true;
     // Se há empate por PONTOS (sem vencedor escolhido), NÃO completa
-    const tally = paVoteTally(votes, appData.locSuggs || [], null);
+    // Só votos de quem ESTÁ na aventura contam para o empate (removidos fora).
+    const tally = paVoteTally(votes, appData.locSuggs || [], inIds);
     const sorted = Object.values(tally).sort((a, b) => b - a);
     if (sorted.length < 2) return true;
     return !(sorted[0] === sorted[1]);
@@ -15713,7 +15724,7 @@ function phaseComplete(phase, appData) {
     const allVoted = inIds.every(id => paVoteList(votes[id]).length > 0);
     if (!allVoted) return false;
     if (appData.accWinner) return true;
-    const tally = paVoteTally(votes, appData.accSuggs || [], null);
+    const tally = paVoteTally(votes, appData.accSuggs || [], inIds);
     const sorted = Object.values(tally).sort((a, b) => b - a);
     if (sorted.length < 2) return true;
     return !(sorted[0] === sorted[1]);
@@ -16367,10 +16378,6 @@ async function paGeocode(query) {
     return null;
   }
 }
-function paMapsUrl(q) {
-  return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q || '');
-}
-
 // Estética dos mapas: CARTO Voyager — tons quentes e limpos que assentam na
 // paleta da app; gratuito, sem chave, com suporte retina ({r}).
 function paTileLayer(L) {
@@ -16402,7 +16409,8 @@ function paPinIcon(L, color = '#d97757') {
   </svg>`;
   return L.divIcon({
     className: 'pa-pin',
-    html: `<div style="filter: drop-shadow(0 3px 5px rgba(31,26,20,0.35));">${svg}</div>`,
+    // sem animação aqui: a raiz é posicionada pelo Leaflet
+    html: `<div class="pa-pin-inner" style="filter: drop-shadow(0 3px 5px rgba(31,26,20,0.35));">${svg}</div>`,
     iconSize: [30, 40],
     iconAnchor: [15, 38],
     popupAnchor: [0, -34]
@@ -16412,7 +16420,7 @@ function paPinIcon(L, color = '#d97757') {
 function paDotIcon(L, color, emoji) {
   return L.divIcon({
     className: 'pa-dot',
-    html: `<div style="width:32px;height:32px;border-radius:32px;background:${color};border:2.5px solid #fff;
+    html: `<div class="pa-dot-inner" style="width:32px;height:32px;border-radius:32px;background:${color};border:2.5px solid #fff;
       box-shadow:0 3px 8px rgba(31,26,20,0.3);display:flex;align-items:center;justify-content:center;
       font-size:15px;line-height:1;">${emoji}</div>`,
     iconSize: [32, 32],
@@ -16427,18 +16435,30 @@ Object.assign(window, {
   paDotIcon
 });
 
-// Link discreto "ver no mapa" para qualquer sugestão (Google Maps, custo zero).
+// "Ver no mapa" = focar o mapa INTEGRADO da app (nunca sair para o Google).
+// Dispara um evento que os mapas montados ouvem; sem localização, não aparece.
+function paFocusMap(id) {
+  window.dispatchEvent(new CustomEvent('pa-map-focus', {
+    detail: {
+      id
+    }
+  }));
+}
 function MapLink({
-  query,
+  targetId,
+  hasGeo,
   style
 }) {
-  if (!query) return null;
-  return React.createElement('a', {
-    href: paMapsUrl(query),
-    target: '_blank',
-    rel: 'noopener noreferrer',
-    onClick: e => e.stopPropagation(),
+  if (!targetId || !hasGeo) return null;
+  return React.createElement('button', {
+    onClick: e => {
+      e.stopPropagation();
+      paFocusMap(targetId);
+    },
     style: Object.assign({
+      border: 'none',
+      background: 'transparent',
+      padding: 0,
       fontFamily: 'var(--pa-body)',
       fontSize: 11.5,
       color: 'var(--pa-muted)',
@@ -16471,8 +16491,12 @@ function LocMap({
       const by = membersById ? membersById(s.by) : null;
       const label = `<b>${(s.name || s.area || '').replace(/</g, '&lt;')}</b>` + (s.city ? `<br/>${String(s.city).replace(/</g, '&lt;')}` : '') + (by ? `<br/><span style="opacity:0.7">sugerido por ${String(by.name).replace(/</g, '&lt;')}</span>` : '');
       // Regiões (Alentejo, Comporta…) aparecem como ZONA sombreada; sítios exatos como pino.
+      const title = (s.name || s.area || 'sugestão') + (s.zone ? ' (zona)' : '');
       const layer = s.zone ? paZoneLayer(L, s.zone) : L.marker([s.geo.lat, s.geo.lng], {
-        icon: paPinIcon(L)
+        icon: paPinIcon(L),
+        title,
+        alt: title,
+        keyboard: true
       });
       return layer.addTo(map).bindPopup(label);
     });
@@ -16484,14 +16508,49 @@ function LocMap({
     } catch (e) {
       map.setView([withGeo[0].geo.lat, withGeo[0].geo.lng], 9);
     }
-    return () => {
+    // "Ver no mapa" nos cartões: aproxima e abre o popup do alvo.
+    const byId = {};
+    withGeo.forEach((s, i) => {
+      byId[s.id] = layers[i];
+    });
+    const onFocus = ev => {
+      const layer = byId[ev.detail && ev.detail.id];
+      if (!layer) return;
+      const target = ref.current && ref.current.closest ? ref.current.closest('.pa-map') : null;
+      if (target && target.scrollIntoView) target.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest'
+      });
       try {
+        if (layer.getBounds) map.flyToBounds(layer.getBounds().pad(0.12), {
+          duration: 0.6
+        });else map.flyTo(layer.getLatLng(), 13, {
+          duration: 0.6
+        });
+      } catch (e) {}
+      setTimeout(() => {
+        try {
+          layer.openPopup();
+        } catch (e) {}
+      }, 650);
+    };
+    window.addEventListener('pa-map-focus', onFocus);
+
+    // Container pode mudar de tamanho (tab, rotação, teclado): reavaliar.
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => map.invalidateSize()) : null;
+    if (ro && ref.current) ro.observe(ref.current);
+    setTimeout(() => map.invalidateSize(), 60); // primeiro paint dentro de tabs
+    return () => {
+      window.removeEventListener('pa-map-focus', onFocus);
+      try {
+        if (ro) ro.disconnect();
         map.remove();
       } catch (e) {}
       mapRef.current = null;
     };
   }, [withGeo.map(s => s.id + ':' + s.geo.lat + (s.zone ? 'z' : '')).join(',')]);
   if (withGeo.length === 0) return null;
+  if (!window.L) return null; // sem Leaflet (rede/bloqueador): a app segue sem mapa
   return React.createElement('div', {
     className: 'pa-map',
     style: {
@@ -16538,6 +16597,16 @@ function LocationPicker({
   const debRef = React.useRef(null);
   const ctlRef = React.useRef(null);
   const shortLabel = dn => String(dn || '').split(',').slice(0, 3).join(',');
+
+  // Ao desmontar: cancela o debounce e o pedido em voo (sem setState em morto).
+  React.useEffect(() => () => {
+    if (debRef.current) clearTimeout(debRef.current);
+    if (ctlRef.current) {
+      try {
+        ctlRef.current.abort();
+      } catch (e) {}
+    }
+  }, []);
 
   // Autocomplete com debounce + cancelamento
   const onType = v => {
@@ -16647,8 +16716,12 @@ function LocationPicker({
         move(e.latlng.lat, e.latlng.lng);
       });
     }
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => map.invalidateSize()) : null;
+    if (ro && mapEl.current) ro.observe(mapEl.current);
+    setTimeout(() => map.invalidateSize(), 60);
     return () => {
       try {
+        if (ro) ro.disconnect();
         map.remove();
       } catch (e) {}
     };
@@ -16667,7 +16740,7 @@ function LocationPicker({
   }, /*#__PURE__*/React.createElement("input", {
     value: query,
     onChange: e => onType(e.target.value),
-    placeholder: '📍 ' + placeholder,
+    placeholder: placeholder,
     maxLength: 80,
     style: {
       width: '100%',
@@ -16740,7 +16813,7 @@ function LocationPicker({
   }, /*#__PURE__*/React.createElement("div", {
     ref: mapEl,
     style: {
-      height: compact ? 150 : 180,
+      height: window.L ? compact ? 150 : 180 : 0,
       width: '100%',
       background: '#eee9df'
     }
@@ -16843,6 +16916,7 @@ function TripMap({
       scrollWheelZoom: false
     });
     paTileLayer(L).addTo(map);
+    let msRef = [];
     if (pins.length === 0) {
       // Sem pontos ainda: o mapa aparece na mesma, centrado em Portugal.
       map.setView([39.6, -8.0], 6);
@@ -16856,7 +16930,10 @@ function TripMap({
           atividade: '🎯'
         }[p.kind] || '📍';
         const layer = p.zone ? paZoneLayer(L, p.zone) : L.marker([p.geo.lat, p.geo.lng], {
-          icon: paDotIcon(L, p.color, emoji)
+          icon: paDotIcon(L, p.color, emoji),
+          title: p.name,
+          alt: `${p.kind}: ${p.name}`,
+          keyboard: true
         });
         return layer.addTo(map).bindPopup(popup);
       });
@@ -16867,9 +16944,36 @@ function TripMap({
       } catch (e) {
         map.setView([pins[0].geo.lat, pins[0].geo.lng], 10);
       }
+      msRef = ms;
     }
-    return () => {
+    const byId = {};
+    if (pins.length) pins.forEach((p, i) => {
+      byId[p.id] = msRef[i];
+    });
+    const onFocus = ev => {
+      const layer = byId[ev.detail && ev.detail.id];
+      if (!layer) return;
       try {
+        if (layer.getBounds) map.flyToBounds(layer.getBounds().pad(0.12), {
+          duration: 0.6
+        });else map.flyTo(layer.getLatLng(), 14, {
+          duration: 0.6
+        });
+      } catch (e) {}
+      setTimeout(() => {
+        try {
+          layer.openPopup();
+        } catch (e) {}
+      }, 650);
+    };
+    window.addEventListener('pa-map-focus', onFocus);
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => map.invalidateSize()) : null;
+    if (ro && ref.current) ro.observe(ref.current);
+    setTimeout(() => map.invalidateSize(), 60); // o tab "Mapa" só existe ao ser aberto
+    return () => {
+      window.removeEventListener('pa-map-focus', onFocus);
+      try {
+        if (ro) ro.disconnect();
         map.remove();
       } catch (e) {}
     };
@@ -16918,10 +17022,19 @@ function TripMap({
       overflow: 'hidden',
       border: '1px solid var(--pa-line)'
     }
-  }, /*#__PURE__*/React.createElement("div", {
+  }, !window.L && /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: '22px 16px',
+      textAlign: 'center',
+      fontFamily: 'var(--pa-body)',
+      fontSize: 12.5,
+      color: 'var(--pa-muted)',
+      background: '#fff'
+    }
+  }, "Não consegui carregar o mapa (rede ou bloqueador). Os pontos continuam guardados — recarrega a página para tentar de novo."), /*#__PURE__*/React.createElement("div", {
     ref: ref,
     style: {
-      height: 260,
+      height: window.L ? 260 : 0,
       width: '100%',
       background: '#eee9df'
     }
@@ -16945,7 +17058,7 @@ function TripMap({
   }, /*#__PURE__*/React.createElement("input", {
     value: name,
     onChange: e => setName(e.target.value),
-    placeholder: "Nome do ponto: praia, restaurante, miradouro…",
+    placeholder: "Nome do ponto",
     maxLength: 60,
     style: {
       width: '100%',
@@ -16963,7 +17076,7 @@ function TripMap({
     key: pickerKey,
     compact: true,
     onChange: setPoiGeo,
-    placeholder: "Procura e confirma o pino no mapa"
+    placeholder: "Procurar no mapa"
   }), /*#__PURE__*/React.createElement(Btn, {
     variant: "accent",
     size: "sm",
@@ -17008,7 +17121,8 @@ function TripMap({
         textOverflow: 'ellipsis'
       }
     }, p.name), /*#__PURE__*/React.createElement(MapLink, {
-      query: p.name
+      targetId: p.id,
+      hasGeo: !!p.geo
     }), canRemove && /*#__PURE__*/React.createElement("button", {
       onClick: () => removePoi(p),
       "aria-label": 'Tirar ' + p.name,
@@ -17025,7 +17139,7 @@ function TripMap({
 }
 Object.assign(window, {
   paGeocode,
-  paMapsUrl,
+  paFocusMap,
   MapLink,
   LocMap,
   TripMap
@@ -18080,7 +18194,7 @@ function BugReportModal({
     onChange: e => setDesc(e.target.value),
     rows: 4,
     maxLength: 800,
-    placeholder: "Ex: Na fase 2, no Chrome do meu Android, os dias do calendário saem do sítio...",
+    placeholder: "O que aconteceu, e onde",
     style: {
       width: '100%',
       boxSizing: 'border-box',
@@ -18901,12 +19015,12 @@ function EditionEditor({
     label: "Nome da aventura",
     value: title,
     onChange: setTitle,
-    placeholder: "Fim de semana na serra, Roadtrip pelo Alentejo..."
+    placeholder: ""
   }), /*#__PURE__*/React.createElement(Field, {
     label: "Descrição (opcional)",
     value: subtitle,
     onChange: setSubtitle,
-    placeholder: "Algures no mundo."
+    placeholder: ""
   }), !isNew && !proposeMode && /*#__PURE__*/React.createElement(Field, {
     label: "Número da edição",
     value: number,
