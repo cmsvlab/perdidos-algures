@@ -2906,7 +2906,7 @@ function Btn({ children, onClick, variant = 'primary', size = 'md', icon, style 
   );
 }
 
-function Field({ label, placeholder, value, onChange, textarea, prefix, maxLength }) {
+function Field({ label, placeholder, value, onChange, textarea, prefix, maxLength, type }) {
   const Tag = textarea ? 'textarea' : 'input';
   const limit = maxLength || (textarea ? 500 : 120);
   return (
@@ -2923,6 +2923,8 @@ function Field({ label, placeholder, value, onChange, textarea, prefix, maxLengt
       }}>
         {prefix && <span style={{ color: 'var(--pa-muted)', fontSize: 16, flexShrink: 0 }}>{prefix}</span>}
         <Tag value={value || ''} onChange={(e) => onChange && onChange(e.target.value)}
+          type={textarea ? undefined : (type || 'text')}
+          autoComplete={type === 'password' ? 'new-password' : undefined}
           placeholder={placeholder} rows={textarea ? 3 : undefined} maxLength={limit}
           style={{
             flex: 1, minWidth: 0, width: '100%', border: 'none', outline: 'none',
@@ -3100,7 +3102,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r60';
+window.PA_VERSION = '2026.06.01-r61';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -3285,10 +3287,29 @@ function paSetToken(t) {
   try { t ? localStorage.setItem('pa-token', t) : localStorage.removeItem('pa-token'); } catch (e) {}
 }
 // Sessão recusada pelo servidor: cai para o ecrã de entrada em vez de falhar em silêncio.
+// Password temporária: tem de se ditar ao telefone sem soletrar, escrever no
+// telemóvel sem erros, e arrancar um sorriso. Adjetivo + animal + número.
+const PA_PW_ADJ = ['gordo','fofinho','maluco','sonolento','teimoso','desastrado','preguiçoso',
+  'assanhado','birrento','trapalhão','esganado','marotinho','ranhoso','bacano','pimpão',
+  'chorão','guloso','tontinho','janota','resmungão'];
+const PA_PW_NOUN = ['bacalhau','polvo','pinguim','cabrito','javali','melro','caracol','texugo',
+  'sardinha','ouriço','burro','pardal','morcego','lagostim','peru','castor','doninha',
+  'toupeira','camelo','pato'];
+function paTempPassword() {
+  const r = (a) => a[Math.floor(Math.random() * a.length)];
+  const n = 10 + Math.floor(Math.random() * 90);
+  return `${r(PA_PW_ADJ)}-${r(PA_PW_NOUN)}-${n}`;
+}
+Object.assign(window, { paTempPassword });
+
 // Chama um RPC com o token. Se o servidor disser "sessão inválida", manda o
 // utilizador entrar de novo. Se a função não existir (migração por correr),
 // devolve {legacy:true} para o chamador usar o caminho antigo.
 async function paRpc(fn, args) {
+  // Sem token não vale a pena bater à porta: a sessão é anterior às sessões
+  // com token (ou expirou). Mandar entrar de novo é honesto; dizer "não és
+  // admin" é uma mentira que já custou uma tarde a alguém.
+  if (!paToken()) { paSessionExpired(); return { denied: true }; }
   try {
     const { data, error } = await _sb.rpc(fn, { ...args, p_token: paToken() });
     if (error) {
@@ -3402,10 +3423,21 @@ const AuthStore = {
     // 2º: auth_verify (migração intermédia). 3º: leitura direta (esquema antigo).
     // A app funciona antes e depois da migração — sem janela de app partida.
     let verified = null;
+    let mustChange = false;
     try {
-      const { data: tok, error: e1 } = await _sb.rpc('auth_login', { p_profile_id: profile.id, p_hash: hash });
-      if (!e1) { verified = !!tok; if (tok) paSetToken(tok); }
-    } catch (e) {}
+      const { data: res, error: e0 } = await _sb.rpc('auth_login2', { p_profile_id: profile.id, p_hash: hash });
+      if (!e0 && res) {
+        if (res.expired) throw new Error('A password temporária expirou. Pede outra ao admin.');
+        verified = !!res.ok;
+        if (res.ok) { paSetToken(res.token); mustChange = !!res.must_change; }
+      }
+    } catch (e) { if (/expirou/.test(e.message)) throw e; }
+    if (verified === null) {
+      try {
+        const { data: tok, error: e1 } = await _sb.rpc('auth_login', { p_profile_id: profile.id, p_hash: hash });
+        if (!e1) { verified = !!tok; if (tok) paSetToken(tok); }
+      } catch (e) {}
+    }
     if (verified === null) {
       try {
         const { data: okRpc, error: e2 } = await _sb.rpc('auth_verify', { p_profile_id: profile.id, p_hash: hash });
@@ -3421,9 +3453,39 @@ const AuthStore = {
     if (!verified) throw new Error('Password errada.');
     _sessionHash = hash; // memória apenas (caminho antigo)
     const session = _profileToSession(profile);
+    session.mustChangePassword = mustChange;
     _saveSession(session);
     await this.refreshUsers();
     return session;
+  },
+
+  // Mudar a própria password. Com password temporária, a antiga não é pedida.
+  async changePassword(oldPw, newPw) {
+    if (!newPw || newPw.length < 4) throw new Error('A password nova tem de ter pelo menos 4 caracteres.');
+    const oldHash = oldPw ? await sha256(oldPw) : '';
+    const newHash = await sha256(newPw);
+    const rp = await paRpc('password_change', { p_old_hash: oldHash, p_new_hash: newHash });
+    if (rp.denied) throw new Error('Sessão inválida.');
+    if (rp.legacy) throw new Error('Funcionalidade ainda não disponível — o admin tem de correr a migração.');
+    if (rp.error) throw new Error(rp.error);
+    if (rp.data === false) throw new Error('A password atual está errada.');
+    _sessionHash = newHash;
+    const s = _session ? { ..._session, mustChangePassword: false } : null;
+    if (s) _saveSession(s);
+    return true;
+  },
+
+  // O admin repõe a password de alguém: gera uma temporária, devolve-a para
+  // ser enviada por WhatsApp. Nunca lê a antiga (não é possível).
+  async adminResetPassword(targetId) {
+    const temp = paTempPassword();
+    const hash = await sha256(temp);
+    const rp = await paRpc('password_admin_reset', { p_target_id: targetId, p_temp_hash: hash });
+    if (rp.denied) throw new Error('Sessão inválida.');
+    if (rp.legacy) throw new Error('Funcionalidade ainda não disponível — corre a migração das passwords.');
+    if (rp.error) throw new Error(rp.error);
+    if (rp.data === false) throw new Error('Só o admin pode repor passwords.');
+    return temp;
   },
   async register({ name, password, passwordRepeat, photoDataUrl }) {
     const n = (name||'').trim();
@@ -10602,6 +10664,52 @@ function PAModal({ open, onClose, title, children, maxWidth = 460 }) {
 // ─────────────────────────────────────────────────────────────
 // Editor de Perfil — foto + nome de exibição (login fica fixo)
 // ─────────────────────────────────────────────────────────────
+// Mudar password. Em modo obrigatório (password temporária), não há como sair
+// sem escolher uma nova — e a antiga não é pedida.
+function PasswordModal({ open, onClose, auth, forced = false }) {
+  const [oldPw, setOldPw] = hUseState('');
+  const [pw1, setPw1] = hUseState('');
+  const [pw2, setPw2] = hUseState('');
+  const [busy, setBusy] = hUseState(false);
+  const [err, setErr] = hUseState(null);
+
+  hUseEffect(() => { if (open) { setOldPw(''); setPw1(''); setPw2(''); setErr(null); } }, [open]);
+
+  const save = async () => {
+    if (pw1 !== pw2) { setErr('As passwords não coincidem.'); return; }
+    setBusy(true); setErr(null);
+    try {
+      await AuthStore.changePassword(forced ? '' : oldPw, pw1);
+      if (window._paToast) window._paToast('Password alterada. As outras sessões foram terminadas.', 'success');
+      onClose();
+    } catch (e) { setErr(e.message); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <PAModal open={open} onClose={forced ? (() => {}) : onClose} title={forced ? 'Escolhe uma password nova' : 'Mudar password'} maxWidth={420}>
+      <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+        {forced && (
+          <div style={{ fontFamily:'var(--pa-body)', fontSize:13, color:'var(--pa-muted)', lineHeight:1.5 }}>
+            Entraste com uma password temporária. Escolhe uma só tua para continuar.
+          </div>
+        )}
+        {!forced && <Field label="Password atual" type="password" value={oldPw} onChange={setOldPw} placeholder="" />}
+        <Field label="Password nova" type="password" value={pw1} onChange={setPw1} placeholder="" />
+        <Field label="Repete a password nova" type="password" value={pw2} onChange={setPw2} placeholder="" />
+        {err && <AuthError msg={err} />}
+        <div style={{ display:'flex', justifyContent:'flex-end', gap:8 }}>
+          {!forced && <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>}
+          <Btn variant="accent" onClick={save} disabled={busy || pw1.length < 4 || pw2.length < 4}>
+            {busy ? 'A guardar...' : 'Guardar password'}
+          </Btn>
+        </div>
+      </div>
+    </PAModal>
+  );
+}
+Object.assign(window, { PasswordModal });
+
 function ProfileEditor({ open, onClose, auth }) {
   const me = auth.user;
   const [displayName, setDisplayName] = hUseState(me?.displayName || me?.name || '');
@@ -10650,6 +10758,12 @@ function ProfileEditor({ open, onClose, auth }) {
           padding:'10px 0 2px', borderTop:'1px solid var(--pa-line)', marginTop:4 }}>
           <span style={{ fontFamily:'var(--pa-body)', fontSize:13, color:'var(--pa-muted)' }}>Idioma / Language</span>
           <LangSwitch size="md" />
+        </div>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'2px 0 6px' }}>
+          <span style={{ fontFamily:'var(--pa-body)', fontSize:13, color:'var(--pa-muted)' }}>Password</span>
+          <Btn variant="ghost" size="sm" onClick={() => { onClose(); setTimeout(() => window.dispatchEvent(new CustomEvent('pa-change-password')), 120); }}>
+            Mudar password
+          </Btn>
         </div>
         <div style={{ display:'flex', justifyContent:'flex-end', gap:8 }}>
           <Btn variant="ghost" onClick={onClose}>Cancelar</Btn>
@@ -10914,6 +11028,14 @@ function AdminAnnounceModal({ open, onClose, me }) {
 
 // Modal do admin para gerir membros: editar estado (Dentro/Fora/A pensar) e remover da edição.
 function AdminMembersModal({ open, onClose }) {
+  const [resetInfo, setResetInfo] = hUseState(null); // { name, password }
+  const doReset = async (m) => {
+    if (!window.confirm(`Repor a password de ${m.name}?\n\nAs sessões dela terminam e vai ter de escolher uma password nova ao entrar.`)) return;
+    try {
+      const temp = await AuthStore.adminResetPassword(m.id);
+      setResetInfo({ name: m.name, password: temp });
+    } catch (e) { if (window._paToast) window._paToast(e.message, 'error'); }
+  };
   const appData = useAppStore();
   const members = (typeof getAllMembers === 'function' ? getAllMembers() : []);
   const rsvp = appData.rsvp || {};
@@ -10940,6 +11062,28 @@ function AdminMembersModal({ open, onClose }) {
   return (
     <PAModal open={open} onClose={onClose} title="Gerir membros" maxWidth={560}>
       <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+        {resetInfo && (
+          <div style={{ padding:'14px 16px', borderRadius:14, background:'#fff', border:'2px solid var(--pa-accent)' }}>
+            <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1, color:'var(--pa-accent)', textTransform:'uppercase' }}>
+              Password temporária de {resetInfo.name}
+            </div>
+            <div style={{ fontFamily:'var(--pa-mono)', fontSize:20, fontWeight:700, color:'var(--pa-ink)', margin:'8px 0', letterSpacing:0.5, wordBreak:'break-all' }}>
+              {resetInfo.password}
+            </div>
+            <div style={{ fontFamily:'var(--pa-body)', fontSize:12, color:'var(--pa-muted)', lineHeight:1.5 }}>
+              Envia-lha agora — só a vês uma vez. Válida 24 horas; ao entrar, ela escolhe uma nova.
+            </div>
+            <div style={{ display:'flex', gap:8, marginTop:10, flexWrap:'wrap' }}>
+              <Btn variant="accent" size="sm" onClick={async () => {
+                const txt = `A tua password temporária da Perdidos Algures: ${resetInfo.password}\n(válida 24h — ao entrar escolhes uma nova)`;
+                if (navigator.share) { try { await navigator.share({ text: txt }); return; } catch (e) {} }
+                try { await navigator.clipboard.writeText(txt); if (window._paToast) window._paToast('Copiado — cola no WhatsApp!', 'success'); } catch (e) {}
+              }}>📨 Enviar</Btn>
+              <Btn variant="ghost" size="sm" onClick={() => setResetInfo(null)}>Já enviei</Btn>
+            </div>
+          </div>
+        )}
+
         <div style={{ fontFamily:'var(--pa-body)', fontSize:13, color:'var(--pa-muted)' }}>
           Adiciona ou remove pessoas em qualquer fase — a temporada ajusta-se sozinha (quórum, votos e contagens recalculam). O perfil global nunca é apagado.
         </div>
@@ -10960,6 +11104,13 @@ function AdminMembersModal({ open, onClose }) {
                       {(STATES.find((s) => s.k === cur) || {}).label || cur}
                     </div>
                   </div>
+                  {!m.isAdmin && (
+                    <button onClick={() => doReset(m)} title={'Repor a password de ' + m.name}
+                      style={{ border:'1px solid var(--pa-line)', background:'#fff', borderRadius:999,
+                        padding:'5px 10px', cursor:'pointer', fontFamily:'var(--pa-body)', fontSize:11.5, color:'var(--pa-muted)' }}>
+                      🔑 Repor password
+                    </button>
+                  )}
                   <div style={{ display:'flex', gap:4, alignItems:'center' }}>
                     {STATES.map((s) => (
                       <button key={s.k} onClick={() => setState(m.id, s.k)} style={{
@@ -11433,6 +11584,7 @@ function EditionHub({ auth, onEnterEdition, narrow }) {
       <BugReportModal open={bugOpen} onClose={() => setBugOpen(false)} me={me} isAdmin={isAdmin} />
 
       <ProfileEditor open={profileOpen} onClose={()=>setProfileOpen(false)} auth={auth} />
+      <PasswordModal open={pwOpen} onClose={()=>setPwOpen(false)} auth={auth} forced={pwForced} />
       <EditionEditor open={editorOpen} onClose={()=>setEditorOpen(false)} edition={editingEdition} me={me} proposeMode={!isAdmin} />
     </div>
   );
@@ -11514,6 +11666,18 @@ function LiveApp() {
   const [inEdition, setInEdition] = lUseState(() => !!EditionStore.activeId() && !!EditionStore.active());
   const [profileOpen, setProfileOpen] = lUseState(false);
   const [showOnboarding, setShowOnboarding] = lUseState(false);
+
+  // Password temporária → obriga a escolher uma nova antes de continuar.
+  const [pwOpen, setPwOpen] = lUseState(false);
+  const [pwForced, setPwForced] = lUseState(false);
+  lUseEffect(() => {
+    if (auth.user && auth.user.mustChangePassword) { setPwForced(true); setPwOpen(true); }
+  }, [auth.user?.id, auth.user?.mustChangePassword]);
+  lUseEffect(() => {
+    const h = () => { setPwForced(false); setPwOpen(true); };
+    window.addEventListener('pa-change-password', h);
+    return () => window.removeEventListener('pa-change-password', h);
+  }, []);
 
   // Presença online: anuncia-se quando há sessão; sai no logout/fecho.
   lUseEffect(() => {
