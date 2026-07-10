@@ -141,12 +141,587 @@
 <script src="https://unpkg.com/react@18.3.1/umd/react.production.min.js" crossorigin="anonymous"></script>
 <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
 
+<script>
+// ═════════════════════════════════════════════════════════════════════════
+// i18n — tradução por INTERCEÇÃO, num único ponto.
+//
+// Todo o texto da app passa por três funis: React.createElement (children e
+// props de texto), os avisos do browser (confirm/prompt/alert) e os toasts.
+// Traduzir aí apanha os ~400 textos sem tocar em nenhum sítio do código.
+//
+// Consequência importante e desejada: nomes de pessoas, títulos de aventuras
+// e sugestões do grupo NÃO estão no dicionário, logo nunca são traduzidos.
+// A base de dados continua em português; só a interface muda.
+// ═════════════════════════════════════════════════════════════════════════
+// ═══ Dicionário PT→EN (gerado; chaves = strings exatas do código) ═══
+const PA_EN = {
+  " (afinado à mão)": " (adjusted by hand)",
+  " (cópia)": " (copy)",
+  " (fica sombreada no mapa)": " (shaded on the map)",
+  " Enviar anúncio": " Post announcement",
+  " Reiniciar esta fase": " Restart this phase",
+  " avaliações": " ratings",
+  " de ": " of ",
+  " de 8": " of 8",
+  " dias": " days",
+  " opções": " options",
+  " pessoas": " people",
+  " pontos, a última vale 1.": " points, the last is worth 1.",
+  " prontos": " ready",
+  " sítios.": " spots.",
+  " — arrasta o pino ou toca no mapa para afinar": " — drag the pin or tap the map to fine-tune",
+  " — tudo atribuído ✓": " — all assigned ✓",
+  "+ Adicionar": "+ Add",
+  "+ Lançar alojamento": "+ Post stay",
+  ". Clica noutro dia para um intervalo, ou tranca já só esse dia.": ". Click another day for a range, or lock just that day.",
+  ". Entra com a tua conta para votar, sugerir e planear.": ". Sign in to vote, suggest and plan.",
+  "1 voto": "1 vote",
+  "A app para o teu grupo decidir uma viagem em conjunto — sem confusão no chat de sempre.": "The app for your group to decide on a trip together — without the usual chat chaos.",
+  "A criar...": "Creating...",
+  "A entrar...": "Signing in...",
+  "A enviar...": "Sending...",
+  "A guardar...": "Saving...",
+  "A imagem ficou demasiado pesada mesmo comprimida — tenta um recorte mais pequeno.": "The image is still too heavy even compressed — try a smaller crop.",
+  "A lista está vazia. Começa pelas coisas do grupo — coluna de som, jogos, kit de primeiros socorros…": "The list is empty. Start with group gear — speaker, games, first-aid kit…",
+  "A malta está empatada.": "The group is tied.",
+  "A tripulação": "The crew",
+  "A tua avaliação (1–5 ★ por opção)": "Your rating (1–5 ★ per option)",
+  "A tua disponibilidade": "Your availability",
+  "A tua ordem — arrasta para reordenar": "Your order — drag to reorder",
+  "A tua resposta": "Your answer",
+  "Abril": "April",
+  "Acertar contas": "Settle up",
+  "Adiciona o alojamento, combustível, jantares... e a app divide tudo e diz quem paga a quem.": "Add the stay, fuel, dinners... and the app splits it all and tells you who owes whom.",
+  "Adiciona ou remove pessoas em qualquer fase — a temporada ajusta-se sozinha (quórum, votos e contagens recalculam). O perfil global nunca é apagado.": "Add or remove people at any phase — the adventure adjusts itself (quorum, votes and counts recalculate). The global profile is never deleted.",
+  "Adicionar": "Add",
+  "Adicionar atividade": "Add activity",
+  "Adicionar despesa": "Add expense",
+  "Adicionar etiqueta": "Add tag",
+  "Adicionar item": "Add item",
+  "Adicionar à temporada (": "Add to this adventure (",
+  "Admin está": "The admin is",
+  "Admin está a escolher.": "The admin is choosing.",
+  "Agosto": "August",
+  "Aguarda que o ": "Wait for the ",
+  "Ainda empatado": "Still tied",
+  "Ainda ninguém sugeriu nada. Vai lá! 🗺️": "Nobody has suggested anything yet. Go on! 🗺️",
+  "Ainda ninguém. Adiciona pessoas abaixo.": "Nobody yet. Add people below.",
+  "Ainda não há": "There's no",
+  "Ainda não há alojamentos para votar. Volta à fase anterior.": "No stays to vote on yet. Go back to the previous phase.",
+  "Ainda não há datas trancadas.": "No dates locked yet.",
+  "Ainda não há destinos para votar. Volta à fase anterior.": "No destinations to vote on yet. Go back to the previous phase.",
+  "Ainda não há edições ativas. Aguarda o admin.": "No active adventures yet. Wait for the admin.",
+  "Ainda não há edições. Cria a primeira!": "No adventures yet. Create the first one!",
+  "Ainda não tens conta? ": "Don't have an account yet? ",
+  "Ainda sem alojamentos. Sê o primeiro! 🏡": "No stays yet. Be the first! 🏡",
+  "Ainda sem despesas": "No expenses yet",
+  "Ainda sem mensagens": "No messages yet",
+  "Algures entre o sol e o vinho. Entra com a tua conta para votar, sugerir e planear.": "Somewhere between the sun and the wine. Sign in to vote, suggest and plan.",
+  "Alguém": "Someone",
+  "Alojamento ainda não decidido.": "Stay not decided yet.",
+  "Anónimo": "Anonymous",
+  "Anúncio": "Announcement",
+  "Anúncio enviado!": "Announcement posted!",
+  "Anúncios": "Announcements",
+  "Anúncios ativos (": "Active announcements (",
+  "Apagar (liberta espaço na BD)": "Delete (frees database space)",
+  "Apagar esta despesa?": "Delete this expense?",
+  "Apagar mensagem": "Delete message",
+  "Apagar report": "Delete report",
+  "Até 3 por ordem (3/2/1 pontos), secreto até fechar.": "Up to 3 in order (3/2/1 points), secret until it closes.",
+  "Avançar": "Next",
+  "Avançar fase →": "Next phase →",
+  "Avançar →": "Next →",
+  "Aventura atualizada!": "Adventure updated!",
+  "Aventura criada!": "Adventure created!",
+  "Ações do admin": "Admin actions",
+  "Bouzas tem o melhor jantar pós-praia.": "Bouzas has the best post-beach dinner.",
+  "Cada método decide de forma diferente. Os métodos marcados \"Grupo\" envolvem toda a malta.": "Each method decides differently. Methods marked \"Group\" involve everyone.",
+  "Cada um classifica · 1º = mais pontos · ganha o que somar mais": "Everyone ranks · 1st = most points · highest total wins",
+  "Cada um lança": "Everyone posts",
+  "Cada um ordena as empatadas do favorito ao menos favorito. Pontos somados — é o método mais justo para grupos.": "Everyone ranks the tied options from favourite to least favourite. Points are added up — the fairest method for groups.",
+  "Cada um pode lançar quantos alojamentos quiser. Aprende a vender — o teu favorito merece argumentos.": "Everyone can post as many stays as they want. Sell it — your favourite deserves a good pitch.",
+  "Camping é uma vibe completamente diferente.": "Camping is a completely different vibe.",
+  "Cancelar": "Cancel",
+  "Cara ou coroa (à sorte)": "Coin flip (pure luck)",
+  "Casa com cama a sério. Noites de junho ainda são frescas para tendas.": "A house with a real bed. June nights are still chilly for tents.",
+  "Casa/zona exata no mapa (opcional)": "Exact house/area on the map (optional)",
+  "Chat do grupo": "Group chat",
+  "Cidade, País": "City, Country",
+  "Clica num dia no calendário para começar a escolher.": "Click a day on the calendar to start choosing.",
+  "Clica para lançar.": "Click to post.",
+  "Começar!": "Get started!",
+  "Confirma a password para apagar a aventura": "Confirm your password to delete the adventure",
+  "Confirma a password para apagar a mensagem": "Confirm your password to delete the message",
+  "Confirma a password para apagar o report": "Confirm your password to delete the report",
+  "Confirma a password para apagar todos os reports": "Confirm your password to delete all reports",
+  "Confirma a tua password": "Confirm your password",
+  "Conta comigo": "Count me in",
+  "Contas": "Expenses",
+  "Contas & Acesso": "Accounts & Access",
+  "Copiar também os dados (RSVP, votos, etc.)?\\n\\nOK = copiar tudo · Cancelar = só a estrutura": "Copy the data too (answers, votes, etc.)?\\n\\nOK = copy everything · Cancel = structure only",
+  "Cria a tua →": "Create yours →",
+  "Cria, gere e entra nas edições.": "Create, manage and join adventures.",
+  "Criar aventura": "Create adventure",
+  "Criar conta": "Create account",
+  "Cíes só uma vez na vida. A noite na ilha é outra coisa.": "Cíes is once in a lifetime. A night on the island is something else.",
+  "Descarrega todos os dados desta edição (JSON)": "Download all data from this adventure (JSON)",
+  "Desta vez não": "Not this time",
+  "Dezembro": "December",
+  "Dia ": "Day ",
+  "Dia já passado": "Day already passed",
+  "Dia já passado — a tua marca deixou de contar": "Day already passed — your mark no longer counts",
+  "Digo até quinta": "I'll know by Thursday",
+  "Disponibilidade limpa — marca de novo quando quiseres.": "Availability cleared — mark it again whenever you want.",
+  "Disponíveis": "Available",
+  "Editar aventura": "Edit adventure",
+  "Editar perfil": "Edit profile",
+  "Edição não encontrada.": "Adventure not found.",
+  "Edições": "Adventures",
+  "Edições anteriores": "Past adventures",
+  "Em que dias": "Which days",
+  "Encontraste algo estranho? Descreve o que aconteceu (e onde) — um screenshot ajuda imenso.": "Found something odd? Describe what happened (and where) — a screenshot helps a lot.",
+  "Entrada do site: registo com nome + foto + password. Admin é \"Miguel\" com password fixa. (Detalhes técnicos no README.md)": "Site entrance: sign up with name + photo + password. The admin is \"Miguel\" with a fixed password. (Technical details in README.md)",
+  "Entrar": "Sign in",
+  "Entrar →": "Sign in →",
+  "Enviar anúncio": "Post announcement",
+  "Enviar proposta": "Send proposal",
+  "Erro ao criar conta: ": "Error creating account: ",
+  "Erro ao criar edição: ": "Error creating adventure: ",
+  "Erro ao guardar password: ": "Error saving password: ",
+  "Erro ao guardar. Tenta de novo.": "Couldn't save. Try again.",
+  "Erro de base de dados: ": "Database error: ",
+  "Escolhe o método de desempate.": "Choose the tiebreak method.",
+  "Escolhe os dias.": "Pick the days.",
+  "Escolhe primeiro o sítio no mapa": "Pick the spot on the map first",
+  "Escolhe uma edição para participar.": "Pick an adventure to take part in.",
+  "Escolher: ": "Choose: ",
+  "Escreve o anúncio": "Write the announcement",
+  "Estado do grupo": "Group status",
+  "Estado do grupo · ": "Group status · ",
+  "FASE ": "PHASE ",
+  "FASE 08 / 08": "PHASE 08 / 08",
+  "Faltam calcular.": "Still calculating.",
+  "Faltam: ": "Missing: ",
+  "Faltam: X": "Missing: X",
+  "Fase ": "Phase ",
+  "Fase 01 · RSVP": "Phase 01 · RSVP",
+  "Fase 02 · Locais": "Phase 02 · Places",
+  "Fase 02 · Sugerir locais": "Phase 02 · Suggest places",
+  "Fase 03 · Votar local": "Phase 03 · Vote on place",
+  "Fase 04 · Alojamentos": "Phase 04 · Stays",
+  "Fase 04 · Sugerir alojamento": "Phase 04 · Suggest a stay",
+  "Fase 05 · Empate": "Phase 05 · Tiebreak",
+  "Fase 05 · Votar alojamento (empate)": "Phase 05 · Vote on stay (tiebreak)",
+  "Fase 06 · Datas": "Phase 06 · Dates",
+  "Fase 06 · Disponibilidade": "Phase 06 · Availability",
+  "Fase 07 · Trancar datas": "Phase 07 · Lock the dates",
+  "Fase 08 · Planeamento": "Phase 08 · Planning",
+  "Fase 08 · Planear": "Phase 08 · Plan",
+  "Fase anterior": "Previous phase",
+  "Fechar agora (": "Close now (",
+  "Fechar antecipado (": "Close early (",
+  "Fechar segunda volta": "Close runoff",
+  "Fechar — vence ": "Close — winner: ",
+  "Fevereiro": "February",
+  "Guardar": "Save",
+  "Guardar disponibilidade": "Save availability",
+  "Houve um problema a mostrar esta parte. Os teus dados estão guardados — é só recarregar.": "Something went wrong showing this part. Your data is safe — just reload.",
+  "Imagem inválida.": "Invalid image.",
+  "Inicia sessão para entrar na edição em curso.": "Sign in to join the current adventure.",
+  "Inicia sessão →": "Sign in →",
+  "Início em ": "Starts on ",
+  "Itens de grupo têm um responsável; pessoais são só lembrete para todos": "Group items have someone responsible; personal ones are just a reminder for everyone",
+  "Janeiro": "January",
+  "Julho": "July",
+  "Junho": "June",
+  "Já lá fui — a casa é mesmo bonita.": "I've been there — the house is really pretty.",
+  "Já participaram": "Already took part",
+  "Já submeteste disponibilidade. Brevemente sabes.": "You've submitted your availability. You'll know soon.",
+  "Já tens 3 escolhas — toca numa para a trocar.": "You already have 3 picks — tap one to swap it.",
+  "Já tens? ": "Already have one? ",
+  "Já votaram": "Already voted",
+  "Lança um destino": "Post a destination",
+  "Lançar": "Post",
+  "Lançar alojamento": "Post stay",
+  "Lançar destino": "Post destination",
+  "Lançar à sorte 🎲": "Random pick 🎲",
+  "Lembrar quem falta": "Remind who's missing",
+  "Ligação restabelecida": "Connection restored",
+  "Limpar itens já comprados?": "Clear items already bought?",
+  "Limpar localização": "Clear location",
+  "Limpar os meus dias": "Clear my days",
+  "Limpar todas as sugestões?": "Clear all suggestions?",
+  "Limpar todos os RSVPs?": "Clear all answers?",
+  "Limpar todos os alojamentos?": "Clear all stays?",
+  "Limpar todos os teus dias marcados?": "Clear all the days you marked?",
+  "Limpar tudo": "Clear all",
+  "Localização no mapa (opcional)": "Location on the map (optional)",
+  "Maio": "May",
+  "Mapa": "Map",
+  "Marca generoso. As células mais escuras já têm mais gente — o teu contorno laranja marca os teus dias.": "Be generous. Darker cells already have more people — the orange outline marks your days.",
+  "Março": "March",
+  "Mensagem não enviada — verifica a ligação.": "Message not sent — check your connection.",
+  "Mensagem para ti": "Message for you",
+  "Miguel está a escolher como desempatar. Alguns métodos requerem que voltes a votar.": "The admin is choosing how to break the tie. Some methods require you to vote again.",
+  "Miguel pica uma das opções. Rápido, sem rodeios.": "The admin picks one of the options. Quick, no fuss.",
+  "Miguel vai lançar.": "The admin will roll.",
+  "Modo 1 voto ativado.": "Single-vote mode enabled.",
+  "Modo Top 3 ativado — cada um ordena até 3 favoritos.": "Top 3 mode enabled — everyone ranks up to 3 favourites.",
+  "Mudar o modo de votação RECOMEÇA a votação (os votos atuais são apagados). Continuar?": "Changing the voting mode RESTARTS the vote (current votes are deleted). Continue?",
+  "Mudar o modo de votação desta fase?": "Change the voting mode for this phase?",
+  "Médias · ": "Averages · ",
+  "Método de desempate": "Tiebreak method",
+  "Mês anterior": "Previous month",
+  "Mês seguinte": "Next month",
+  "Navegação de fases": "Phase navigation",
+  "Ninguém marcou disponibilidade na fase 2, mas podes escolher os dias à mesma.": "Nobody marked availability in phase 2, but you can still pick the days.",
+  "Ninguém registado ainda. Partilha o link com o grupo!": "Nobody registered yet. Share the link with the group!",
+  "Nome da aventura": "Adventure name",
+  "Nome de exibição": "Display name",
+  "Nome de login (fixo)": "Login name (fixed)",
+  "Nome do ponto": "Point name",
+  "Nome do sítio": "Place name",
+  "Nome, foto e uma password. Mais nada.": "Name, photo and a password. Nothing else.",
+  "Nova Aventura": "New Adventure",
+  "Nova aventura": "New adventure",
+  "Novembro": "November",
+  "Não consegui carregar o mapa (rede ou bloqueador). Os pontos continuam guardados — tenta recarregar a página.": "Couldn't load the map (network or blocker). Your points are still saved — try reloading the page.",
+  "Não consegui copiar.": "Couldn't copy.",
+  "Não consegui guardar. Verifica a ligação.": "Couldn't save. Check your connection.",
+  "Não consegui ler a foto.": "Couldn't read the photo.",
+  "Não consegui ler a imagem.": "Couldn't read the image.",
+  "O admin está a desempatar...": "The admin is breaking the tie...",
+  "O admin está a escolher como desempatar...": "The admin is choosing how to break the tie...",
+  "O admin vai sortear num instante...": "The admin will draw in a moment...",
+  "O calendário falou.": "The calendar has spoken.",
+  "O local e a estadia vencedores aparecem aqui automaticamente — e podes juntar pontos de interesse já.": "The winning place and stay appear here automatically — and you can add points of interest right away.",
+  "O que aconteceu, e onde": "What happened, and where",
+  "O que fazer": "What to do",
+  "O tempo de votação acabou ⏱": "Voting time is over ⏱",
+  "O teu nome": "Your name",
+  "O teu ranking": "Your ranking",
+  "O teu top: ": "Your top: ",
+  "Onde (opcional)": "Where (optional)",
+  "Onde queres": "Where do you want",
+  "Onde é que": "Where are",
+  "Onde é que ": "Where are ",
+  "Opcional. Se saltares, fica com as iniciais.": "Optional. If you skip it, we'll use your initials.",
+  "Ordena por preferência. A 1ª escolha vale ": "Rank by preference. Your 1st pick is worth ",
+  "Os pontos empataram. Volta atrás e usa a roleta para desempatar à sorte.": "The points are tied. Go back and use the wheel to break the tie by luck.",
+  "Outubro": "October",
+  "Para quem": "For whom",
+  "Password errada ou não és admin.": "Wrong password, or you're not an admin.",
+  "Podes avançar a fase.": "You can move to the next phase.",
+  "Pontuação Borda": "Borda count",
+  "Por fazer (": "To do (",
+  "Procurar no mapa": "Search the map",
+  "Procurar no mapa…": "Search the map…",
+  "Pronto": "Ready",
+  "Propor aventura": "Suggest adventure",
+  "Proposta de ": "Proposed by ",
+  "Proposta enviada — o admin vai rever!": "Proposal sent — the admin will review it!",
+  "Põe a tua cara": "Add your face",
+  "Quando quiseres, avança a fase.": "Move to the next phase whenever you want.",
+  "Quanto mais escura a célula, mais gente está disponível. Clica num dia (ou clica em dois para um intervalo).": "The darker the cell, the more people are available. Click a day (or two for a range).",
+  "Quem entra": "Who's in",
+  "Quem entra na ": "Who's in the ",
+  "Quem está a ver": "Who's watching",
+  "Quem está livre em cada dia": "Who's free on each day",
+  "Quem pagou": "Who paid",
+  "Quem vai? (": "Who's going? (",
+  "Reabrir votação": "Reopen voting",
+  "Remover": "Remove",
+  "Remover da temporada": "Remove from this adventure",
+  "Remover imagem": "Remove image",
+  "Remover o meu voto": "Remove my vote",
+  "Remover prazo": "Remove deadline",
+  "Resposta guardada ✓ — podes mudar até o admin fechar.": "Answer saved ✓ — you can change it until the admin closes the phase.",
+  "Resposta guardada. Podes mudar até a fase fechar.": "Answer saved. You can change it until the phase closes.",
+  "Retirar a tua proposta?": "Withdraw your proposal?",
+  "Roleta da sorte": "Wheel of fortune",
+  "Ronda": "Round",
+  "Sair": "Sign out",
+  "Saiu:": "Result:",
+  "Saltar para": "Jump to",
+  "Secções no canvas": "Canvas sections",
+  "Seis fases. Miguel inicia, o grupo decide, Miguel tranca. Toggle 'Ver como' nos tweaks para alternar admin/membro.": "Six phases. The admin starts, the group decides, the admin locks. Use the 'View as' toggle to switch admin/member.",
+  "Seleção": "Selection",
+  "Sem alojamentos ainda.": "No stays yet.",
+  "Sem atividade ainda.": "Nothing planned yet.",
+  "Sem censura. Convencer o grupo é com o nome e os argumentos.": "No filter. Winning the group over is on you.",
+  "Sem edição ativa para exportar.": "No active adventure to export.",
+  "Sem ligação — as alterações podem não guardar": "No connection — changes may not be saved",
+  "Sem limite — lança o que vires.": "No limit — post whatever you find.",
+  "Sem permissão para apagar esta mensagem.": "You don't have permission to delete this message.",
+  "Sem reports — tudo limpo. 🎉": "No reports — all clear. 🎉",
+  "Sem sugestões ainda.": "No suggestions yet.",
+  "Sessão inválida.": "Invalid session.",
+  "Setembro": "September",
+  "Submeter voto": "Submit vote",
+  "Sugere até": "Suggest up to",
+  "Sê o primeiro a dizer algo ao grupo.": "Be the first to say something to the group.",
+  "Sítio exato no mapa (opcional)": "Exact spot on the map (optional)",
+  "Tempo para votar": "Time to vote",
+  "Tens de desempatar para avançar.": "You must break the tie to move on.",
+  "Tens uma ideia? Propõe a aventura — fica a aguardar aprovação do admin e, se for aprovada, arranca como edição a sério.": "Got an idea? Suggest the adventure — it waits for the admin's approval and, once approved, starts for real.",
+  "Toca nos dias": "Tap the days",
+  "Todos": "All",
+  "Todos os destinos (": "All destinations (",
+  "Todos prontos": "Everyone's ready",
+  "Todos prontos!": "Everyone's ready!",
+  "Total do grupo": "Group total",
+  "Trocar método": "Change method",
+  "Um por pessoa, secreto até fechar.": "One per person, secret until it closes.",
+  "Ver anúncio →": "See announcement →",
+  "Ver edição": "Open adventure",
+  "Ver no mapa": "View on map",
+  "Versão de telemóvel pensada para responder em segundos a meio do dia.": "Mobile version built to answer in seconds, mid-day.",
+  "Volta à fase 4 e pede ao grupo para sugerir sítios primeiro.": "Go back to phase 4 and ask the group to suggest places first.",
+  "Volta à fase 6 e adiciona alojamentos primeiro.": "Go back to phase 6 and add stays first.",
+  "Voltar às edições": "Back to adventures",
+  "Vota no teu": "Vote for your",
+  "Votar nesta ronda": "Vote in this round",
+  "Votação em curso. Declara o vencedor quando estiver pronto.": "Voting in progress. Declare the winner when you're ready.",
+  "Votação por pontos": "Points voting",
+  "Voto guardado ✓": "Vote saved ✓",
+  "Voto secreto": "Secret vote",
+  "Voto secreto. Escolhe até 3 por ordem: 1º vale 3 pontos, 2º vale 2, 3º vale 1.": "Secret vote. Pick up to 3 in order: 1st is worth 3 points, 2nd 2, 3rd 1.",
+  "Voto secreto. Um por pessoa.": "Secret vote. One per person.",
+  "Voto submetido · aguarda outros": "Vote submitted · waiting for others",
+  "Votos": "Votes",
+  "a aguardar aprovação…": "waiting for approval…",
+  "a escolher os dias.": "picking the days.",
+  "a marcar": "marking",
+  "a marcar…": "marking…",
+  "abr": "apr",
+  "ago": "aug",
+  "alguém": "someone",
+  "alojamentos para votar.": "stays to vote on.",
+  "as sugestões de alojamento": "the stay suggestions",
+  "as sugestões de local": "the place suggestions",
+  "até ": "to ",
+  "de ": "from ",
+  "de volta.": "back.",
+  "destinos para votar.": "destinations to vote on.",
+  "dez": "dec",
+  "dia": "day",
+  "dias": "days",
+  "edições": "adventures",
+  "em construção.": "under construction.",
+  "em que ": "when ",
+  "esta edição": "this adventure",
+  "este dia": "this day",
+  "estes dias": "these days",
+  "está dentro 🙋": "is in 🙋",
+  "fase ": "phase ",
+  "fev": "feb",
+  "função RPC não existe": "RPC function does not exist",
+  "gosto dos dois mas prefiro este": "I like both but prefer this one",
+  "jan": "jan",
+  "jul": "jul",
+  "jun": "jun",
+  "mai": "may",
+  "mais escuro = mais gente": "darker = more people",
+  "mais gente": "more people",
+  "mapa": "map",
+  "mar": "mar",
+  "nov": "nov",
+  "não vai": "not going",
+  "os teus dias": "your days",
+  "os votos de alojamento": "the stay votes",
+  "os votos de local": "the place votes",
+  "os votos fecham às X": "voting closes at X",
+  "out": "oct",
+  "passar este?": "to spend it?",
+  "pessoa a bordo": "person on board",
+  "pessoas": "people",
+  "por votar": "yet to vote",
+  "quem falta": "who's missing",
+  "quem falta responder": "who still hasn't answered",
+  "quem leva o quê": "who brings what",
+  "região": "region",
+  "removido desta edição": "removed from this adventure",
+  "screenshot do report": "report screenshot",
+  "set": "sep",
+  "sítio favorito.": "favourite spot.",
+  "sítios.": "spots.",
+  "todos": "everyone",
+  "todos prontos": "everyone's ready",
+  "ver no mapa": "view on map",
+  "ª edição": " adventure",
+  "ª edição — ": " adventure — ",
+  "À espera de o admin avançar.": "Waiting for the admin to move on.",
+  "À espera do Miguel": "Waiting for the admin",
+  "À sorte": "By luck",
+  "à espera": "waiting",
+  "— tudo atribuído ✓": "— all assigned ✓",
+  "← Mudar método": "← Change method",
+  "← início −1": "← start −1",
+  "⚠ Clica de novo para confirmar — vai para a Fase 1": "⚠ Click again to confirm — this goes back to Phase 1",
+  "✏️  Editar": "✏️  Edit",
+  "✓ Está tudo acertado — ninguém deve nada.": "✓ All settled — nobody owes anything.",
+  "✓ pronto": "✓ ready",
+  "⟲ Reset · voltar à fase 1": "⟲ Reset · back to phase 1",
+  "⭐ pontos de interesse": "⭐ points of interest",
+  "🎲 Lançar": "🎲 Roll",
+  "👥 Coisas do grupo ": "👥 Group gear ",
+  "👥 de grupo": "👥 group",
+  "📅 Adicionar ao calendário": "📅 Add to calendar",
+  "📍 ver no mapa": "📍 view on map",
+  "📢 Anúncio": "📢 Announcement",
+  "📢 Todos (vista geral)": "📢 Everyone (overview)",
+  "🔄  Recomeçar": "🔄  Restart",
+  "🧍 Não esquecer (cada um leva o seu)": "🧍 Don't forget (everyone brings their own)",
+};
+
+// Mensagens com variáveis: quando não há tradução exata, tenta estes padrões.
+const PA_EN_PATTERNS = [
+  ["^(\\d+) de (\\d+) ordenaram$", "$1 of $2 ranked"],
+  ["^(\\d+) de (\\d+) avaliaram$", "$1 of $2 rated"],
+  ["^(\\d+) de (\\d+) votaram$", "$1 of $2 voted"],
+  ["^(\\d+) de (\\d+) declararam$", "$1 of $2 declared"],
+  ["^(\\d+) de (\\d+) submeteram\\.$", "$1 of $2 submitted."],
+  ["^Ronda (\\d+) · (\\d+) opções restantes$", "Round $1 · $2 options left"],
+  ["^Saiu: (.+)$", "Result: $1"],
+  ["^lançou alojamento em (.+)$", "posted a stay in $1"],
+  ["^(\\d+) confirmados\\. Quando estiver completo, avança\\.$", "$1 confirmed. Move on when everyone's in."],
+  ["^(\\d+) destinos\\. Quando fechar, avança para votação\\.$", "$1 destinations. When it closes, move to voting."],
+  ["^(\\d+) destinos a votar\\. Quando fechar, avança\\.$", "$1 destinations to vote on. Move on when it closes."],
+  ["^(\\d+) alojamentos\\. Quando estiverem prontos, abre votação\\.$", "$1 stays. When they're ready, open the vote."],
+  ["^A tua (\\d+)ª escolha$", "Your pick #$1"],
+  ["^Voto em (.+)\\.$", "Voted for $1."],
+  ["^Voto em (.+)$", "Voted for $1"],
+  ["^Tirar \\\"(.+)\\\" da lista\\?$", "Remove \"$1\" from the list?"],
+  ["^Tirar \\\"(.+)\\\" do mapa\\?$", "Remove \"$1\" from the map?"],
+  ["^Fase (\\d+) de (\\d+)$", "Phase $1 of $2"],
+  ["^Fase (\\d+)$", "Phase $1"],
+  ["^Reiniciar (.+) desta fase\\?$", "Restart $1 for this phase?"],
+  ["^(\\d+)ª edição$", "adventure #$1"],
+  ["^(\\d+)ª edição — (.+)$", "Adventure #$1 — $2"],
+  ["^(\\d+) de (\\d+) usados$", "$1 of $2 used"],
+  ["^(\\d+) dias marcados$", "$1 days marked"],
+  ["^(\\d+) sugestões — já dá para votar$", "$1 suggestions — enough to vote"],
+  ["^📣 (.+) — faltam vocês nesta fase! 🙌$", "📣 $1 — we're waiting on you in this phase! 🙌"],
+  ["^📣 (.+) — faltam vocês em \\\"(.+)\\\"(.*)$", "📣 $1 — we're waiting on you in \\\"$2\\\"$3"],
+  ["^(.+) adicionado à temporada$", "$1 added to the adventure"],
+  ["^(.+) removido da temporada$", "$1 removed from the adventure"],
+  ["^Remover (.+) desta edição\\? Apaga as respostas, votos, sugestões e disponibilidade desta temporada \\(o perfil mantém-se\\)\\.$", "Remove $1 from this adventure? This deletes their answers, votes, suggestions and availability (the profile stays)."],
+  ["^Remover (.+)$", "Remove $1"],
+  ["^Recomeçar a \\\"(.+)\\\"\\? Todos os dados \\(RSVP, votos, sugestões\\) serão apagados\\.$", "Restart \"$1\"? All data (answers, votes, suggestions) will be deleted."],
+  ["^Eliminar a \\\"(.+)\\\" para sempre\\? Esta ação não pode ser desfeita\\.$", "Delete \"$1\" forever? This cannot be undone."],
+  ["^\"(.+)\" aprovada — já é oficial!$", "\"$1\" approved — it's official!"],
+  ["^Apagar TODOS os reports\\? Isto liberta o espaço das imagens na base de dados\\.$", "Delete ALL reports? This frees up the image space in the database."],
+  ["^Estamos a planear a próxima aventura! Neste momento: \\*(.+)\\*\\.$", "We're planning the next adventure! Right now: *$1*."],
+  ["^Limpar todos os teus dias marcados\\?$", "Clear all the days you marked?"],
+  ["^(\\d+) pessoa$", "$1 person"],
+  ["^(\\d+) pessoas$", "$1 people"],
+  ["^(\\d+) voto$", "$1 vote"],
+  ["^(\\d+) votos$", "$1 votes"],
+  ["^(\\d+) dias$", "$1 days"],
+  ["^(\\d+) dia$", "$1 day"],
+  ["^(\\d+) noites$", "$1 nights"],
+  ["^(\\d+) noite$", "$1 night"],
+];
+
+const PA_MONTHS_EN = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const PA_DOWS_EN = ["M", "T", "W", "T", "F", "S", "S"];
+
+const PA_MONTHS_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+                      'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+const PA_DOWS_PT = ['S','T','Q','Q','S','S','D'];
+
+const PA_LANG = {
+  code: (() => { try { return localStorage.getItem('pa-lang') === 'en' ? 'en' : 'pt'; } catch (e) { return 'pt'; } })(),
+  is(c) { return this.code === c; },
+  set(c) {
+    const next = c === 'en' ? 'en' : 'pt';
+    if (next === this.code) return;
+    this.code = next;
+    try { localStorage.setItem('pa-lang', next); } catch (e) {}
+    window.dispatchEvent(new CustomEvent('pa-lang-change'));
+  },
+  locale() { return this.code === 'en' ? 'en-GB' : 'pt-PT'; },
+  months() { return this.code === 'en' ? PA_MONTHS_EN : PA_MONTHS_PT; },
+  dows() { return this.code === 'en' ? PA_DOWS_EN : PA_DOWS_PT; },
+};
+
+// Cache dos padrões compilados (o regex corre em cada texto não-exato).
+const _paPatternCache = PA_EN_PATTERNS.map(([p, r]) => [new RegExp(p), r]);
+const _paMissCache = new Set();   // textos que já sabemos não ter tradução
+
+function paT(s) {
+  if (PA_LANG.code !== 'en' || typeof s !== 'string' || s.length < 2) return s;
+  const exact = PA_EN[s];
+  if (exact !== undefined) return exact;
+  if (_paMissCache.has(s)) return s;              // já falhou antes: não repetir 45 regex
+  for (let i = 0; i < _paPatternCache.length; i++) {
+    const [re, rep] = _paPatternCache[i];
+    if (re.test(s)) return s.replace(re, rep);
+  }
+  _paMissCache.add(s);
+  return s;
+}
+
+// ── Funil 1: React.createElement ──
+// Traduz filhos que sejam texto e as props que contêm texto visível.
+const _PA_TEXT_PROPS = ['placeholder', 'title', 'aria-label', 'alt', 'label', 'sub',
+                        'kicker', 'hint', 'confirmLabel', 'cancelLabel', 'emptyText'];
+(function patchReact() {
+  if (typeof React === 'undefined' || React.__paI18n) return;
+  const orig = React.createElement;
+  React.createElement = function (type, props, ...children) {
+    if (PA_LANG.code === 'en') {
+      if (props) {
+        let copy = null;
+        for (const k of _PA_TEXT_PROPS) {
+          const v = props[k];
+          if (typeof v === 'string' && v.length > 1) {
+            const t = paT(v);
+            if (t !== v) { copy = copy || Object.assign({}, props); copy[k] = t; }
+          }
+        }
+        if (copy) props = copy;
+      }
+      for (let i = 0; i < children.length; i++) {
+        if (typeof children[i] === 'string') children[i] = paT(children[i]);
+      }
+    }
+    return orig.call(React, type, props, ...children);
+  };
+  React.__paI18n = true;
+})();
+
+// ── Funil 2: avisos do browser ──
+(function patchDialogs() {
+  const c = window.confirm, p = window.prompt, a = window.alert;
+  window.confirm = (m) => c.call(window, paT(m));
+  window.prompt = (m, d) => p.call(window, paT(m), d);
+  window.alert = (m) => a.call(window, paT(m));
+})();
+
+// ── Funil 3: os toasts traduzem a mensagem na origem (ver _paToast). ──
+
+Object.assign(window, { PA_LANG, paT });
+</script>
+
+
 <script>// Perdidos Algures — data model (limpo, pronto para uso real).
 // Toda a informação dinâmica (RSVP, sugestões, votos, disponibilidade)
 // fica no AppStore (localStorage) em auth.jsx — não aqui.
 
-const MONTH_NAMES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
-                     'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+// Meses e dias vivem em arrays (não passam pela interceção do React):
+// resolvem-se pelo idioma ativo no momento em que são lidos.
+const MONTH_NAMES_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+                        'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+const MONTH_NAMES = new Proxy(MONTH_NAMES_PT, {
+  get(target, prop) {
+    if (typeof prop === 'string' && /^\d+$/.test(prop) && typeof PA_LANG !== 'undefined') {
+      return PA_LANG.months()[+prop];
+    }
+    return target[prop];
+  },
+});
 
 function buildMonth(year, monthIndex) {
   const first = new Date(year, monthIndex, 1);
@@ -3585,7 +4160,7 @@ function Calendar({
   dense = false,
   pastDisabled = false
 }) {
-  const dows = ['S', 'T', 'Q', 'Q', 'S', 'S', 'D']; // Seg Ter Qua Qui Sex Sáb Dom
+  const dows = typeof PA_LANG !== 'undefined' ? PA_LANG.dows() : ['S', 'T', 'Q', 'Q', 'S', 'S', 'D']; // Seg→Dom
   // Modo multi-mês: com `mi` (índice em PA_MONTHS), o grid/título vêm do mês
   // ativo e as setas navegam de verdade entre meses.
   const M = mi !== null && PA_MONTHS[mi] ? PA_MONTHS[mi] : null;
@@ -3766,7 +4341,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r58';
+window.PA_VERSION = '2026.06.01-r60';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -3870,6 +4445,7 @@ window.paDownloadIcs = function() {
 };
 
 window._paToast = function(msg, type) {
+  msg = (typeof paT === 'function') ? paT(msg) : msg;
   type = type || 'error';
   try {
     const el = document.createElement('div');
@@ -3939,9 +4515,43 @@ let _session = (() => {
   try { return JSON.parse(localStorage.getItem('pa-session') || 'null'); }
   catch { try { return JSON.parse(sessionStorage.getItem('pa-session') || 'null'); } catch { return null; } }
 })();
-// Hash da password guardado APENAS em memória (perde-se ao recarregar).
-// Serve para autorizar ações destrutivas no servidor sem pedir a password
-// a cada clique. Nunca é escrito em disco.
+// ── Token de sessão ──────────────────────────────────────────────────────
+// O servidor não sabe quem somos: a chave publishable é pública. O login
+// devolve um token aleatório que provamos ser nossos em cada escrita.
+// Guardado no dispositivo (como qualquer cookie de sessão); expira em 90 dias.
+let _paToken = (() => { try { return localStorage.getItem('pa-token') || null; } catch (e) { return null; } })();
+function paToken() { return _paToken; }
+function paSetToken(t) {
+  _paToken = t || null;
+  try { t ? localStorage.setItem('pa-token', t) : localStorage.removeItem('pa-token'); } catch (e) {}
+}
+// Sessão recusada pelo servidor: cai para o ecrã de entrada em vez de falhar em silêncio.
+// Chama um RPC com o token. Se o servidor disser "sessão inválida", manda o
+// utilizador entrar de novo. Se a função não existir (migração por correr),
+// devolve {legacy:true} para o chamador usar o caminho antigo.
+async function paRpc(fn, args) {
+  try {
+    const { data, error } = await _sb.rpc(fn, { ...args, p_token: paToken() });
+    if (error) {
+      const m = String(error.message || '');
+      if (/does not exist|schema cache|function public\./i.test(m)) return { legacy: true };
+      if (/sessão inválida|sessao invalida/i.test(m)) { paSessionExpired(); return { denied: true }; }
+      return { error: m };
+    }
+    return { data };
+  } catch (e) { return { legacy: true }; }
+}
+Object.assign(window, { paRpc });
+
+function paSessionExpired() {
+  paSetToken(null);
+  if (window._paToast) window._paToast('A tua sessão expirou — entra de novo.', 'error');
+  try { AuthStore.clearSession(); } catch (e) {}
+  setTimeout(() => { try { location.reload(); } catch (e) {} }, 1200);
+}
+Object.assign(window, { paToken, paSetToken });
+
+// Hash da password guardado APENAS em memória (só para a migração antiga).
 let _sessionHash = null;
 async function paRequireHash(reason) {
   if (_sessionHash) return _sessionHash;
@@ -3971,10 +4581,40 @@ let _usersCache = [];
 
 const AuthStore = {
   getUsers() { return _usersCache; },  // síncrono — cache populado no arranque
+  // As fotos são base64 e pesam ~1,3 MB no total. Descarregá-las a cada abertura
+  // custa 2-3 s em 4G. Servimos primeiro do disco (instantâneo) e refrescamos
+  // em segundo plano; o utilizador nunca espera pelos avatares.
+  _mapUser(r) {
+    return { id:r.id, name:r.display_name||r.name, loginName:r.name, initials:r.initials,
+             color:r.color, photoDataUrl:r.photo_url||null, isAdmin:r.is_admin };
+  },
+  _saveUsersCache() {
+    try { localStorage.setItem('pa-users', JSON.stringify(_usersCache)); }
+    catch (e) { try { localStorage.removeItem('pa-users'); } catch (e2) {} } // quota cheia: desiste
+  },
+  loadUsersFromDisk() {
+    try {
+      const raw = localStorage.getItem('pa-users');
+      if (!raw) return false;
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr) && arr.length) { _usersCache = arr; return true; }
+    } catch (e) {}
+    return false;
+  },
   async refreshUsers() {
     const { data } = await _sb.from('profiles').select('id,name,display_name,initials,color,photo_url,is_admin');
-    _usersCache = (data||[]).map(r => ({ id:r.id, name:r.display_name||r.name, loginName:r.name, initials:r.initials, color:r.color, photoDataUrl:r.photo_url||null, isAdmin:r.is_admin }));
+    _usersCache = (data||[]).map(this._mapUser);
+    this._saveUsersCache();
     return _usersCache;
+  },
+  // Atualiza UM perfil a partir do evento realtime (em vez de trazer todos).
+  patchUser(row) {
+    if (!row || !row.id) return;
+    const u = this._mapUser(row);
+    const i = _usersCache.findIndex((x) => x.id === u.id);
+    if (i >= 0) _usersCache[i] = u; else _usersCache.push(u);
+    _usersCache = [..._usersCache];
+    this._saveUsersCache();
   },
   getSession()    { return _session; },
   setSession(u)   { _saveSession(u); },
@@ -3999,13 +4639,20 @@ const AuthStore = {
     if (!profiles?.length) throw new Error('Conta não encontrada. Regista-te primeiro.');
     const profile = profiles[0];
     const hash = await sha256(password);
-    // A verificação acontece NO SERVIDOR (RPC): o hash guardado nunca é enviado
-    // ao cliente. Fallback ao método antigo enquanto a migração não for corrida.
+    // 1º: auth_login (verifica no servidor E devolve o token de sessão).
+    // 2º: auth_verify (migração intermédia). 3º: leitura direta (esquema antigo).
+    // A app funciona antes e depois da migração — sem janela de app partida.
     let verified = null;
     try {
-      const { data: okRpc, error: rpcErr } = await _sb.rpc('auth_verify', { p_profile_id: profile.id, p_hash: hash });
-      if (!rpcErr) verified = !!okRpc;
-    } catch (e) { verified = null; }
+      const { data: tok, error: e1 } = await _sb.rpc('auth_login', { p_profile_id: profile.id, p_hash: hash });
+      if (!e1) { verified = !!tok; if (tok) paSetToken(tok); }
+    } catch (e) {}
+    if (verified === null) {
+      try {
+        const { data: okRpc, error: e2 } = await _sb.rpc('auth_verify', { p_profile_id: profile.id, p_hash: hash });
+        if (!e2) verified = !!okRpc;
+      } catch (e) {}
+    }
     if (verified === null) {
       const { data: authRows, error: authErr } = await _sb.from('profiles_auth')
         .select('pass_hash').eq('profile_id', profile.id).limit(1);
@@ -4013,7 +4660,7 @@ const AuthStore = {
       verified = !!authRows?.length && authRows[0].pass_hash === hash;
     }
     if (!verified) throw new Error('Password errada.');
-    _sessionHash = hash; // memória apenas
+    _sessionHash = hash; // memória apenas (caminho antigo)
     const session = _profileToSession(profile);
     _saveSession(session);
     await this.refreshUsers();
@@ -4033,17 +4680,22 @@ const AuthStore = {
       .insert({ name:n, display_name:n, initials:this.initialsFromName(n), color:this.colorFromName(n), photo_url:photoDataUrl||null, is_admin:false })
       .select().single();
     if (insertErr) throw new Error('Erro ao criar conta: ' + insertErr.message);
-    // A tabela das credenciais está fechada: a criação passa por um RPC seguro.
-    // (Fallback direto enquanto a migração de segurança não tiver sido corrida.)
+    // Credencial criada no servidor; devolve já o token de sessão.
     let authInsErr = null;
     try {
-      const { error: rpcErr } = await _sb.rpc('auth_set_password', { p_profile_id: inserted.id, p_hash: passHash });
+      const { data: tok, error: rpcErr } = await _sb.rpc('auth_register', { p_profile_id: inserted.id, p_hash: passHash });
       if (rpcErr) throw rpcErr;
+      if (tok) paSetToken(tok);
     } catch (e) {
-      const r = await _sb.from('profiles_auth').insert({ profile_id: inserted.id, pass_hash: passHash });
-      authInsErr = r.error;
+      try {
+        const { error: e2 } = await _sb.rpc('auth_set_password', { p_profile_id: inserted.id, p_hash: passHash });
+        if (e2) throw e2;
+      } catch (e3) {
+        const r = await _sb.from('profiles_auth').insert({ profile_id: inserted.id, pass_hash: passHash });
+        authInsErr = r.error;
+      }
     }
-    _sessionHash = passHash; // memória apenas
+    _sessionHash = passHash;
     if (authInsErr) throw new Error('Erro ao guardar password: ' + authInsErr.message);
     const session = _profileToSession(inserted);
     _saveSession(session);
@@ -4062,7 +4714,21 @@ const AuthStore = {
       fields.initials = this.initialsFromName(dn);
     }
     if (photoDataUrl !== undefined) fields.photo_url = photoDataUrl;
-    const { data, error } = await _sb.from('profiles').update(fields).eq('id', _session.id).select().single();
+    const rp = await paRpc('profile_update', {
+      p_display_name: fields.display_name !== undefined ? fields.display_name : null,
+      p_photo: (fields.photo_url !== undefined && fields.photo_url !== null) ? fields.photo_url : null,
+      p_clear_photo: fields.photo_url === null,
+    });
+    if (rp.denied) throw new Error('Sessão inválida.');
+    let data = null, error = null;
+    if (rp.legacy) {
+      const r = await _sb.from('profiles').update(fields).eq('id', _session.id).select().single();
+      data = r.data; error = r.error;
+    } else if (rp.error) { error = { message: rp.error }; }
+    else {
+      const r = await _sb.from('profiles').select('*').eq('id', _session.id).single();
+      data = r.data; error = r.error;
+    }
     if (error) throw new Error('Erro ao atualizar perfil: ' + error.message);
     const session = _profileToSession(data);
     _saveSession(session);
@@ -4117,9 +4783,19 @@ const EditionStore = {
     // Convites: quem NÃO foi convidado entra como "removido" da edição —
     // o mesmo mecanismo do Gerir membros, e readmissível a qualquer momento.
     const data0 = (excludedIds && excludedIds.length) ? { removedMembers: excludedIds } : {};
-    const { data, error } = await _sb.from('editions')
-      .insert({ number: num, title: title || 'Nova Aventura', subtitle: subtitle || 'Algures no mundo.', status: 'active', current_phase: 1, data: data0 })
-      .select().single();
+    const rp = await paRpc('edition_create', {
+      p_number: num, p_title: title || 'Nova Aventura',
+      p_subtitle: subtitle || 'Algures no mundo.', p_status: 'active', p_data: data0,
+    });
+    if (rp.denied) throw new Error('Sessão inválida.');
+    if (rp.error) throw new Error('Erro ao criar edição: ' + rp.error);
+    let data = rp.data, error = null;
+    if (rp.legacy) {
+      const r = await _sb.from('editions')
+        .insert({ number: num, title: title || 'Nova Aventura', subtitle: subtitle || 'Algures no mundo.', status: 'active', current_phase: 1, data: data0 })
+        .select().single();
+      data = r.data; error = r.error;
+    }
     if (error) throw new Error('Erro ao criar edição: ' + error.message);
     _editionsCache = [data, ..._editionsCache].sort((a,b)=>b.number-a.number);
     this._notify();
@@ -4132,9 +4808,19 @@ const EditionStore = {
   async propose({ title, subtitle, excludedIds, by, byName }) {
     const data0 = { proposal: { by, byName, when: new Date().toISOString() } };
     if (excludedIds && excludedIds.length) data0.removedMembers = excludedIds;
-    const { data, error } = await _sb.from('editions')
-      .insert({ number: 0, title: title || 'Nova Aventura', subtitle: subtitle || 'Algures no mundo.', status: 'proposed', current_phase: 1, data: data0 })
-      .select().single();
+    const rp = await paRpc('edition_create', {
+      p_number: 0, p_title: title || 'Nova Aventura',
+      p_subtitle: subtitle || 'Algures no mundo.', p_status: 'proposed', p_data: data0,
+    });
+    if (rp.denied) throw new Error('Sessão inválida.');
+    if (rp.error) throw new Error('Erro ao propor: ' + rp.error);
+    let data = rp.data, error = null;
+    if (rp.legacy) {
+      const r = await _sb.from('editions')
+        .insert({ number: 0, title: title || 'Nova Aventura', subtitle: subtitle || 'Algures no mundo.', status: 'proposed', current_phase: 1, data: data0 })
+        .select().single();
+      data = r.data; error = r.error;
+    }
     if (error) throw new Error('Erro ao propor: ' + error.message);
     _editionsCache = [data, ..._editionsCache];
     this._notify();
@@ -4151,7 +4837,26 @@ const EditionStore = {
   async rejectProposal(id) { return this.remove(id); },
 
   async update(id, fields) {
-    const { data, error } = await _sb.from('editions').update(fields).eq('id', id).select().single();
+    // Metadata (fase/estado/número/nome) é território do admin — verificado no servidor.
+    const rp = await paRpc('edition_write', {
+      p_edition_id: id,
+      p_data: fields.data !== undefined ? fields.data : null,
+      p_phase: fields.current_phase !== undefined ? fields.current_phase : null,
+      p_status: fields.status !== undefined ? fields.status : null,
+      p_number: fields.number !== undefined ? fields.number : null,
+      p_title: fields.title !== undefined ? fields.title : null,
+      p_subtitle: fields.subtitle !== undefined ? fields.subtitle : null,
+    });
+    if (rp.denied) throw new Error('Sessão inválida.');
+    if (rp.error) throw new Error(rp.error);
+    let data = null, error = null;
+    if (rp.legacy) {
+      const r = await _sb.from('editions').update(fields).eq('id', id).select().single();
+      data = r.data; error = r.error;
+    } else {
+      const r = await _sb.from('editions').select('*').eq('id', id).single();
+      data = r.data; error = r.error;
+    }
     if (error) throw new Error('Erro ao atualizar: ' + error.message);
     _editionsCache = _editionsCache.map(e => e.id === id ? data : e).sort((a,b)=>b.number-a.number);
     this._notify();
@@ -4163,22 +4868,13 @@ const EditionStore = {
   async unarchive(id) { return this.update(id, { status: 'active', archived_at: null }); },
 
   async remove(id) {
-    // DELETE direto está bloqueado pela RLS: passa pelo RPC que confirma que
-    // és admin e que sabes a password. Fallback direto se o RPC não existir.
-    const me = AuthStore.getSession();
+    // O servidor confirma pelo token que és admin. Sem password no caminho.
+    const rp = await paRpc('edition_delete', { p_edition_id: id });
+    if (rp.denied) return;
     let error = null;
-    try {
-      const hash = await paRequireHash('Confirma a password para apagar a aventura');
-      if (!hash) throw new Error('cancelado');
-      const { data: ok, error: rpcErr } = await _sb.rpc('edition_delete', { p_edition_id: id, p_admin_id: me?.id, p_hash: hash });
-      if (rpcErr) throw rpcErr;
-      if (ok === false) { _sessionHash = null; throw new Error('Password errada ou não és admin.'); }
-    } catch (e) {
-      if (e && e.message === 'cancelado') return;
-      if (e && /Password errada/.test(e.message)) throw e;
-      const r = await _sb.from('editions').delete().eq('id', id);
-      error = r.error;
-    }
+    if (rp.legacy) { const r = await _sb.from('editions').delete().eq('id', id); error = r.error; }
+    else if (rp.error) error = { message: rp.error };
+    else if (rp.data === false) throw new Error('Só o admin pode apagar aventuras.');
     if (error) throw new Error('Erro ao eliminar: ' + error.message);
     _editionsCache = _editionsCache.filter(e => e.id !== id);
     if (_activeEditionId === id) this.setActive(null);
@@ -4315,12 +5011,18 @@ const AppStore = {
   async _set(key, value) {
     const ed = EditionStore.active();
     if (!ed) { console.warn('[PA AppStore] sem edição ativa'); return; }
-    _appCache = { ...(this._cache()), [key]: value };
+    // Guardamos o estado anterior: se a escrita falhar de vez, a UI tem de
+    // voltar atrás. Mostrar o novo valor depois de o servidor recusar é mentir.
+    const prevCache = this._cache();
+    const prevData = ed.data;
+    _appCache = { ...prevCache, [key]: value };
     this._notify();
     const newData = { ...(ed.data || {}) };
     newData[key] = value;
     ed.data = newData;
-    await this._updateWithRetry(ed.id, newData, key);
+    const ok = await this._updateWithRetry(ed.id, newData, key);
+    if (!ok) { _appCache = prevCache; ed.data = prevData; this._notify(); }
+    return ok;
   },
 
   // Escreve no Supabase com até 3 tentativas e backoff exponencial (300ms, 600ms).
@@ -4329,7 +5031,13 @@ const AppStore = {
     const attempts = 3;
     for (let i = 0; i < attempts; i++) {
       try {
-        const { error } = await _sb.from('editions').update({ data: newData }).eq('id', edId);
+        // O servidor verifica quem escreve (token) e em que campos pode mexer.
+        // Se o RPC ainda não existir (migração por correr), usa o caminho antigo.
+        const r = await paRpc('edition_write', { p_edition_id: edId, p_data: newData });
+        if (r.denied) return false;
+        let error = null;
+        if (r.legacy) { const w = await _sb.from('editions').update({ data: newData }).eq('id', edId); error = w.error; }
+        else error = r.error ? { message: r.error } : null;
         if (!error) return true;
         if (i === attempts - 1) {
           console.error('[PA AppStore] erro a guardar', key, error.message);
@@ -4396,7 +5104,7 @@ const AppStore = {
 
     try {
       const { data: newData, error } = await _sb.rpc('edition_merge_field', {
-        edition_id: ed.id, field_name: key, delta: deltaObj,
+        edition_id: ed.id, field_name: key, delta: deltaObj, p_token: paToken(),
       });
       if (error) {
         // RPC indisponível → fallback
@@ -4420,6 +5128,7 @@ const AppStore = {
     try {
       const { data: newData, error } = await _sb.rpc('edition_append_array', {
         edition_id: ed.id, field_name: key, item: item,
+        p_token: paToken(),
       });
       if (error) {
         return await this._rmwFallback(key, (cur) => {
@@ -4450,6 +5159,7 @@ const AppStore = {
     try {
       const { data: newData, error } = await _sb.rpc('edition_remove_from_array', {
         edition_id: ed.id, field_name: key, item_id: itemId,
+        p_token: paToken(),
       });
       if (error) {
         return await this._rmwFallback(key, (cur) => (cur || []).filter(x => !x || x.id !== itemId), ed);
@@ -4540,11 +5250,18 @@ const AppStore = {
   async _deleteKeyFresh(field, key) {
     const ed = EditionStore.active();
     if (!ed) return;
+    // Se não conseguirmos ler o estado atual do servidor, ABORTAMOS. Escrever o
+    // objeto inteiro a partir de cache velha apagaria o que outros gravaram —
+    // era exatamente o bug que esta função existe para evitar.
     let fresh = null;
     try {
-      const { data } = await _sb.from('editions').select('data').eq('id', ed.id).single();
+      const { data, error } = await _sb.from('editions').select('data').eq('id', ed.id).single();
+      if (error) throw new Error(error.message);
       fresh = (data && data.data) || {};
-    } catch (e) { fresh = { ...(ed.data || {}) }; } // offline: melhor esforço
+    } catch (e) {
+      if (window._paToast) window._paToast('Sem ligação — tenta outra vez daqui a pouco.', 'error');
+      return false;
+    }
     const obj = { ...((fresh && fresh[field]) || {}) };
     if (!(key in obj)) { // nada a fazer; só sincroniza o cache
       _appCache = { ...(this._cache()), ...fresh };
@@ -4553,10 +5270,13 @@ const AppStore = {
     }
     delete obj[key];
     const newData = { ...fresh, [field]: obj };
-    _appCache = { ...(this._cache()), ...newData };
+    const prevCache = this._cache();
+    const prevData = ed.data;
+    _appCache = { ...prevCache, ...newData };
     this._notify();
-    if (ed) ed.data = newData;
-    await this._updateWithRetry(ed.id, newData, field);
+    ed.data = newData;
+    const ok = await this._updateWithRetry(ed.id, newData, field);
+    if (!ok) { _appCache = prevCache; ed.data = prevData; this._notify(); }
   },
 
   async clearAvailability(uid) {
@@ -4910,7 +5630,15 @@ async function pushChatMessage(msg) {
   // Devolve true/false para o caller poder reagir (ex: repor o texto no input).
   // Uma mensagem perdida SEM aviso é pior do que uma falha visível.
   try {
-    const { data, error } = await _sb.from('chat_messages').insert({ profile_id:msg.who, text:msg.text }).select().single();
+    // O autor vem do TOKEN, não do cliente: ninguém escreve em nome de outro.
+    const rp = await paRpc('chat_send', { p_text: msg.text });
+    if (rp.denied) return false;
+    let data = null, error = null;
+    if (rp.legacy) {
+      const r = await _sb.from('chat_messages').insert({ profile_id:msg.who, text:msg.text }).select().single();
+      data = r.data; error = r.error;
+    } else if (rp.error) { error = { message: rp.error }; }
+    else data = rp.data;
     if (error) throw new Error(error.message);
     // Optimista: adiciona já localmente (realtime/polling evitam duplicado por id)
     if (data && !(_chatCache||[]).some(m=>m.id===data.id)) {
@@ -4927,18 +5655,12 @@ async function pushChatMessage(msg) {
 async function deleteChatMessage(id) {
   _chatCache=(_chatCache||[]).filter(m=>m.id!==id);  // optimista
   _chatListeners.forEach(fn=>fn(_chatCache.slice()));
-  const me = AuthStore.getSession();
+  const rp = await paRpc('chat_delete', { p_message_id: id });
+  if (rp.denied) return;
   let error = null;
-  try {
-    const hash = await paRequireHash('Confirma a password para apagar a mensagem');
-    if (!hash) return;
-    const { data: ok, error: rpcErr } = await _sb.rpc('chat_delete', { p_message_id: id, p_profile_id: me?.id, p_hash: hash });
-    if (rpcErr) throw rpcErr;
-    if (ok === false) { _sessionHash = null; error = { message: 'Sem permissão para apagar esta mensagem.' }; }
-  } catch (e) {
-    const r = await _sb.from('chat_messages').delete().eq('id', id);
-    error = r.error;
-  }
+  if (rp.legacy) { const r = await _sb.from('chat_messages').delete().eq('id', id); error = r.error; }
+  else if (rp.error) error = { message: rp.error };
+  else if (rp.data === false) error = { message: 'Sem permissão para apagar esta mensagem.' };
   if (error) console.error('[PA Chat] erro a apagar', error.message);
 }
 
@@ -4964,13 +5686,13 @@ async function readPhotoFile(file) {
   });
   try {
     const img = await new Promise((res,rej) => { const im = new Image(); im.onload=()=>res(im); im.onerror=rej; im.src=dataUrl; });
-    const max = 400;
+    const max = 320; // 320px chega para um avatar de 64px em ecrã retina
     const scale = Math.min(1, max / Math.max(img.width, img.height));
     const w = Math.round(img.width*scale), h = Math.round(img.height*scale);
     const canvas = document.createElement('canvas');
     canvas.width=w; canvas.height=h;
     canvas.getContext('2d').drawImage(img,0,0,w,h);
-    return canvas.toDataURL('image/jpeg', 0.85);
+    return canvas.toDataURL('image/jpeg', 0.8);
   } catch { return dataUrl; }
 }
 
@@ -5003,6 +5725,13 @@ async function readBugImage(file) {
 
 const BugReportStore = {
   async submit({ byId, byName, description, image }) {
+    const rp = await paRpc('bug_report_send', {
+      p_description: String(description || '').slice(0, 800),
+      p_image: image || null,
+    });
+    if (rp.denied) return;
+    if (rp.error) throw new Error(rp.error);
+    if (!rp.legacy) return;
     const { error } = await _sb.from('bug_reports').insert({
       by_id: byId || null, by_name: byName || null,
       description: String(description || '').slice(0, 800),
@@ -5011,39 +5740,48 @@ const BugReportStore = {
     if (error) throw new Error(error.message);
   },
   async list() {
+    // A tabela deixa de ser legível diretamente: só o admin, via RPC.
+    const rp = await paRpc('bug_reports_list', {});
+    if (rp.denied) return [];
+    if (!rp.legacy) { if (rp.error) throw new Error(rp.error); return rp.data || []; }
     const { data, error } = await _sb.from('bug_reports').select('*').order('created_at', { ascending: false });
     if (error) throw new Error(error.message);
     return data || [];
   },
   async remove(id) {
-    const me = AuthStore.getSession();
-    const hash = await paRequireHash('Confirma a password para apagar o report');
-    if (!hash) return;
-    const { data: n, error } = await _sb.rpc('bug_reports_clear', { p_admin_id: me?.id, p_hash: hash, p_report_id: id });
-    if (error) throw new Error(error.message);
-    if (n === -1) { _sessionHash = null; throw new Error('Password errada ou não és admin.'); }
+    const rp = await paRpc('bug_reports_clear', { p_report_id: id });
+    if (rp.denied) return;
+    if (rp.error) throw new Error(rp.error);
+    if (rp.legacy) { const r = await _sb.from('bug_reports').delete().eq('id', id); if (r.error) throw new Error(r.error.message); return; }
+    if (rp.data === -1) throw new Error('Só o admin pode apagar reports.');
   },
   async removeAll() {
-    const me = AuthStore.getSession();
-    const hash = await paRequireHash('Confirma a password para apagar todos os reports');
-    if (!hash) return;
-    const { data: n, error } = await _sb.rpc('bug_reports_clear', { p_admin_id: me?.id, p_hash: hash, p_report_id: null });
-    if (error) throw new Error(error.message);
-    if (n === -1) { _sessionHash = null; throw new Error('Password errada ou não és admin.'); }
+    const rp = await paRpc('bug_reports_clear', { p_report_id: null });
+    if (rp.denied) return;
+    if (rp.error) throw new Error(rp.error);
+    if (rp.legacy) { const r = await _sb.from('bug_reports').delete().gte('created_at','1970-01-01'); if (r.error) throw new Error(r.error.message); return; }
+    if (rp.data === -1) throw new Error('Só o admin pode apagar reports.');
   },
 };
 Object.assign(window, { BugReportStore, readBugImage });
 
 async function initSupabase() {
-  // Carrega utilizadores primeiro (necessário para memberById)
-  await AuthStore.refreshUsers();
+  // Avatares do disco primeiro (instantâneo). Se não houver, espera pela rede.
+  if (AuthStore.loadUsersFromDisk()) {
+    AuthStore.refreshUsers().catch(() => {}); // refresca em segundo plano
+  } else {
+    await AuthStore.refreshUsers();
+  }
   // EditionStore antes do AppStore (AppStore depende da edição ativa)
   await EditionStore.init();
   await Promise.all([AppStore.init(), ChatStore.init()]);
   // Mantém cache de utilizadores atualizado (display_name incluído)
   try {
-    _sb.channel('profiles_ch').on('postgres_changes', { event:'*', schema:'public', table:'profiles' }, async () => {
-      await AuthStore.refreshUsers();
+    _sb.channel('profiles_ch').on('postgres_changes', { event:'*', schema:'public', table:'profiles' }, async (payload) => {
+      // Só o perfil que mudou; trazer os 14 (com fotos) por causa de um nome
+      // custava 1,3 MB a toda a gente.
+      if (payload && payload.new && payload.new.id) AuthStore.patchUser(payload.new);
+      else await AuthStore.refreshUsers();
       _appListeners.forEach(fn => fn(AppStore._cache()));
       // Força chat a re-renderizar com nomes atualizados
       _chatListeners.forEach(fn => fn((_chatCache||[]).slice()));
@@ -5061,6 +5799,8 @@ Object.assign(window, {
     const updateProfile = async (opts) => { const s=await AuthStore.updateProfile(opts); setUser(s); return s; };
     const logout   = ()               => {
       _sessionHash = null; // credencial em memória some ao sair
+      try { if (paToken()) _sb.rpc('auth_logout', { p_token: paToken() }); } catch (e) {}
+      paSetToken(null);
       try { if (typeof ChatStore !== 'undefined') ChatStore.stop(); } catch (e) {}
       try { if (typeof EditionStore !== 'undefined') EditionStore.setActive(null); } catch {}
       AuthStore.clearSession();
@@ -9879,7 +10619,7 @@ function AccommodationForm({
     size: "sm",
     onClick: () => onSubmit({
       type,
-      price: parseInt(price) || 0,
+      price: paNum(price),
       area,
       link,
       note,
@@ -12298,7 +13038,7 @@ function PlanItinerario({
     }
   }, /*#__PURE__*/React.createElement("select", {
     value: day,
-    onChange: e => setDay(parseInt(e.target.value)),
+    onChange: e => setDay(parseInt(e.target.value, 10)),
     style: {
       width: '100%',
       minWidth: 0,
@@ -14362,7 +15102,7 @@ function MPhase4({
     AppStore.addAccSuggestion({
       id: 'acc_' + Date.now().toString(36),
       type: 'Casa',
-      price: parseInt(price) || 0,
+      price: paNum(price),
       area: area.trim(),
       link,
       note: '',
@@ -16633,6 +17373,49 @@ Object.assign(window, {
 
 // "Ver no mapa" = focar o mapa INTEGRADO da app (nunca sair para o Google).
 // Dispara um evento que os mapas montados ouvem; sem localização, não aparece.
+// Seletor de idioma. A escolha é de cada pessoa (guardada no dispositivo) e
+// não toca nos dados — só na interface.
+function LangSwitch({
+  size = 'sm'
+}) {
+  const [, force] = React.useState(0);
+  React.useEffect(() => {
+    const h = () => force(n => n + 1);
+    window.addEventListener('pa-lang-change', h);
+    return () => window.removeEventListener('pa-lang-change', h);
+  }, []);
+  const btn = (code, label) => React.createElement('button', {
+    key: code,
+    onClick: () => PA_LANG.set(code),
+    'aria-label': code === 'pt' ? 'Português' : 'English',
+    style: {
+      border: 'none',
+      background: 'transparent',
+      cursor: 'pointer',
+      padding: '0 4px',
+      fontFamily: 'var(--pa-mono)',
+      fontSize: size === 'sm' ? 10 : 12,
+      fontWeight: PA_LANG.is(code) ? 700 : 500,
+      color: PA_LANG.is(code) ? 'var(--pa-ink)' : 'var(--pa-muted)',
+      textDecoration: PA_LANG.is(code) ? 'none' : 'underline',
+      opacity: PA_LANG.is(code) ? 1 : 0.7
+    }
+  }, label);
+  return React.createElement('span', {
+    style: {
+      display: 'inline-flex',
+      alignItems: 'center'
+    }
+  }, btn('pt', 'PT'), React.createElement('span', {
+    style: {
+      color: 'var(--pa-line)',
+      fontSize: 10
+    }
+  }, '|'), btn('en', 'EN'));
+}
+Object.assign(window, {
+  LangSwitch
+});
 function paFocusMap(id) {
   window.dispatchEvent(new CustomEvent('pa-map-focus', {
     detail: {
@@ -18045,10 +18828,22 @@ function PAModal({
   children,
   maxWidth = 460
 }) {
+  // Escape fecha (toda a gente espera isso). O clique no fundo NÃO fecha:
+  // um toque a 2 mm do modal apagava formulários inteiros (nome, foto, report).
+  React.useEffect(() => {
+    if (!open) return;
+    const onKey = e => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
   if (!open) return null;
   return /*#__PURE__*/React.createElement("div", {
-    onClick: onClose,
     className: "pa-fade",
+    role: "dialog",
+    "aria-modal": "true",
+    "aria-label": typeof title === 'string' ? title : undefined,
     style: {
       position: 'fixed',
       inset: 0,
@@ -18235,6 +19030,23 @@ function ProfileEditor({
   }, me?.name)), err && /*#__PURE__*/React.createElement(AuthError, {
     msg: err
   }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      padding: '10px 0 2px',
+      borderTop: '1px solid var(--pa-line)',
+      marginTop: 4
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: 'var(--pa-body)',
+      fontSize: 13,
+      color: 'var(--pa-muted)'
+    }
+  }, "Idioma / Language"), /*#__PURE__*/React.createElement(LangSwitch, {
+    size: "md"
+  })), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
       justifyContent: 'flex-end',
@@ -18636,7 +19448,7 @@ function BugReportModal({
       fontSize: 9.5,
       color: 'var(--pa-muted)'
     }
-  }, new Date(r.created_at).toLocaleString('pt-PT', {
+  }, new Date(r.created_at).toLocaleString(PA_LANG.locale(), {
     day: '2-digit',
     month: '2-digit',
     hour: '2-digit',
@@ -19223,7 +20035,7 @@ function EditionEditor({
         });
         if (window._paToast) window._paToast('Aventura criada!', 'success');
       } else {
-        const num = parseInt(number) || EditionStore.nextNumber();
+        const num = parseInt(number, 10) || EditionStore.nextNumber();
         await EditionStore.update(edition.id, {
           number: num,
           title: title.trim() || 'Nova Aventura',
@@ -19390,7 +20202,7 @@ function EditionCard({
   const archived = edition.status === 'archived';
   const createdLabel = (() => {
     try {
-      return new Date(edition.created_at).toLocaleDateString('pt-PT', {
+      return new Date(edition.created_at).toLocaleDateString(PA_LANG.locale(), {
         day: '2-digit',
         month: 'short',
         year: 'numeric'
@@ -20037,6 +20849,11 @@ function EditionHub({
       opacity: 0.4,
       margin: '0 6px'
     }
+  }, "·"), /*#__PURE__*/React.createElement(LangSwitch, null), /*#__PURE__*/React.createElement("span", {
+    style: {
+      opacity: 0.4,
+      margin: '0 6px'
+    }
   }, "·"), /*#__PURE__*/React.createElement("button", {
     onClick: () => setBugOpen(true),
     style: {
@@ -20665,7 +21482,22 @@ class PAErrorBoundary extends React.Component {
     return this.props.children;
   }
 }
-const renderApp = () => ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(PAErrorBoundary, null, React.createElement(RootComp)));
+
+// Raiz criada UMA vez (createRoot duas vezes no mesmo nó dá aviso do React).
+let _paRoot = null;
+const renderApp = () => {
+  if (!_paRoot) _paRoot = ReactDOM.createRoot(document.getElementById('root'));
+  _paRoot.render(React.createElement(PAErrorBoundary, null, React.createElement(RootComp)));
+};
+
+// Trocar de idioma redesenha a app inteira (os textos são traduzidos na
+// criação dos elementos, por isso basta voltar a renderizar).
+window.addEventListener('pa-lang-change', () => {
+  try {
+    document.documentElement.lang = PA_LANG.is('en') ? 'en' : 'pt-PT';
+  } catch (e) {}
+  renderApp();
+});
 
 // Inicializa Supabase (AppStore + ChatStore) antes de renderizar
 initSupabase().then(renderApp).catch(err => {
