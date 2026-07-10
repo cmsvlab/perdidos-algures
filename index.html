@@ -189,6 +189,27 @@ const PA_EN = {
   "A tua disponibilidade": "Your availability",
   "A tua ordem — arrasta para reordenar": "Your order — drag to reorder",
   "A tua resposta": "Your answer",
+  "A tua sessão expirou. Entra outra vez para continuares.": "Your session has expired. Sign in again to continue.",
+  "🔒 Reforçámos a segurança da app. Entra outra vez — é só desta.": "🔒 We've tightened the app's security. Sign in again — just this once.",
+  "Escolhe uma password nova": "Choose a new password",
+  "Mudar password": "Change password",
+  "Password atual": "Current password",
+  "Password nova": "New password",
+  "Repete a password nova": "Repeat the new password",
+  "Guardar password": "Save password",
+  "As passwords não coincidem.": "The passwords don't match.",
+  "A password atual está errada.": "Your current password is wrong.",
+  "A password nova tem de ter pelo menos 4 caracteres.": "The new password must be at least 4 characters.",
+  "Password alterada. As outras sessões foram terminadas.": "Password changed. Your other sessions were signed out.",
+  "Entraste com uma password temporária. Escolhe uma só tua para continuar.": "You signed in with a temporary password. Choose one of your own to continue.",
+  "A password temporária expirou. Pede outra ao admin.": "The temporary password has expired. Ask the admin for a new one.",
+  "🔑 Repor password": "🔑 Reset password",
+  "só a vês uma vez": "you only see it once",
+  "Já enviei": "Sent",
+  "📨 Enviar": "📨 Send",
+  "Só o admin pode repor passwords.": "Only the admin can reset passwords.",
+  "Copiado — cola no WhatsApp!": "Copied — paste it into WhatsApp!",
+  "Sessão inválida.": "Invalid session.",
   "Abril": "April",
   "Acertar contas": "Settle up",
   "Adiciona o alojamento, combustível, jantares... e a app divide tudo e diz quem paga a quem.": "Add the stay, fuel, dinners... and the app splits it all and tells you who owes whom.",
@@ -4344,7 +4365,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r61';
+window.PA_VERSION = '2026.06.01-r62';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -4565,12 +4586,28 @@ async function paRpc(fn, args) {
 }
 Object.assign(window, { paRpc });
 
-function paSessionExpired() {
+function paSessionExpired(reason) {
   paSetToken(null);
-  if (window._paToast) window._paToast('A tua sessão expirou — entra de novo.', 'error');
+  try { localStorage.setItem('pa-relogin', reason || 'expired'); } catch (e) {}
   try { AuthStore.clearSession(); } catch (e) {}
-  setTimeout(() => { try { location.reload(); } catch (e) {} }, 1200);
+  window.dispatchEvent(new CustomEvent('pa-force-logout'));
 }
+
+// Corre uma vez ao arrancar: quem tem sessão antiga (sem token) ou token morto
+// vai direto ao login, com explicação. Ninguém tem de saber o que é um token.
+async function paEnsureSession() {
+  let s = null;
+  try { s = AuthStore.getSession(); } catch (e) {}
+  if (!s) return;                       // já está no ecrã de entrada
+  const tok = paToken();
+  if (!tok) { paSessionExpired('upgrade'); return; }   // sessão anterior aos tokens
+  try {
+    const { data, error } = await _sb.rpc('session_valid', { p_token: tok });
+    if (error) return;                  // RPC ainda não existe (migração por correr)
+    if (data === false) paSessionExpired('expired');
+  } catch (e) { /* offline: não expulsamos ninguém por causa da rede */ }
+}
+Object.assign(window, { paEnsureSession });
 Object.assign(window, { paToken, paSetToken });
 
 // Hash da password guardado APENAS em memória (só para a migração antiga).
@@ -5829,6 +5866,9 @@ const BugReportStore = {
 Object.assign(window, { BugReportStore, readBugImage });
 
 async function initSupabase() {
+  // Sessões antigas (sem token) ou mortas saem já, com explicação no login —
+  // em vez de baterem com a cara na porta a meio de uma votação.
+  await paEnsureSession();
   // Avatares do disco primeiro (instantâneo). Se não houver, espera pela rede.
   if (AuthStore.loadUsersFromDisk()) {
     AuthStore.refreshUsers().catch(() => {}); // refresca em segundo plano
@@ -5857,6 +5897,13 @@ Object.assign(window, {
   _sb, safeStore, AuthStore, AppStore, VoteStore, ChatStore, EditionStore,
   useAuth: function() {
     const [user, setUser] = React.useState(() => _session);
+    // A app pode decidir sozinha que a sessão morreu (arranque, ou escrita
+    // recusada). Aqui reagimos: ecrã de entrada, sem recarregar a página.
+    React.useEffect(() => {
+      const h = () => setUser(null);
+      window.addEventListener('pa-force-logout', h);
+      return () => window.removeEventListener('pa-force-logout', h);
+    }, []);
     const login    = async (name,pw)  => { const s=await AuthStore.login(name,pw);    setUser(s); return s; };
     const register = async (opts)     => { const s=await AuthStore.register(opts);    setUser(s); return s; };
     const updateProfile = async (opts) => { const s=await AuthStore.updateProfile(opts); setUser(s); return s; };
@@ -6003,6 +6050,16 @@ function LoginScreen({
   const [pw, setPw] = aUseState('');
   const [busy, setBusy] = aUseState(false);
   const [err, setErr] = aUseState(null);
+  // A app expulsou-nos por alguma razão? Dizê-la é melhor do que um ecrã mudo.
+  const [notice] = aUseState(() => {
+    try {
+      const r = localStorage.getItem('pa-relogin');
+      if (r) localStorage.removeItem('pa-relogin');
+      return r;
+    } catch (e) {
+      return null;
+    }
+  });
   const submit = async e => {
     e.preventDefault();
     setBusy(true);
@@ -6030,7 +6087,20 @@ function LoginScreen({
       color: 'var(--pa-muted)',
       fontSize: 14
     }
-  }, "Inicia sessão para entrar na edição em curso."), /*#__PURE__*/React.createElement("form", {
+  }, "Inicia sessão para entrar na edição em curso."), notice && /*#__PURE__*/React.createElement("div", {
+    role: "status",
+    style: {
+      marginTop: 14,
+      padding: '12px 14px',
+      borderRadius: 12,
+      background: 'rgba(217,119,87,0.08)',
+      border: '1px solid var(--pa-accent)',
+      fontFamily: 'var(--pa-body)',
+      fontSize: 13,
+      color: 'var(--pa-ink)',
+      lineHeight: 1.5
+    }
+  }, notice === 'upgrade' ? /*#__PURE__*/React.createElement(React.Fragment, null, "🔒 Reforçámos a segurança da app. Entra outra vez — é só desta.") : /*#__PURE__*/React.createElement(React.Fragment, null, "A tua sessão expirou. Entra outra vez para continuares.")), /*#__PURE__*/React.createElement("form", {
     onSubmit: submit,
     style: {
       marginTop: 28,
