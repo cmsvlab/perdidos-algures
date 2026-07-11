@@ -4365,7 +4365,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r63';
+window.PA_VERSION = '2026.06.01-r64';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -4569,10 +4569,10 @@ Object.assign(window, { paTempPassword });
 // utilizador entrar de novo. Se a função não existir (migração por correr),
 // devolve {legacy:true} para o chamador usar o caminho antigo.
 async function paRpc(fn, args) {
-  // Sem token não vale a pena bater à porta: a sessão é anterior às sessões
-  // com token (ou expirou). Mandar entrar de novo é honesto; dizer "não és
-  // admin" é uma mentira que já custou uma tarde a alguém.
-  if (!paToken()) { paSessionExpired(); return { denied: true }; }
+  // Sem token: ou a migração dos tokens ainda não correu, ou é uma sessão
+  // antiga. Em vez de expulsar (o que, pré-migração, tornaria a app inutilizável),
+  // degradamos para o caminho legado — que cada caller já sabe tratar.
+  if (!paToken()) return { legacy: true };
   try {
     const { data, error } = await _sb.rpc(fn, { ...args, p_token: paToken() });
     if (error) {
@@ -4600,7 +4600,18 @@ async function paEnsureSession() {
   try { s = AuthStore.getSession(); } catch (e) {}
   if (!s) return;                       // já está no ecrã de entrada
   const tok = paToken();
-  if (!tok) { paSessionExpired('upgrade'); return; }   // sessão anterior aos tokens
+  if (!tok) {
+    // Sem token, mas há sessão guardada. Só expulsamos se o sistema de tokens
+    // já existir no servidor. Sondamos session_valid: se não existe, estamos
+    // pré-migração → mantemos a sessão (modo legado).
+    try {
+      const { error } = await _sb.rpc('session_valid', { p_token: '' });
+      const m = String(error?.message || '');
+      if (error && /does not exist|schema cache|function public\./i.test(m)) return; // pré-migração: fica
+      paSessionExpired('upgrade'); // tokens existem, esta sessão não tem um: re-login
+    } catch (e) { /* offline/erro de rede: não expulsamos ninguém */ }
+    return;
+  }
   try {
     const { data, error } = await _sb.rpc('session_valid', { p_token: tok });
     if (error) return;                  // RPC ainda não existe (migração por correr)
