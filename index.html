@@ -4365,7 +4365,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r64';
+window.PA_VERSION = '2026.06.01-r65';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -4569,10 +4569,10 @@ Object.assign(window, { paTempPassword });
 // utilizador entrar de novo. Se a função não existir (migração por correr),
 // devolve {legacy:true} para o chamador usar o caminho antigo.
 async function paRpc(fn, args) {
-  // Sem token: ou a migração dos tokens ainda não correu, ou é uma sessão
-  // antiga. Em vez de expulsar (o que, pré-migração, tornaria a app inutilizável),
-  // degradamos para o caminho legado — que cada caller já sabe tratar.
-  if (!paToken()) return { legacy: true };
+  // Sem token não há sessão que o servidor possa confirmar. Mandamos entrar de
+  // novo em vez de escrever direto na base. (Sessões antigas são reencaminhadas
+  // ao login no arranque, por paEnsureSession.)
+  if (!paToken()) { paSessionExpired(); return { denied: true }; }
   try {
     const { data, error } = await _sb.rpc(fn, { ...args, p_token: paToken() });
     if (error) {
