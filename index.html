@@ -4365,7 +4365,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r62';
+window.PA_VERSION = '2026.06.01-r63';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -21209,11 +21209,6 @@ function EditionHub({
     open: profileOpen,
     onClose: () => setProfileOpen(false),
     auth: auth
-  }), /*#__PURE__*/React.createElement(PasswordModal, {
-    open: pwOpen,
-    onClose: () => setPwOpen(false),
-    auth: auth,
-    forced: pwForced
   }), /*#__PURE__*/React.createElement(EditionEditor, {
     open: editorOpen,
     onClose: () => setEditorOpen(false),
@@ -21447,6 +21442,11 @@ function LiveApp() {
       onEnterEdition: () => setInEdition(true)
     }), showOnboarding && /*#__PURE__*/React.createElement(OnboardingModal, {
       onClose: () => setShowOnboarding(false)
+    }), /*#__PURE__*/React.createElement(PasswordModal, {
+      open: pwOpen,
+      onClose: () => setPwOpen(false),
+      auth: auth,
+      forced: pwForced
     }));
   }
   const backToHub = () => {
@@ -21469,6 +21469,11 @@ function LiveApp() {
       open: profileOpen,
       onClose: () => setProfileOpen(false),
       auth: auth
+    }), /*#__PURE__*/React.createElement(PasswordModal, {
+      open: pwOpen,
+      onClose: () => setPwOpen(false),
+      auth: auth,
+      forced: pwForced
     }), /*#__PURE__*/React.createElement(AdminModalsHost, {
       me: me
     }));
@@ -21501,6 +21506,11 @@ function LiveApp() {
     open: profileOpen,
     onClose: () => setProfileOpen(false),
     auth: auth
+  }), /*#__PURE__*/React.createElement(PasswordModal, {
+    open: pwOpen,
+    onClose: () => setPwOpen(false),
+    auth: auth,
+    forced: pwForced
   }), /*#__PURE__*/React.createElement(AdminModalsHost, {
     me: me
   })));

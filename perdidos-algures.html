@@ -3123,7 +3123,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r62';
+window.PA_VERSION = '2026.06.01-r63';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -11649,7 +11649,6 @@ function EditionHub({ auth, onEnterEdition, narrow }) {
       <BugReportModal open={bugOpen} onClose={() => setBugOpen(false)} me={me} isAdmin={isAdmin} />
 
       <ProfileEditor open={profileOpen} onClose={()=>setProfileOpen(false)} auth={auth} />
-      <PasswordModal open={pwOpen} onClose={()=>setPwOpen(false)} auth={auth} forced={pwForced} />
       <EditionEditor open={editorOpen} onClose={()=>setEditorOpen(false)} edition={editingEdition} me={me} proposeMode={!isAdmin} />
     </div>
   );
@@ -11782,6 +11781,7 @@ function LiveApp() {
       <div className="pa-vh" style={{ width:'100vw', overflow:'auto' }}>
         <EditionHub auth={auth} narrow={!isDesktop} onEnterEdition={() => setInEdition(true)} />
         {showOnboarding && <OnboardingModal onClose={()=>setShowOnboarding(false)} />}
+        <PasswordModal open={pwOpen} onClose={()=>setPwOpen(false)} auth={auth} forced={pwForced} />
       </div>
     );
   }
@@ -11793,6 +11793,7 @@ function LiveApp() {
       <div className="pa-vh" style={{ width: '100vw' }}>
         <DesktopShell viewAs={viewAs} liveUser={me} onLogout={auth.logout} onBackToHub={backToHub} onEditProfile={()=>setProfileOpen(true)} />
         <ProfileEditor open={profileOpen} onClose={()=>setProfileOpen(false)} auth={auth} />
+        <PasswordModal open={pwOpen} onClose={()=>setPwOpen(false)} auth={auth} forced={pwForced} />
         <AdminModalsHost me={me} />
       </div>
     );
@@ -11803,6 +11804,7 @@ function LiveApp() {
       <div style={{ width: '100%', maxWidth: 520, background: 'var(--pa-bg)', display: 'flex', flexDirection: 'column', boxShadow: '0 0 60px rgba(0,0,0,0.3)' }}>
         <MobileApp viewAs={viewAs} liveUser={me} onLogout={auth.logout} onBackToHub={backToHub} onEditProfile={()=>setProfileOpen(true)} />
         <ProfileEditor open={profileOpen} onClose={()=>setProfileOpen(false)} auth={auth} />
+        <PasswordModal open={pwOpen} onClose={()=>setPwOpen(false)} auth={auth} forced={pwForced} />
         <AdminModalsHost me={me} />
       </div>
     </div>
