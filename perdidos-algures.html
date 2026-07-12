@@ -3123,7 +3123,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r65';
+window.PA_VERSION = '2026.06.01-r66';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -3161,7 +3161,13 @@ if (navigator.serviceWorker) {
     // Ao (re)entrar no separador: procura versão nova e aplica a que estiver pronta.
     // Momento seguro — o utilizador acabou de chegar, não está a meio de nada.
     document.addEventListener('visibilitychange', () => {
-      if (!document.hidden) { reg.update().catch(() => {}); applyUpdate(); }
+      if (!document.hidden) {
+        reg.update().catch(() => {});
+        // Não recarregar se o utilizador está a meio de escrever (perderia o texto).
+        const ae = document.activeElement;
+        const a_escrever = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable);
+        if (!a_escrever) applyUpdate();
+      }
     });
 
     // Verificação periódica (apanha versões novas mesmo sem mudar de app).
@@ -3597,8 +3603,8 @@ const AuthStore = {
       data = r.data; error = r.error;
     } else if (rp.error) { error = { message: rp.error }; }
     else {
-      const r = await _sb.from('profiles').select('*').eq('id', _session.id).single();
-      data = r.data; error = r.error;
+      const r = await _sb.from('profiles').select('*').eq('id', _session.id).maybeSingle();
+      data = r.data; error = r.error || (r.data ? null : { message: 'perfil não encontrado' });
     }
     if (error) throw new Error('Erro ao atualizar perfil: ' + error.message);
     const session = _profileToSession(data);
@@ -3832,7 +3838,6 @@ const EditionStore = {
   },
   _startPolling() {
     if (this._pollingInterval) return;
-    console.log('[PA Editions] polling 5s (fallback)');
     this._pollingInterval = setInterval(async () => {
       if (document.hidden) return; // não polla em background — poupa bateria e evita refresh constante
       await this._pollOnce();
@@ -3942,16 +3947,20 @@ const AppStore = {
 
   // Fallback read-modify-write directo (quando as RPC não existem na BD).
   // Não é 100% atómico mas funciona; usado se o supabase-rpcs.sql ainda não correu.
-  async _rmwFallback(key, transformFn, ed) {
+  async _rmwFallback(key, transformFn, ed, revert) {
     try {
-      const { data: fresh } = await _sb.from('editions').select('data').eq('id', ed.id).single();
+      const { data: fresh } = await _sb.from('editions').select('data').eq('id', ed.id).maybeSingle();
       const freshData = (fresh && fresh.data) || {};
       const newData = { ...freshData, [key]: transformFn(freshData[key]) };
       this._applyNewData(ed, newData);
-      await this._updateWithRetry(ed.id, newData, key);
+      const ok = await this._updateWithRetry(ed.id, newData, key);
+      if (!ok && revert) { revert(); }
+      return ok;
     } catch (e) {
       console.error('[PA AppStore] fallback falhou:', key, e.message);
+      if (revert) revert();
       if (window._paToast) window._paToast('Erro ao guardar. Tenta de novo.');
+      return false;
     }
   },
 
@@ -3969,6 +3978,8 @@ const AppStore = {
     if (!ed) { console.warn('[PA AppStore] sem edição ativa'); return; }
 
     // Optimistic local update (UI feedback imediato)
+    const prevCache = this._cache(); const prevData = ed.data;
+    const revert = () => { _appCache = prevCache; ed.data = prevData; this._notify(); };
     const localCurrent = this._cache()[key] || {};
     _appCache = { ...(this._cache()), [key]: { ...localCurrent, ...deltaObj } };
     this._notify();
@@ -3979,11 +3990,11 @@ const AppStore = {
       });
       if (error) {
         // RPC indisponível → fallback
-        return await this._rmwFallback(key, (cur) => ({ ...(cur || {}), ...deltaObj }), ed);
+        return await this._rmwFallback(key, (cur) => ({ ...(cur || {}), ...deltaObj }), ed, revert);
       }
       if (newData) this._applyNewData(ed, newData);
     } catch (e) {
-      return await this._rmwFallback(key, (cur) => ({ ...(cur || {}), ...deltaObj }), ed);
+      return await this._rmwFallback(key, (cur) => ({ ...(cur || {}), ...deltaObj }), ed, revert);
     }
   },
 
@@ -3992,6 +4003,8 @@ const AppStore = {
     const ed = EditionStore.active();
     if (!ed) return;
 
+    const prevCache = this._cache(); const prevData = ed.data;
+    const revert = () => { _appCache = prevCache; ed.data = prevData; this._notify(); };
     const localCurrent = this._cache()[key] || [];
     _appCache = { ...(this._cache()), [key]: [...localCurrent, item] };
     this._notify();
@@ -4006,7 +4019,7 @@ const AppStore = {
           const arr = cur || [];
           if (item && item.id && arr.some(x => x && x.id === item.id)) return arr;
           return [...arr, item];
-        }, ed);
+        }, ed, revert);
       }
       if (newData) this._applyNewData(ed, newData);
     } catch (e) {
@@ -4014,7 +4027,7 @@ const AppStore = {
         const arr = cur || [];
         if (item && item.id && arr.some(x => x && x.id === item.id)) return arr;
         return [...arr, item];
-      }, ed);
+      }, ed, revert);
     }
   },
 
@@ -4023,6 +4036,8 @@ const AppStore = {
     const ed = EditionStore.active();
     if (!ed) return;
 
+    const prevCache = this._cache(); const prevData = ed.data;
+    const revert = () => { _appCache = prevCache; ed.data = prevData; this._notify(); };
     const localCurrent = this._cache()[key] || [];
     _appCache = { ...(this._cache()), [key]: localCurrent.filter(x => x && x.id !== itemId) };
     this._notify();
@@ -4033,11 +4048,11 @@ const AppStore = {
         p_token: paToken(),
       });
       if (error) {
-        return await this._rmwFallback(key, (cur) => (cur || []).filter(x => !x || x.id !== itemId), ed);
+        return await this._rmwFallback(key, (cur) => (cur || []).filter(x => !x || x.id !== itemId), ed, revert);
       }
       if (newData) this._applyNewData(ed, newData);
     } catch (e) {
-      return await this._rmwFallback(key, (cur) => (cur || []).filter(x => !x || x.id !== itemId), ed);
+      return await this._rmwFallback(key, (cur) => (cur || []).filter(x => !x || x.id !== itemId), ed, revert);
     }
   },
 
@@ -4045,22 +4060,28 @@ const AppStore = {
   async _modifyArray(key, fn) {
     const ed = EditionStore.active();
     if (!ed) return;
+    const prevCache = this._cache(); const prevData = ed.data;
+    const revert = () => { _appCache = prevCache; ed.data = prevData; this._notify(); };
     const localCurrent = this._cache()[key] || [];
     _appCache = { ...(this._cache()), [key]: fn(localCurrent) };
     this._notify();
-    await this._rmwFallback(key, (cur) => fn(cur || []), ed);
+    await this._rmwFallback(key, (cur) => fn(cur || []), ed, revert);
   },
 
   async clearKey(key) {
     const ed = EditionStore.active();
     if (!ed) return;
+    const prevCache = this._cache(); const prevData = ed.data;
     _appCache = { ...(this._cache()) };
     delete _appCache[key];
     this._notify();
     const newData = { ...(ed.data || {}) };
     delete newData[key];
     ed.data = newData;
-    await _sb.from('editions').update({ data: newData }).eq('id', ed.id);
+    // Escrita direta a editions está fechada por RLS; passa pela RPC edition_write.
+    const ok = await this._updateWithRetry(ed.id, newData, key);
+    if (!ok) { _appCache = prevCache; ed.data = prevData; this._notify(); }
+    return ok;
   },
 
   async init() {
@@ -4238,21 +4259,24 @@ const AppStore = {
     if (!ed) return;
     const emptyPlan = { costs:{ perPerson:0, breakdown:[], paid:{} }, itinerary:[], activities:[], shopping:[], packing:[], pois:[] };
     // Optimistic local
+    const prevCache = this._cache(); const prevData = ed.data;
     const localPlan = this.getPlanning();
     _appCache = { ...(this._cache()), planData: transformFn(localPlan) };
     this._notify();
-    // Read-modify-write a partir do servidor
+    // Read-modify-write a partir do servidor (via RPC edition_write; direto está fechado por RLS).
     try {
-      const { data: fresh } = await _sb.from('editions').select('data').eq('id', ed.id).single();
+      const { data: fresh } = await _sb.from('editions').select('data').eq('id', ed.id).maybeSingle();
       const freshData = (fresh && fresh.data) || {};
       const freshPlan = freshData.planData || emptyPlan;
       const newPlan = transformFn(freshPlan);
       const newData = { ...freshData, planData: newPlan };
       this._applyNewData(ed, newData);
-      const { error } = await _sb.from('editions').update({ data: newData }).eq('id', ed.id);
-      if (error) console.error('[PA AppStore] planning erro:', error.message);
+      const ok = await this._updateWithRetry(ed.id, newData, 'planData');
+      if (!ok) { _appCache = prevCache; ed.data = prevData; this._notify(); }
     } catch (e) {
       console.error('[PA AppStore] planning falhou:', e.message);
+      _appCache = prevCache; ed.data = prevData; this._notify();
+      if (window._paToast) window._paToast('Não consegui guardar. Verifica a ligação.');
     }
   },
 
@@ -4444,8 +4468,11 @@ const ChatStore = {
     }
   },
   async load() {
-    const { data } = await _sb.from('chat_messages').select('id,profile_id,text,created_at').order('created_at',{ascending:true});
-    _chatCache = (data||[]).map(r => ({ id:r.id, who:r.profile_id, text:r.text, when:_fmtTime(r.created_at) }));
+    // Só as últimas 200 (mais recentes primeiro no servidor, depois invertidas):
+    // evita puxar o histórico inteiro a cada arranque à medida que cresce.
+    const { data } = await _sb.from('chat_messages').select('id,profile_id,text,created_at').order('created_at',{ascending:false}).limit(200);
+    const rows = (data||[]).slice().reverse();
+    _chatCache = rows.map(r => ({ id:r.id, who:r.profile_id, text:r.text, when:_fmtTime(r.created_at) }));
     return _chatCache;
   },
   _pollingInterval: null,
@@ -4473,7 +4500,6 @@ const ChatStore = {
   },
   _startPolling() {
     if (this._pollingInterval) return;
-    console.log('[PA Chat] polling 4s (fallback)');
     this._pollingInterval = setInterval(async () => {
       if (document.hidden) return;
       const lastId = (_chatCache && _chatCache.length > 0) ? _chatCache[_chatCache.length-1].id : 0;
@@ -4524,15 +4550,17 @@ async function pushChatMessage(msg) {
   }
 }
 async function deleteChatMessage(id) {
+  const prev = _chatCache ? _chatCache.slice() : [];
+  const restore = (msg) => { _chatCache = prev; _chatListeners.forEach(fn=>fn(_chatCache.slice())); if (window._paToast) window._paToast(msg || 'Não consegui apagar a mensagem.', 'error'); };
   _chatCache=(_chatCache||[]).filter(m=>m.id!==id);  // optimista
   _chatListeners.forEach(fn=>fn(_chatCache.slice()));
   const rp = await paRpc('chat_delete', { p_message_id: id });
-  if (rp.denied) return;
+  if (rp.denied) { restore('Sessão inválida. Entra de novo.'); return; }
   let error = null;
   if (rp.legacy) { const r = await _sb.from('chat_messages').delete().eq('id', id); error = r.error; }
   else if (rp.error) error = { message: rp.error };
   else if (rp.data === false) error = { message: 'Sem permissão para apagar esta mensagem.' };
-  if (error) console.error('[PA Chat] erro a apagar', error.message);
+  if (error) { console.error('[PA Chat] erro a apagar', error.message); restore(error.message); }
 }
 
 function useChat() {
@@ -4661,7 +4689,6 @@ async function initSupabase() {
       _chatListeners.forEach(fn => fn((_chatCache||[]).slice()));
     }).subscribe();
   } catch {}
-  console.log('[PA] Supabase iniciado ✓', _usersCache.length, 'utilizadores,', _editionsCache.length, 'edições');
 }
 
 Object.assign(window, {

@@ -2,7 +2,7 @@
 // Atualização automática: o novo SW só assume quando a app manda (SKIP_WAITING),
 // num momento seguro. O nome da cache muda a cada versão (injetado no build),
 // para o browser detetar sempre que há uma versão nova.
-const CACHE = 'perdidos-algures-2026.06.01-r65';
+const CACHE = 'perdidos-algures-2026.06.01-r66';
 
 self.addEventListener('install', () => {
   // NÃO faz skipWaiting automático — espera a ordem da app (evita recarregar a meio).
