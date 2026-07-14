@@ -156,6 +156,15 @@
 // ═════════════════════════════════════════════════════════════════════════
 // ═══ Dicionário PT→EN (gerado; chaves = strings exatas do código) ═══
 const PA_EN = {
+  "Vão": "Going",
+  "Não vão": "Not going",
+  "Por confirmar": "To confirm",
+  "Em curso": "In progress",
+  "Empate por resolver": "Tie to resolve",
+  "Abrir painel": "Open panel",
+  "Fechar painel": "Close panel",
+  "Quem marcou cada dia": "Who marked each day",
+  "Ver menos": "Show less",
   "dormimos mesmo?": "we actually sleeping?",
   "dormimos?": "we sleeping?",
   "Quem": "Who's",
@@ -1300,6 +1309,8 @@ const PA_EN_PATTERNS = [
   ["^(\\d+) (vai|vão) · (\\d+) por confirmar$", "$1 going · $3 to confirm"],
   ["^(\\d+) (vai|vão) · (\\d+) por confirmar\\. Avança quando estiver decidido\\.$", "$1 going · $3 to confirm. Move on when it's settled."],
   ["^Estado do grupo · (\\d+) (vai|vão) · (\\d+) por confirmar$", "Group status · $1 going · $3 to confirm"],
+  ["^Ver todos os dias \\((\\d+)\\)$", "See all days ($1)"],
+  ["^(\\d+) em falta$", "$1 missing"],
 ];
 
 const PA_MONTHS_EN = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -3780,7 +3791,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r71';
+window.PA_VERSION = '2026.06.01-r73';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -7123,6 +7134,83 @@ function DPhaseHeader({ phase, title, sub, status, statusTone = 'accent' }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────
+// Quem marcou cada dia — painel partilhado (fases 2 e 3, desktop e mobile).
+// Compacto por omissão: avatares empilhados. Toca numa linha para ver os nomes.
+// Visível a todos os membros (não é só para o admin).
+// ─────────────────────────────────────────────────────────────
+function DayPeoplePanel({ peopleByDay, total, limit = 5, title = 'Quem marcou cada dia' }) {
+  const [showAll, setShowAll] = React.useState(false);
+  const [openDay, setOpenDay] = React.useState(null);
+
+  const days = React.useMemo(() => Object.keys(peopleByDay || {})
+    .filter((k) => (peopleByDay[k] || []).length > 0)
+    // Mais gente primeiro; empates por data.
+    .sort((a, b) => ((peopleByDay[b].length - peopleByDay[a].length) || (a < b ? -1 : 1))),
+    [peopleByDay]);
+
+  if (days.length === 0) return null;
+  const shown = showAll ? days : days.slice(0, limit);
+  const MAX_AV = 8;
+
+  return (
+    <div style={{ background:'#fff', borderRadius:16, padding:16, border:'1px solid var(--pa-line)' }}>
+      <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:10 }}>{title}</div>
+      {shown.map((k, idx) => {
+        const people = peopleByDay[k] || [];
+        const open = openDay === k;
+        const extra = people.length - MAX_AV;
+        return (
+          <div key={k} style={{ borderTop: idx === 0 ? 'none' : '1px solid var(--pa-line)' }}>
+            <div onClick={() => setOpenDay(open ? null : k)} role="button" tabIndex={0}
+              aria-label={`${paDayLabel(k)} — ${people.length} de ${total}`}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpenDay(open ? null : k); } }}
+              style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 0', cursor:'pointer' }}>
+              <div style={{ width:34, height:30, borderRadius:8, flexShrink:0,
+                background:`rgba(217,119,87,${0.15 + (people.length / Math.max(total, 1)) * 0.6})`,
+                fontFamily:'var(--pa-body)', fontSize:13, fontWeight:700, color:'var(--pa-ink)',
+                display:'flex', alignItems:'center', justifyContent:'center' }}>
+                {paDayLabel(k).split(' ')[0]}<span style={{ fontSize:8, fontWeight:600, marginLeft:1, opacity:0.7 }}>{paDayLabel(k).split(' ')[1]}</span>
+              </div>
+              {/* avatares empilhados: compacto, sem nomes */}
+              <div style={{ flex:1, display:'flex', alignItems:'center', minWidth:0 }}>
+                {people.slice(0, MAX_AV).map((p, i) => (
+                  <div key={p.id} style={{ marginLeft: i === 0 ? 0 : -6, border:'1.5px solid #fff', borderRadius:999, flexShrink:0 }}>
+                    <Avatar member={p} size={20} />
+                  </div>
+                ))}
+                {extra > 0 && (
+                  <span style={{ marginLeft:4, fontFamily:'var(--pa-mono)', fontSize:10, color:'var(--pa-muted)' }}>+{extra}</span>
+                )}
+              </div>
+              <span style={{ fontFamily:'var(--pa-mono)', fontSize:11, color:'var(--pa-muted)', fontWeight:600, flexShrink:0 }}>{people.length}/{total}</span>
+              <span style={{ fontSize:9, color:'var(--pa-muted)', flexShrink:0, transform: open ? 'rotate(180deg)' : 'none', transition:'transform .15s' }}>▾</span>
+            </div>
+            {open && (
+              <div style={{ display:'flex', flexWrap:'wrap', gap:5, padding:'0 0 10px 44px' }}>
+                {people.map((p) => (
+                  <div key={p.id} style={{ display:'flex', alignItems:'center', gap:5, background:'rgba(31,26,20,0.04)', borderRadius:999, padding:'2px 9px 2px 2px' }}>
+                    <Avatar member={p} size={18} />
+                    <span style={{ fontFamily:'var(--pa-body)', fontSize:11.5, fontWeight:500, color:'var(--pa-ink)' }}>{p.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {days.length > limit && (
+        <button onClick={() => setShowAll(!showAll)} style={{
+          marginTop:8, width:'100%', padding:'7px 0', borderRadius:9, cursor:'pointer',
+          background:'transparent', border:'1px dashed var(--pa-line)', color:'var(--pa-muted)',
+          fontFamily:'var(--pa-body)', fontSize:12 }}>
+          {showAll ? 'Ver menos' : `Ver todos os dias (${days.length})`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function DAdminBar({ children, hint, showNext = true }) {
   const { phase, setPhase, canEdit } = dUseContext(PhaseCtx);
   if (!canEdit) return null; // ações de admin: invisíveis para os restantes participantes
@@ -7161,6 +7249,7 @@ function DPhaseConfirm({ me }) {
 
   const stateOf = (id) => memberGoing(appData, id); // true | false | undefined
   const going = interested.filter((m) => stateOf(m.id) === true);
+  const notGoing = interested.filter((m) => stateOf(m.id) === false);
   const pending = interested.filter((m) => stateOf(m.id) === undefined);
 
   const myState = stateOf(me.id);
@@ -7197,9 +7286,23 @@ function DPhaseConfirm({ me }) {
         </div>
       )}
 
+      {/* resumo ao vivo — toda a gente vê quem vai e quem não vai */}
+      <div style={{ display:'flex', gap:12, marginBottom:16 }}>
+        {[
+          { l:'Vão', n:going.length, tone:'#3d5e44', bg:'rgba(107,142,111,0.16)' },
+          { l:'Não vão', n:notGoing.length, tone:'#8a4220', bg:'rgba(217,119,87,0.18)' },
+          { l:'Por confirmar', n:pending.length, tone:'var(--pa-muted)', bg:'rgba(31,26,20,0.05)' },
+        ].map((c) => (
+          <div key={c.l} style={{ background:c.bg, borderRadius:14, padding:'14px 18px', flex:1 }}>
+            <div style={{ fontFamily:'var(--pa-display)', fontSize:32, fontWeight:600, color:c.tone, letterSpacing:-0.6 }}>{c.n}</div>
+            <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, color:c.tone, letterSpacing:1, textTransform:'uppercase', marginTop:2 }}>{c.l}</div>
+          </div>
+        ))}
+      </div>
+
       <div style={{ background:'#fff', borderRadius:16, padding:16, border:'1px solid var(--pa-line)' }}>
         <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:10 }}>
-          Estado do grupo · {going.length} {going.length === 1 ? 'vai' : 'vão'} · {pending.length} por confirmar
+          Estado do grupo
         </div>
         {interested.map((m) => {
           const s = stateOf(m.id);
@@ -7623,7 +7726,7 @@ function DPhase3({ me }) {
 
 Object.assign(window, {
   getAllMembers,
-  DTopBar, DLeftRail, DRightRail, DPhaseHeader, DAdminBar,
+  DTopBar, DLeftRail, DRightRail, DPhaseHeader, DAdminBar, DayPeoplePanel,
   DPhase1, DPhase2, DPhase3, DPhaseConfirm, LocSuggestionForm,
   useActivityFeed,
 });
@@ -8029,7 +8132,7 @@ function DPhase6({ me }) {
   const peopleByDay = dUseMemo2(() => {
     const map = {};
     Object.entries(allAvail).forEach(([mid, arr]) => { if (mid === me.id || !inIds.has(mid)) return; (arr || []).forEach((d) => { const k = paNormDay(d); (map[k] = map[k] || []).push(memberById(mid) || { name: '?' }); }); });
-    if (meIsIn) days.forEach((k) => { (map[k] = map[k] || []).push({ name: me.name + ' (tu)' }); });
+    if (meIsIn) days.forEach((k) => { (map[k] = map[k] || []).push({ ...(memberById(me.id) || me), name: me.name + ' (tu)' }); });
     return map;
   }, [allAvail, days, me.id, inIds, meIsIn]);
   const namesFor = (k) => (peopleByDay[k] || []).map((p) => p.name).join(', ');
@@ -8118,6 +8221,8 @@ function DPhase6({ me }) {
             })}
           </div>
 
+          <DayPeoplePanel peopleByDay={peopleByDay} total={expectedMembers.length} />
+
           <Btn variant="accent" size="lg" style={{ width:'100%' }} onClick={() => {
             AppStore.setAvailability(me.id, days);
             if (window._paToast) window._paToast('Disponibilidade guardada!', 'success');
@@ -8147,7 +8252,8 @@ function DPhase7({ me }) {
   const appData = useAppStore();
   const allAvail = appData.avail || {};
   const allMembers = getEditionMembers(appData);
-  const inMembers = (typeof getInMembers === 'function') ? getInMembers(appData) : allMembers;
+  // Datas decidem-se com a disponibilidade dos INTERESSADOS (não muda ao trancar).
+  const inMembers = (typeof getInterestedMembers === 'function') ? getInterestedMembers(appData) : allMembers;
   const totalIn = inMembers.length || allMembers.length;
   const [mi, setMi] = dUseState2(0) /* mês corrente primeiro */;
 
@@ -8269,26 +8375,7 @@ function DPhase7({ me }) {
           )}
 
           {ranked.length > 0 && (
-            <div style={{ background:'#fff', borderRadius:16, padding:16, border:'1px solid var(--pa-line)' }}>
-              <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:10 }}>Quem está livre em cada dia</div>
-              {ranked.map((r, idx) => (
-                <div key={r.day} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'8px 0', borderTop: idx===0?'none':'1px solid var(--pa-line)' }}>
-                  <div style={{ width:34, height:30, borderRadius:8, flexShrink:0,
-                    background:`rgba(217,119,87,${0.15+(r.count/totalIn)*0.6})`,
-                    fontFamily:'var(--pa-body)', fontSize:13, fontWeight:700, color:'var(--pa-ink)',
-                    display:'flex', alignItems:'center', justifyContent:'center' }}>{paDayLabel(r.day).split(' ')[0]}<span style={{ fontSize:8, fontWeight:600, marginLeft:1, opacity:0.7 }}>{paDayLabel(r.day).split(' ')[1]}</span></div>
-                  <div style={{ flex:1, display:'flex', flexWrap:'wrap', gap:5, minWidth:0 }}>
-                    {(peopleByDay[r.day]||[]).map(p => (
-                      <div key={p.id} style={{ display:'flex', alignItems:'center', gap:5, background:'rgba(31,26,20,0.04)', borderRadius:999, padding:'2px 9px 2px 2px' }}>
-                        <Avatar member={p} size={18} />
-                        <span style={{ fontFamily:'var(--pa-body)', fontSize:11.5, fontWeight:500, color:'var(--pa-ink)' }}>{p.name}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <span style={{ fontFamily:'var(--pa-mono)', fontSize:11, color:'var(--pa-muted)', fontWeight:600, flexShrink:0, marginTop:6 }}>{r.count}/{totalIn}</span>
-                </div>
-              ))}
-            </div>
+            <DayPeoplePanel peopleByDay={peopleByDay} total={totalIn} title="Quem está livre em cada dia" />
           )}
         </div>
       </div>
@@ -8317,7 +8404,7 @@ function DPhase8({ me }) {
       <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:24, gap:22 }}>
         <div>
           <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12 }}>
-            <Pill tone="dark" size="sm"><span style={{ fontFamily:'var(--pa-mono)', letterSpacing:0.8 }}>FASE 08 / 08</span></Pill>
+            <Pill tone="dark" size="sm"><span style={{ fontFamily:'var(--pa-mono)', letterSpacing:0.8 }}>FASE {String(D.phases.length).padStart(2,'0')} / {String(D.phases.length).padStart(2,'0')}</span></Pill>
             {locked && <Pill tone="success" size="sm"><span style={{ width:5, height:5, borderRadius:5, background:'currentColor' }} />Trancado</Pill>}
           </div>
           <div style={{ fontFamily:'var(--pa-display)', fontSize:44, fontWeight:600, letterSpacing:-1.5, lineHeight:0.98 }}>
@@ -9881,7 +9968,8 @@ function MPhase6({ me, onLogout, onOpenChat }) {
   // "Pronto" = a MESMA métrica do quórum da fase: pelo menos 1 dia marcado.
   // (A existência da chave não chega — uma lista vazia não é uma resposta.)
   const submittedIds = Object.keys(allAvail).filter((id) => paFutureDays(allAvail[id]).length > 0);
-  const inMembers = (typeof getInMembers === 'function') ? getInMembers(appData) : allMembers;
+  // Disponibilidade conta os INTERESSADOS (sim + talvez), igual ao desktop.
+  const inMembers = (typeof getInterestedMembers === 'function') ? getInterestedMembers(appData) : allMembers;
   const totalIn = inMembers.length || allMembers.length;
   const inIds = mUseMemo(() => new Set(inMembers.map((m) => m.id)), [inMembers]);
   const meIsIn = inIds.has(me.id);
@@ -9894,7 +9982,7 @@ function MPhase6({ me, onLogout, onOpenChat }) {
   const peopleByDay = mUseMemo(() => {
     const map = {};
     Object.entries(allAvail).forEach(([mid, arr]) => { if (mid === me.id || !inIds.has(mid)) return; (arr || []).forEach((d) => { const k = paNormDay(d); (map[k] = map[k] || []).push(memberById(mid) || { name: '?' }); }); });
-    if (meIsIn) days.forEach((k) => { (map[k] = map[k] || []).push({ name: me.name + ' (tu)' }); });
+    if (meIsIn) days.forEach((k) => { (map[k] = map[k] || []).push({ ...(memberById(me.id) || me), name: me.name + ' (tu)' }); });
     return map;
   }, [allAvail, days, me.id, inIds, meIsIn]);
   const namesFor = (k) => (peopleByDay[k] || []).map((p) => p.name).join(', ');
@@ -9966,20 +10054,28 @@ function MPhase6({ me, onLogout, onOpenChat }) {
         {/* estado do grupo */}
         <div style={{ marginTop:18, background:'#fff', borderRadius:16, border:'1px solid var(--pa-line)', overflow:'hidden' }}>
           <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase', padding:'12px 16px 6px' }}>
-            Estado do grupo · {submittedIds.length}/{allMembers.length}
+            Estado do grupo · {inMembers.filter((m) => submittedIds.includes(m.id)).length}/{totalIn}
           </div>
           {allMembers.map((m) => {
+            const rsvpState = (appData.rsvp || {})[m.id];
             const submitted = submittedIds.includes(m.id);
-            const isOut = (appData.rsvp || {})[m.id] === 'out';
+            const isInterested = rsvpState === 'in' || rsvpState === 'maybe';
+            const isOut = rsvpState === 'out';
+            let pill;
+            if (isOut) pill = <Pill tone="muted" size="sm">sem interesse</Pill>;
+            else if (isInterested) pill = submitted ? <Pill tone="success" size="sm">✓ pronto</Pill> : <Pill tone="muted" size="sm">a marcar…</Pill>;
+            else pill = <Pill tone="muted" size="sm">sem responder</Pill>;
             return (
-              <div key={m.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'9px 16px', borderTop:'1px solid var(--pa-line)', opacity: isOut ? 0.55 : 1 }}>
+              <div key={m.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'9px 16px', borderTop:'1px solid var(--pa-line)', opacity: isInterested ? 1 : 0.55 }}>
                 <Avatar member={m} size={28} />
                 <span style={{ flex:1, minWidth:0, fontSize:13.5, color:'var(--pa-ink)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.name}</span>
-                {isOut ? <Pill tone="muted" size="sm">não vai</Pill>
-                  : submitted ? <Pill tone="success" size="sm">✓ pronto</Pill> : <Pill tone="muted" size="sm">a marcar…</Pill>}
+                {pill}
               </div>
             );
           })}
+        </div>
+        <div style={{ marginTop:12 }}>
+          <DayPeoplePanel peopleByDay={peopleByDay} total={totalIn} limit={4} />
         </div>
       </div>
     </MShell>
@@ -9991,7 +10087,8 @@ function MPhase7({ me, onLogout, onOpenChat }) {
   const appData = useAppStore();
   const locked = appData.locked;
   const allAvail = appData.avail || {};
-  const inMembers = (typeof getInMembers === 'function') ? getInMembers(appData) : getAllMembers();
+  // Datas decidem-se com a disponibilidade dos INTERESSADOS (não muda ao trancar).
+  const inMembers = (typeof getInterestedMembers === 'function') ? getInterestedMembers(appData) : getAllMembers();
   const totalIn = inMembers.length || getAllMembers().length;
   const inIds = new Set(inMembers.map((m) => m.id));
   const [range, setRange] = mUseState({ from: null, to: null });
@@ -10007,7 +10104,6 @@ function MPhase7({ me, onLogout, onOpenChat }) {
     (days||[]).forEach(d => { const k = paNormDay(d); (peopleByDay[k] = peopleByDay[k] || []).push(memberById(mid) || { id:mid, name:'?', initials:'?', color:'var(--pa-muted)' }); });
   });
   const namesFor = (k) => (peopleByDay[k] || []).map(p => p.name).join(', ');
-  const rankedDays = Object.keys(peopleByDay).sort((a,b) => (heat[b]||0) - (heat[a]||0)).slice(0,6);
   // Seleção por 2 toques, igual ao desktop: 1º = início, 2º = fim.
   const pickDay = (k) => setRange((r) => {
     if (!r.from || (r.from && r.to)) return { from: k, to: null };
@@ -10066,27 +10162,9 @@ function MPhase7({ me, onLogout, onOpenChat }) {
                 );
               }} />
             </div>
-            {rankedDays.length > 0 && (
-              <div style={{ background:'#fff', borderRadius:14, padding:14, marginTop:12, border:'1px solid var(--pa-line)' }}>
-                <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:8 }}>Quem está livre em cada dia</div>
-                {rankedDays.map((day, idx) => (
-                  <div key={day} style={{ display:'flex', alignItems:'flex-start', gap:8, padding:'7px 0', borderTop: idx===0?'none':'1px solid var(--pa-line)' }}>
-                    <div style={{ width:30, height:26, borderRadius:7, flexShrink:0,
-                      background:`rgba(217,119,87,${0.15+((heat[day]||0)/Math.max(1,totalIn))*0.6})`,
-                      fontFamily:'var(--pa-body)', fontSize:12, fontWeight:700, color:'var(--pa-ink)',
-                      display:'flex', alignItems:'center', justifyContent:'center' }}>{paDayLabel(day).split(' ')[0]}<span style={{ fontSize:7, fontWeight:600, marginLeft:1, opacity:0.7 }}>{paDayLabel(day).split(' ')[1]}</span></div>
-                    <div style={{ flex:1, display:'flex', flexWrap:'wrap', gap:4, minWidth:0 }}>
-                      {(peopleByDay[day]||[]).map(p => (
-                        <div key={p.id} style={{ display:'flex', alignItems:'center', gap:4, background:'rgba(31,26,20,0.04)', borderRadius:999, padding:'2px 8px 2px 2px' }}>
-                          <Avatar member={p} size={16} />
-                          <span style={{ fontFamily:'var(--pa-body)', fontSize:11, fontWeight:500, color:'var(--pa-ink)' }}>{p.name}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+            <div style={{ marginTop:12 }}>
+              <DayPeoplePanel peopleByDay={peopleByDay} total={totalIn} limit={4} title="Quem está livre em cada dia" />
+            </div>
             {range.from && (
               <div style={{ background:'#fff', borderRadius:14, padding:14, marginTop:12, border:'1px solid var(--pa-line)' }}>
                 <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase' }}>Seleção</div>
@@ -10130,6 +10208,7 @@ function MPhaseConfirm({ me, onLogout, onOpenChat }) {
   const interested = (typeof getInterestedMembers === 'function') ? getInterestedMembers(appData) : getAllMembers();
   const stateOf = (id) => (typeof memberGoing === 'function') ? memberGoing(appData, id) : undefined;
   const going = interested.filter((m) => stateOf(m.id) === true);
+  const notGoing = interested.filter((m) => stateOf(m.id) === false);
   const pending = interested.filter((m) => stateOf(m.id) === undefined);
   const myState = stateOf(me.id);
   const meInterested = interested.some((m) => m.id === me.id);
@@ -10158,9 +10237,22 @@ function MPhaseConfirm({ me, onLogout, onOpenChat }) {
             <Btn variant="ghost" size="sm" style={{ width:'100%' }} onClick={() => answer(me.id, !myState)}>Mudar para {myState ? 'Não vou' : 'Vou'}</Btn>
           </div>
         )}
+        {/* resumo ao vivo — toda a gente vê quem vai e quem não vai */}
+        <div style={{ display:'flex', gap:8, marginBottom:12 }}>
+          {[
+            { l:'Vão', n:going.length, tone:'#3d5e44', bg:'rgba(107,142,111,0.16)' },
+            { l:'Não vão', n:notGoing.length, tone:'#8a4220', bg:'rgba(217,119,87,0.18)' },
+            { l:'Por confirmar', n:pending.length, tone:'var(--pa-muted)', bg:'rgba(31,26,20,0.05)' },
+          ].map((c) => (
+            <div key={c.l} style={{ background:c.bg, borderRadius:12, padding:'10px 12px', flex:1 }}>
+              <div style={{ fontFamily:'var(--pa-display)', fontSize:24, fontWeight:600, color:c.tone, letterSpacing:-0.5 }}>{c.n}</div>
+              <div style={{ fontFamily:'var(--pa-mono)', fontSize:9, color:c.tone, letterSpacing:0.8, textTransform:'uppercase', marginTop:1 }}>{c.l}</div>
+            </div>
+          ))}
+        </div>
         <div style={{ background:'#fff', borderRadius:16, padding:14, border:'1px solid var(--pa-line)' }}>
           <div style={{ fontFamily:'var(--pa-mono)', fontSize:9.5, letterSpacing:1, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:8 }}>
-            {going.length} {going.length === 1 ? 'vai' : 'vão'} · {pending.length} por confirmar
+            Estado do grupo
           </div>
           {interested.map((m) => {
             const s = stateOf(m.id);
@@ -10586,6 +10678,16 @@ function PhaseProgressBanner({ phase, me, narrow }) {
   // Anti-spam do "Lembrar quem falta" (1 por minuto). Declarado antes do
   // early-return para respeitar as regras dos hooks.
   const [remindCooldown, setRemindCooldown] = pUseState(false);
+  // No mobile o painel pode ser fechado para não comer ecrã. A escolha fica
+  // guardada. (Também antes do early-return, pela mesma razão.)
+  const [collapsed, setCollapsed] = pUseState(() => {
+    try { return localStorage.getItem('pa-banner-collapsed') === '1'; } catch (e) { return false; }
+  });
+  const toggleCollapsed = () => setCollapsed((c) => {
+    const n = !c;
+    try { localStorage.setItem('pa-banner-collapsed', n ? '1' : '0'); } catch (e) {}
+    return n;
+  });
   if (p.isLast || !me) return null;
 
   const appData = AppStore._cache();
@@ -10694,6 +10796,47 @@ function PhaseProgressBanner({ phase, me, narrow }) {
   // dar uma margem antes de avançar ou remover um prazo já definido).
   const showDeadlineCtrl = me.isAdmin && !hasUnresolvedTie;
   if (!statusContent && !showCountdown && !showDeadlineCtrl) return null;
+
+  // No mobile: barra compacta, tocável para abrir/fechar. Mesmo fechada mantém
+  // o essencial à mão (estado + avançar fase), para não obrigar a abrir.
+  if (narrow) {
+    const dot = hasUnresolvedTie ? 'var(--pa-accent)' : (p.isComplete ? '#3d5e44' : 'var(--pa-muted)');
+    const resumo = hasUnresolvedTie ? 'Empate por resolver'
+      : p.isComplete ? 'Todos prontos'
+      : (p.pending.length > 0 ? `${p.pending.length} em falta` : 'Em curso');
+    return (
+      <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:8, background:'#fff', border:'1px solid var(--pa-line)',
+          borderRadius:12, padding:'8px 10px' }}>
+          <button onClick={toggleCollapsed} aria-expanded={!collapsed} aria-label={collapsed ? 'Abrir painel' : 'Fechar painel'}
+            style={{ flex:1, minWidth:0, display:'flex', alignItems:'center', gap:8, background:'transparent',
+              border:'none', padding:0, cursor:'pointer', textAlign:'left' }}>
+            <span style={{ width:7, height:7, borderRadius:7, background:dot, flexShrink:0 }} />
+            <span style={{ flex:1, minWidth:0, fontFamily:'var(--pa-body)', fontSize:12.5, color:'var(--pa-ink)',
+              overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{resumo}</span>
+            <span style={{ fontSize:9, color:'var(--pa-muted)', flexShrink:0, transform: collapsed ? 'none' : 'rotate(180deg)', transition:'transform .15s' }}>▾</span>
+          </button>
+          {collapsed && p.isComplete && !hasUnresolvedTie && me.isAdmin && (
+            <button onClick={p.advanceNow} style={{ background:'#3d5e44', color:'#fff', border:'none', padding:'6px 12px',
+              borderRadius:999, fontFamily:'var(--pa-body)', fontSize:12, fontWeight:700, cursor:'pointer', flexShrink:0 }}>
+              Avançar →
+            </button>
+          )}
+        </div>
+        {!collapsed && (
+          <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+            {showCountdown && <CountdownBanner deadline={p.deadline} narrow={narrow} />}
+            {statusContent}
+            {showDeadlineCtrl && (
+              <div style={{ display:'flex', justifyContent:'flex-end' }}>
+                <DeadlineControl deadline={p.deadline} onSet={p.setDeadline} onClear={p.clearDeadline} narrow={narrow} />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
@@ -12311,8 +12454,15 @@ function EditionCard({ edition, isAdmin, onEnter, onEdit, onAction, narrow }) {
   const [menuOpen, setMenuOpen] = hUseState(false);
   const data = edition.data || {};
   const rsvp = data.rsvp || {};
-  const inCount = Object.values(rsvp).filter(s => s === 'in').length;
-  const phaseName = (D.phases.find(p => p.n === edition.current_phase) || {}).name || '—';
+  // "A bordo": antes de trancar as datas conta quem tem interesse (sim/talvez);
+  // depois de trancar, conta quem VAI mesmo. Mesmo critério do resto da app.
+  const inCount = (typeof getGoingMembers === 'function' && typeof getInterestedMembers === 'function')
+    ? (data.locked ? getGoingMembers(data).length : getInterestedMembers(data).length)
+    : Object.values(rsvp).filter(s => s === 'in' || s === 'maybe').length;
+  // A fase gravada pode estar na numeração antiga — traduzir antes de mostrar.
+  const shownPhase = (typeof paPhaseFromStored === 'function') ? paPhaseFromStored(edition) : edition.current_phase;
+  const totalPhases = D.phases.length;
+  const phaseName = (D.phases.find(p => p.n === shownPhase) || {}).name || '—';
   const archived = edition.status === 'archived';
   const createdLabel = (() => {
     try { return new Date(edition.created_at).toLocaleDateString(PA_LANG.locale(), { day:'2-digit', month:'short', year:'numeric' }); } catch { return ''; }
@@ -12376,11 +12526,11 @@ function EditionCard({ edition, isAdmin, onEnter, onEdit, onAction, narrow }) {
       <div>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:7, gap:10 }}>
           <span style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1, color:'var(--pa-muted)', textTransform:'uppercase' }}>
-            Fase {edition.current_phase} de 8
+            Fase {shownPhase} de {totalPhases}
           </span>
         </div>
         <div style={{ height:6, background:'var(--pa-line)', borderRadius:999, overflow:'hidden' }}>
-          <div style={{ width:`${Math.round((edition.current_phase/8)*100)}%`, height:'100%', background:'var(--pa-accent)', borderRadius:999, transition:'width 0.3s' }} />
+          <div style={{ width:`${Math.round((shownPhase/totalPhases)*100)}%`, height:'100%', background:'var(--pa-accent)', borderRadius:999, transition:'width 0.3s' }} />
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:18, marginTop:14 }}>
           <div style={{ display:'flex', alignItems:'baseline', gap:6 }}>
