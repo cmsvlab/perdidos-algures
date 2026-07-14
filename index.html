@@ -155,6 +155,11 @@
 // ═════════════════════════════════════════════════════════════════════════
 // ═══ Dicionário PT→EN (gerado; chaves = strings exatas do código) ═══
 const PA_EN = {
+  "dormimos mesmo?": "we actually sleeping?",
+  "dormimos?": "we sleeping?",
+  "Quem": "Who's",
+  "Quem ": "Who's ",
+  "vai?": "going?",
   "Vais? A aventura é de": "Are you going? The adventure is",
   "Vais? A aventura é de ": "Are you going? The adventure is ",
   "Estás como": "You're set as",
@@ -196,8 +201,6 @@ const PA_EN = {
   "Ainda não sei": "Not sure yet",
   "Conta comigo": "Count me in",
   "tem interesse 🙋": "is interested 🙋",
-  "Quem vai": "Who's",
-  "mesmo?": "actually going?",
   "Sê sincero — assim sabemos já quem conta para o destino e as contas.": "Be honest — that way we know who counts for the destination and the costs.",
   "Assim sabemos já quem conta para o destino e as contas.": "That way we know who counts for the destination and the costs.",
   "As datas ainda não estão trancadas — volta à fase das datas primeiro.": "The dates aren't locked yet — go back to the dates phase first.",
@@ -5015,7 +5018,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r70';
+window.PA_VERSION = '2026.06.01-r71';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -10113,11 +10116,11 @@ function DPhaseConfirm({
   }, /*#__PURE__*/React.createElement(DPhaseHeader, {
     status: "Confirmar presença",
     statusTone: "accent",
-    title: /*#__PURE__*/React.createElement(React.Fragment, null, "Quem vai", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("span", {
+    title: /*#__PURE__*/React.createElement(React.Fragment, null, "Quem ", /*#__PURE__*/React.createElement("span", {
       style: {
         color: 'var(--pa-accent)'
       }
-    }, "mesmo?")),
+    }, "vai?")),
     sub: `A aventura é de ${rangeLabel}. Quem marcou estes dias já entra como "Vou" — falta só confirmar os restantes.`
   }), !locked && /*#__PURE__*/React.createElement("div", {
     style: {
@@ -17347,11 +17350,11 @@ function MPhaseConfirm({
     onOpenChat: onOpenChat
   }), /*#__PURE__*/React.createElement(MPhaseTitle, {
     kicker: "Confirmar presença",
-    title: /*#__PURE__*/React.createElement(React.Fragment, null, "Quem vai", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("span", {
+    title: /*#__PURE__*/React.createElement(React.Fragment, null, "Quem ", /*#__PURE__*/React.createElement("span", {
       style: {
         color: 'var(--pa-accent)'
       }
-    }, "mesmo?")),
+    }, "vai?")),
     sub: locked ? `A aventura é de ${rangeLabel}.` : 'As datas ainda não estão trancadas.'
   }), /*#__PURE__*/React.createElement("div", {
     className: "pa-scroll",
@@ -17879,42 +17882,46 @@ function usePhaseProgress(phase, me) {
   const isLast = phase >= 9;
   const isComplete = phaseComplete(phase, appData);
   const allMembers = typeof getEditionMembers === 'function' ? getEditionMembers(appData) : typeof getAllMembers === 'function' ? getAllMembers() : [];
+  const interested = typeof getInterestedMembers === 'function' ? getInterestedMembers(appData) : allMembers;
+  // Quem "conta" agora: interessados antes de trancar, quem VAI depois.
   const inMembers = phase === 1 ? allMembers : getInMembers(appData);
-  // Universo dos lembretes/estado: todos menos quem disse "fora".
-  const activeMembers = typeof getActiveMembers === 'function' ? getActiveMembers(appData) : allMembers;
-
   // Prazo opcional (countdown). Guardado em appData.deadline (ISO). Só o admin define.
   const deadline = appData.deadline || null;
   const expired = deadline ? Date.now() >= new Date(deadline).getTime() : false;
 
-  // Quem ainda não completou (para mostrar quem falta)
+  // Quem ainda não completou (para mostrar quem falta).
+  // REGRA: cada fase usa EXATAMENTE o mesmo conjunto que o seu portão em
+  // phaseComplete — senão o contador e o banner contradizem-se.
   let pending = [];
-  if (!isComplete && inMembers.length > 0) {
+  if (!isComplete) {
     if (phase === 1) {
+      // interesse — quem ainda não respondeu
       pending = allMembers.filter(m => !(appData.rsvp || {})[m.id]);
     } else if (phase === 2) {
-      // disponibilidade
+      // disponibilidade — interessados sem dias marcados
       const avail = appData.avail || {};
-      // Lembrar TODA a gente que não disse "fora" (inclui talvez / sem resposta):
-      // eram estes que ficavam esquecidos no lembrete.
-      pending = activeMembers.filter(m => paFutureDays(avail[m.id]).length === 0);
+      pending = interested.filter(m => paFutureDays(avail[m.id]).length === 0);
     } else if (phase === 4) {
+      // confirmar presença — quem não marcou os dias trancados
+      pending = interested.filter(m => memberGoing(appData, m.id) === undefined);
+    } else if (phase === 5) {
       // sugestões de local
       const suggs = appData.locSuggs || [];
-      pending = activeMembers.filter(m => !suggs.some(s => s.by === m.id));
-    } else if (phase === 5) {
+      pending = inMembers.filter(m => !suggs.some(s => s.by === m.id));
+    } else if (phase === 6) {
       // votar local
       const votes = appData.locVotes || {};
-      pending = activeMembers.filter(m => paVoteList(votes[m.id]).length === 0);
-    } else if (phase === 6) {
+      pending = inMembers.filter(m => paVoteList(votes[m.id]).length === 0);
+    } else if (phase === 7) {
       // sugestões de alojamento
       const suggs = appData.accSuggs || [];
-      pending = activeMembers.filter(m => !suggs.some(s => s.by === m.id));
-    } else if (phase === 7) {
+      pending = inMembers.filter(m => !suggs.some(s => s.by === m.id));
+    } else if (phase === 8) {
       // votar alojamento
       const votes = appData.accVotes || {};
-      pending = activeMembers.filter(m => paVoteList(votes[m.id]).length === 0);
+      pending = inMembers.filter(m => paVoteList(votes[m.id]).length === 0);
     }
+    // fase 3 (trancar datas) e 9 (plano): ação do admin, sem lista de pendentes.
   }
 
   // Só o admin avança a fase, sempre por clique. Avançar limpa qualquer prazo definido.
