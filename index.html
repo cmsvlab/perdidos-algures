@@ -155,6 +155,58 @@
 // ═════════════════════════════════════════════════════════════════════════
 // ═══ Dicionário PT→EN (gerado; chaves = strings exatas do código) ═══
 const PA_EN = {
+  "Vais? A aventura é de": "Are you going? The adventure is",
+  "Vais? A aventura é de ": "Are you going? The adventure is ",
+  "Estás como": "You're set as",
+  "Estás como ": "You're set as ",
+  "Mudar para": "Change to",
+  "Mudar para ": "Change to ",
+  "Há aventura a caminho:": "There's an adventure coming:",
+  "Há aventura a caminho: ": "There's an adventure coming: ",
+  " por confirmar": " to confirm",
+  "por confirmar. Avança quando estiver decidido.": "to confirm. Move on when it's settled.",
+  " por confirmar. Avança quando estiver decidido.": " to confirm. Move on when it's settled.",
+  "Estado do grupo ·": "Group status ·",
+  "Estado do grupo · ": "Group status · ",
+  // ── Fluxo v2 (interesse / confirmar presença) ──
+  "Interesse": "Interest",
+  "Tens interesse?": "Interested?",
+  "Confirmar presença": "Confirm attendance",
+  "Vais?": "Are you going?",
+  "Vou": "I'm going",
+  "Não vou": "I'm not going",
+  "Vai": "Going",
+  "Não vai": "Not going",
+  "✓ vai": "✓ going",
+  "não vai": "not going",
+  "por confirmar": "to confirm",
+  "vai": "going",
+  "vão": "going",
+  "Com interesse": "Interested",
+  "Sem interesse": "Not interested",
+  "com interesse": "interested",
+  "sem interesse": "not interested",
+  "Talvez": "Maybe",
+  "Talvez 🤔": "Maybe 🤔",
+  "Tenho interesse 🙋": "I'm interested 🙋",
+  "Tenho interesse": "I'm interested",
+  "Desta vez não 😩": "Not this time 😩",
+  "Desta vez não": "Not this time",
+  "Fico de fora": "Sitting this one out",
+  "Ainda não sei": "Not sure yet",
+  "Conta comigo": "Count me in",
+  "tem interesse 🙋": "is interested 🙋",
+  "Quem vai": "Who's",
+  "mesmo?": "actually going?",
+  "Sê sincero — assim sabemos já quem conta para o destino e as contas.": "Be honest — that way we know who counts for the destination and the costs.",
+  "Assim sabemos já quem conta para o destino e as contas.": "That way we know who counts for the destination and the costs.",
+  "As datas ainda não estão trancadas — volta à fase das datas primeiro.": "The dates aren't locked yet — go back to the dates phase first.",
+  "As datas ainda não estão trancadas.": "The dates aren't locked yet.",
+  "Ainda não é compromisso — só queremos ver quem está atento. As datas decidem-se a seguir, e só depois é que se confirma quem vai mesmo.": "No commitment yet — we just want to see who's paying attention. Dates come next, and only then do we confirm who's actually going.",
+  "Há aventura a caminho: ": "There's an adventure coming: ",
+  ". Tens interesse?": ". Interested?",
+  "a pensar": "thinking",
+  "sem responder": "no reply",
 
   // ── Revisão i18n v2 (data model + toasts + labels) ──
   "Estás dentro?": "Are you in?",
@@ -1236,6 +1288,14 @@ const PA_EN_PATTERNS = [
   ["^Outubro (\\d{4})$", "October $1"],
   ["^Novembro (\\d{4})$", "November $1"],
   ["^Dezembro (\\d{4})$", "December $1"],
+  ["^Vais\\? A aventura é de (.+)\\.$", "Are you going? The adventure is $1."],
+  ["^A aventura é de (.+)\\.$", "The adventure is $1."],
+  ["^A aventura é de (.+)\\. Quem marcou estes dias já entra como \"Vou\" — falta só confirmar os restantes\\.$", "The adventure is $1. Whoever marked these days is already in as \"going\" — we just need to confirm the rest."],
+  ["^Estás como (Vou|Não vou)\\.$", "You're set as $1."],
+  ["^Mudar para (Vou|Não vou)$", "Change to $1"],
+  ["^(\\d+) (vai|vão) · (\\d+) por confirmar$", "$1 going · $3 to confirm"],
+  ["^(\\d+) (vai|vão) · (\\d+) por confirmar\\. Avança quando estiver decidido\\.$", "$1 going · $3 to confirm. Move on when it's settled."],
+  ["^Estado do grupo · (\\d+) (vai|vão) · (\\d+) por confirmar$", "Group status · $1 going · $3 to confirm"],
 ];
 
 const PA_MONTHS_EN = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -1436,14 +1496,15 @@ window.PA_DATA = {
   },
 
   phases: [
-    { n: 1, key: 'rsvp',    name: 'Quem entra',       hint: 'Estás dentro?' },
-    { n: 2, key: 'avail',   name: 'Disponibilidade',  hint: 'Quando podes?' },
-    { n: 3, key: 'lock',    name: 'Datas finais',     hint: 'Admin tranca' },
-    { n: 4, key: 'locSug',  name: 'Localizações',     hint: 'Até 3 por cabeça' },
-    { n: 5, key: 'locVote', name: 'Votar local',      hint: 'Voto secreto' },
-    { n: 6, key: 'accSug',  name: 'Alojamentos',      hint: 'Sem limite' },
-    { n: 7, key: 'accVote', name: 'Votar alojamento', hint: 'Voto secreto' },
-    { n: 8, key: 'plan',    name: 'Planeamento',      hint: 'Arrumar tudo' },
+    { n: 1, key: 'interest', name: 'Interesse',         hint: 'Tens interesse?' },
+    { n: 2, key: 'avail',    name: 'Disponibilidade',   hint: 'Quando podes?' },
+    { n: 3, key: 'lock',     name: 'Datas finais',      hint: 'Admin tranca' },
+    { n: 4, key: 'confirm',  name: 'Confirmar presença', hint: 'Vais?' },
+    { n: 5, key: 'locSug',   name: 'Localizações',      hint: 'Até 3 por cabeça' },
+    { n: 6, key: 'locVote',  name: 'Votar local',       hint: 'Voto secreto' },
+    { n: 7, key: 'accSug',   name: 'Alojamentos',       hint: 'Sem limite' },
+    { n: 8, key: 'accVote',  name: 'Votar alojamento',  hint: 'Voto secreto' },
+    { n: 9, key: 'plan',     name: 'Planeamento',       hint: 'Arrumar tudo' },
   ],
 
   // Estrutura estática usada como fallback; dados reais vêm do AppStore.
@@ -4954,7 +5015,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r68';
+window.PA_VERSION = '2026.06.01-r70';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -5490,7 +5551,8 @@ const EditionStore = {
     const num = number || this.nextNumber();
     // Convites: quem NÃO foi convidado entra como "removido" da edição —
     // o mesmo mecanismo do Gerir membros, e readmissível a qualquer momento.
-    const data0 = (excludedIds && excludedIds.length) ? { removedMembers: excludedIds } : {};
+    // flow:2 → edições novas nascem já no fluxo de 9 fases (sem remap na leitura).
+    const data0 = { flow: 2, ...((excludedIds && excludedIds.length) ? { removedMembers: excludedIds } : {}) };
     const rp = await paRpc('edition_create', {
       p_number: num, p_title: title || 'Nova Aventura',
       p_subtitle: subtitle || 'Algures no mundo.', p_status: 'active', p_data: data0,
@@ -5514,7 +5576,7 @@ const EditionStore = {
   // Qualquer membro pode propor; fica com status 'proposed' até o admin decidir.
   // Aprovar promove a edição normal (número atribuído na hora); recusar apaga.
   async propose({ title, subtitle, excludedIds, by, byName }) {
-    const data0 = { proposal: { by, byName, when: new Date().toISOString() } };
+    const data0 = { flow: 2, proposal: { by, byName, when: new Date().toISOString() } };
     if (excludedIds && excludedIds.length) data0.removedMembers = excludedIds;
     const rp = await paRpc('edition_create', {
       p_number: 0, p_title: title || 'Nova Aventura',
@@ -5692,6 +5754,26 @@ function useEditions() {
 // O cache (_appCache) reflete o campo `data` da edição ativa + currentPhase.
 // A interface pública (getRsvp, setRsvp, etc.) mantém-se igual.
 // ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// Fluxo v2 (9 fases): 1 interesse · 2 disponibilidade · 3 datas ·
+// 4 confirmar presença · 5 local · 6 votar local · 7 alojamento ·
+// 8 votar alojamento · 9 plano.
+//
+// As edições criadas no fluxo antigo (8 fases: 1 rsvp · 2 disp · 3 datas ·
+// 4 local · 5 votar local · 6 aloj · 7 votar aloj · 8 plano) guardaram um
+// current_phase com a numeração antiga. Traduzimos NA LEITURA — não se
+// reescreve nada na base, e os dados (avail, votos, sugestões) ficam intactos.
+// A marca `flow:2` no data identifica as edições já no fluxo novo.
+function paPhaseFromStored(ed) {
+  const n = (ed && ed.current_phase) || 1;
+  const isNewFlow = !!(ed && ed.data && ed.data.flow === 2);
+  if (isNewFlow) return n;
+  // Antigo → novo: 1→1, 2→2, 3→3, 4→5, 5→6, 6→7, 7→8, 8→9.
+  // (a fase 4 "confirmar presença" é nova; edições antigas nunca lá estiveram)
+  const map = { 1:1, 2:2, 3:3, 4:5, 5:6, 6:7, 7:8, 8:9 };
+  return map[n] || n;
+}
+
 let _appCache = {};
 const _appListeners = new Set();
 
@@ -5705,7 +5787,7 @@ const AppStore = {
     if (!ed) { _appCache = {}; return; }
     _appCache = {
       ...(ed.data || {}),
-      currentPhase: ed.current_phase || 1,
+      currentPhase: paPhaseFromStored(ed),
       editionTitle: ed.title,
       editionSubtitle: ed.subtitle,
       editionNumber: ed.number,
@@ -5768,7 +5850,7 @@ const AppStore = {
     ed.data = newData;
     _appCache = {
       ...newData,
-      currentPhase: ed.current_phase || 1,
+      currentPhase: paPhaseFromStored(ed),
       editionTitle: ed.title,
       editionSubtitle: ed.subtitle,
       editionNumber: ed.number,
@@ -5941,6 +6023,11 @@ const AppStore = {
     _appCache = { ...(this._cache()), currentPhase: n };
     this._notify();
     ed.current_phase = n;
+    // Marca a edição como já no fluxo v2: a partir daqui o número gravado JÁ é
+    // da numeração nova e não deve voltar a ser traduzido na leitura.
+    if (!(ed.data && ed.data.flow === 2)) {
+      try { await this._set('flow', 2); } catch (e) { /* segue: a fase é o essencial */ }
+    }
     await EditionStore.update(ed.id, { current_phase: n });
   },
 
@@ -6072,6 +6159,10 @@ const AppStore = {
   getAvailability(uid)          { return (this._cache().avail||{})[uid] || []; },
   getAllAvailability()          { return this._cache().avail||{}; },
   async setAvailability(uid,days){ await this._merge('avail', { [uid]:days }); },
+
+  // ── Presença firme (fase 4 "Confirmar presença") ──
+  getGoing()                    { return this._cache().going||{}; },
+  async setGoing(uid, val)      { await this._merge('going', { [uid]: !!val }); },
 
   // ── Datas trancadas ──
   getLockedDates()              { return this._cache().locked||null; },
@@ -9832,12 +9923,12 @@ function useActivityFeed(phase) {
     inMembers.forEach(m => {
       feed.push({
         who: m.id,
-        text: 'está dentro 🙋',
+        text: 'tem interesse 🙋',
         when: 'esta edição'
       });
     });
   }
-  if (phase >= 2) {
+  if (phase >= 5) {
     locSuggs.slice(0, 3).forEach(s => {
       feed.push({
         who: s.by,
@@ -9846,7 +9937,7 @@ function useActivityFeed(phase) {
       });
     });
   }
-  if (phase >= 4) {
+  if (phase >= 7) {
     accSuggs.slice(0, 3).forEach(s => {
       feed.push({
         who: s.by,
@@ -9866,6 +9957,10 @@ function DPhaseHeader({
   status,
   statusTone = 'accent'
 }) {
+  // Usa a fase REAL do contexto (o número fixo passado por cada componente
+  // reflete a posição antiga; depois de reordenar fases deixaria de bater certo).
+  const _ctx = typeof dUseContext === 'function' && typeof PhaseCtx !== 'undefined' ? dUseContext(PhaseCtx) : null;
+  const realPhase = _ctx && _ctx.phase || phase;
   return /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 24
@@ -9885,7 +9980,7 @@ function DPhaseHeader({
       fontFamily: 'var(--pa-mono)',
       letterSpacing: 0.8
     }
-  }, "FASE ", String(phase).padStart(2, '0'), " / ", String(D.phases.length).padStart(2, '0'))), status && /*#__PURE__*/React.createElement(Pill, {
+  }, "FASE ", String(realPhase).padStart(2, '0'), " / ", String(D.phases.length).padStart(2, '0'))), status && /*#__PURE__*/React.createElement(Pill, {
     tone: statusTone,
     size: "sm"
   }, /*#__PURE__*/React.createElement("span", {
@@ -9988,6 +10083,175 @@ function DAdminBar({
 }
 
 // ─────────────────────────────────────────────────────────────
+// PHASE 4 — Confirmar presença (quem vai mesmo, já com datas concretas)
+// Auto "Vou" para quem marcou os dias trancados; pergunta aos restantes.
+// Admin pode sobrepor qualquer estado; o avanço é sempre input do admin.
+// ─────────────────────────────────────────────────────────────
+function DPhaseConfirm({
+  me
+}) {
+  const appData = useAppStore();
+  const locked = appData.locked || null;
+  const rangeLabel = locked ? paRangeLabel(locked.from, locked.to) : '—';
+  const interested = getInterestedMembers(appData);
+  const stateOf = id => memberGoing(appData, id); // true | false | undefined
+  const going = interested.filter(m => stateOf(m.id) === true);
+  const pending = interested.filter(m => stateOf(m.id) === undefined);
+  const myState = stateOf(me.id);
+  const meInterested = interested.some(m => m.id === me.id);
+  const answer = (uid, val) => AppStore.setGoing(uid, val);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "pa-scroll",
+    style: {
+      flex: 1,
+      minHeight: 0,
+      padding: '32px 36px',
+      display: 'flex',
+      flexDirection: 'column',
+      overflow: 'auto'
+    }
+  }, /*#__PURE__*/React.createElement(DPhaseHeader, {
+    status: "Confirmar presença",
+    statusTone: "accent",
+    title: /*#__PURE__*/React.createElement(React.Fragment, null, "Quem vai", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: 'var(--pa-accent)'
+      }
+    }, "mesmo?")),
+    sub: `A aventura é de ${rangeLabel}. Quem marcou estes dias já entra como "Vou" — falta só confirmar os restantes.`
+  }), !locked && /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: '#fff',
+      border: '1px solid var(--pa-line)',
+      borderRadius: 14,
+      padding: 16,
+      color: 'var(--pa-muted)',
+      fontFamily: 'var(--pa-body)',
+      fontSize: 14
+    }
+  }, "As datas ainda não estão trancadas — volta à fase das datas primeiro."), locked && meInterested && myState === undefined && /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: '#fff',
+      border: '1.5px solid var(--pa-accent)',
+      borderRadius: 16,
+      padding: '18px 20px',
+      marginBottom: 18
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: 'var(--pa-display)',
+      fontSize: 20,
+      fontWeight: 600,
+      marginBottom: 4
+    }
+  }, "Vais? A aventura é de ", rangeLabel, "."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: 'var(--pa-body)',
+      fontSize: 13.5,
+      color: 'var(--pa-muted)',
+      marginBottom: 14
+    }
+  }, "Sê sincero — assim sabemos já quem conta para o destino e as contas."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      gap: 10
+    }
+  }, /*#__PURE__*/React.createElement(Btn, {
+    variant: "accent",
+    size: "lg",
+    onClick: () => answer(me.id, true)
+  }, "Vou"), /*#__PURE__*/React.createElement(Btn, {
+    variant: "ghost",
+    size: "lg",
+    onClick: () => answer(me.id, false)
+  }, "Não vou"))), locked && meInterested && myState !== undefined && /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: '#fff',
+      border: '1px solid var(--pa-line)',
+      borderRadius: 14,
+      padding: '14px 18px',
+      marginBottom: 18,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 12,
+      flexWrap: 'wrap'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: 'var(--pa-body)',
+      fontSize: 14
+    }
+  }, "Estás como ", /*#__PURE__*/React.createElement("strong", null, myState ? 'Vou' : 'Não vou'), "."), /*#__PURE__*/React.createElement(Btn, {
+    variant: "ghost",
+    size: "sm",
+    onClick: () => answer(me.id, !myState)
+  }, "Mudar para ", myState ? 'Não vou' : 'Vou')), /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: '#fff',
+      borderRadius: 16,
+      padding: 16,
+      border: '1px solid var(--pa-line)'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: 'var(--pa-mono)',
+      fontSize: 10,
+      letterSpacing: 1.2,
+      color: 'var(--pa-muted)',
+      textTransform: 'uppercase',
+      marginBottom: 10
+    }
+  }, "Estado do grupo · ", going.length, " ", going.length === 1 ? 'vai' : 'vão', " · ", pending.length, " por confirmar"), interested.map(m => {
+    const s = stateOf(m.id);
+    const pill = s === true ? /*#__PURE__*/React.createElement(Pill, {
+      tone: "success",
+      size: "sm"
+    }, "✓ vai") : s === false ? /*#__PURE__*/React.createElement(Pill, {
+      tone: "muted",
+      size: "sm"
+    }, "não vai") : /*#__PURE__*/React.createElement(Pill, {
+      tone: "muted",
+      size: "sm"
+    }, "por confirmar");
+    return /*#__PURE__*/React.createElement("div", {
+      key: m.id,
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        padding: '6px 0',
+        opacity: s === false ? 0.55 : 1
+      }
+    }, /*#__PURE__*/React.createElement(Avatar, {
+      member: m,
+      size: 22
+    }), /*#__PURE__*/React.createElement("span", {
+      style: {
+        flex: 1,
+        fontSize: 13,
+        color: 'var(--pa-ink)'
+      }
+    }, m.name), me.isAdmin ? /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        gap: 6
+      }
+    }, /*#__PURE__*/React.createElement(Btn, {
+      variant: s === true ? 'accent' : 'ghost',
+      size: "sm",
+      onClick: () => answer(m.id, true)
+    }, "Vai"), /*#__PURE__*/React.createElement(Btn, {
+      variant: s === false ? 'accent' : 'ghost',
+      size: "sm",
+      onClick: () => answer(m.id, false)
+    }, "Não vai")) : pill);
+  })), me.isAdmin && /*#__PURE__*/React.createElement(DAdminBar, {
+    hint: `${going.length} ${going.length === 1 ? 'vai' : 'vão'} · ${pending.length} por confirmar. Avança quando estiver decidido.`
+  }));
+}
+
+// ─────────────────────────────────────────────────────────────
 // PHASE 1 — RSVP (dinâmico via AppStore)
 // ─────────────────────────────────────────────────────────────
 function DPhase1({
@@ -10009,6 +10273,7 @@ function DPhase1({
     });
     return c;
   }, [rsvp, allMembers.length]);
+  const interestedCount = counts.in + counts.maybe;
   const myChoice = rsvp[me.id] || null;
   const [picking, setPicking] = dUseState(false);
   const handleRsvp = status => {
@@ -10026,19 +10291,14 @@ function DPhase1({
       overflow: 'auto'
     }
   }, /*#__PURE__*/React.createElement(DPhaseHeader, {
-    phase: 1,
     status: "Em curso",
     statusTone: "accent",
-    title: /*#__PURE__*/React.createElement(React.Fragment, null, "Quem entra na ", /*#__PURE__*/React.createElement("span", {
+    title: /*#__PURE__*/React.createElement(React.Fragment, null, "Há aventura a caminho: ", /*#__PURE__*/React.createElement("span", {
       style: {
         color: 'var(--pa-accent)'
       }
-    }, appData.editionNumber || 1, "ª edição"), " — ", /*#__PURE__*/React.createElement("span", {
-      style: {
-        color: 'var(--pa-accent)'
-      }
-    }, appData.editionTitle || 'Nova Aventura'), "?"),
-    sub: /*#__PURE__*/React.createElement(React.Fragment, null, "O ", memberById(D.adminId)?.name || 'admin', " iniciou esta edição. Diz se estás dentro.")
+    }, appData.editionTitle || 'Nova Aventura'), ". Tens interesse?"),
+    sub: /*#__PURE__*/React.createElement(React.Fragment, null, "Ainda não é compromisso — só queremos ver quem está atento. As datas decidem-se a seguir, e só depois é que se confirma quem vai mesmo.")
   }), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
@@ -10046,18 +10306,18 @@ function DPhase1({
       marginBottom: 24
     }
   }, [{
-    l: 'Dentro',
-    n: counts.in,
+    l: 'Com interesse',
+    n: interestedCount,
     tone: '#3d5e44',
     bg: 'rgba(107,142,111,0.16)'
   }, {
-    l: 'Fora',
+    l: 'Sem interesse',
     n: counts.out,
     tone: '#8a4220',
     bg: 'rgba(217,119,87,0.18)'
   }, {
-    l: 'A pensar',
-    n: counts.maybe,
+    l: 'Sem responder',
+    n: counts.pending,
     tone: 'var(--pa-muted)',
     bg: 'rgba(31,26,20,0.05)'
   }].map(c => /*#__PURE__*/React.createElement("div", {
@@ -10109,15 +10369,15 @@ function DPhase1({
     }
   }, [{
     id: 'in',
-    label: 'Dentro 🙋',
+    label: 'Tenho interesse 🙋',
     tone: 'success'
   }, {
     id: 'maybe',
-    label: 'A pensar 🤔',
+    label: 'Talvez 🤔',
     tone: 'default'
   }, {
     id: 'out',
-    label: 'Fora 😩',
+    label: 'Desta vez não 😩',
     tone: 'warn'
   }].map(o => /*#__PURE__*/React.createElement("button", {
     key: o.id,
@@ -10158,9 +10418,9 @@ function DPhase1({
   }, "Ninguém registado ainda. Partilha o link com o grupo!"), allMembers.map((m, i) => {
     const s = rsvp[m.id] || 'pending';
     const labels = {
-      in: 'Dentro',
-      out: 'Fora',
-      maybe: 'A pensar',
+      in: 'Com interesse',
+      out: 'Sem interesse',
+      maybe: 'Talvez',
       pending: 'Sem responder'
     };
     const tones = {
@@ -10914,6 +11174,7 @@ Object.assign(window, {
   DPhase1,
   DPhase2,
   DPhase3,
+  DPhaseConfirm,
   LocSuggestionForm,
   useActivityFeed
 });</script>
@@ -11738,7 +11999,12 @@ function DPhase6({
   // Chaves absolutas (YYYY-MM-DD): dias antigos em número são normalizados.
   const inMembers = typeof getInMembers === 'function' ? getInMembers(appData) : allMembers;
   const totalIn = inMembers.length || allMembers.length;
-  const inIds = dUseMemo2(() => new Set(inMembers.map(m => m.id)), [inMembers]);
+  // Conjunto que conta na disponibilidade = INTERESSADOS (sim ou a pensar).
+  // Antes de trancar as datas ninguém se comprometeu ainda, por isso a
+  // disponibilidade de um "a pensar" vale tanto como a de um "sim".
+  const expectedMembers = typeof getInterestedMembers === 'function' ? getInterestedMembers(appData) : inMembers;
+  const expectedSubmitted = expectedMembers.filter(m => submittedIds.includes(m.id));
+  const inIds = dUseMemo2(() => new Set(expectedMembers.map(m => m.id)), [expectedMembers]);
   const meIsIn = inIds.has(me.id);
   const heat = dUseMemo2(() => {
     const h = {};
@@ -11990,8 +12256,24 @@ function DPhase6({
       marginBottom: 10
     }
   }, "Estado do grupo"), allMembers.map(m => {
+    const rsvpState = (appData.rsvp || {})[m.id];
     const submitted = submittedIds.includes(m.id);
-    const isOut = (appData.rsvp || {})[m.id] === 'out';
+    const isInterested = rsvpState === 'in' || rsvpState === 'maybe';
+    const isOut = rsvpState === 'out';
+    let pill;
+    if (isOut) pill = /*#__PURE__*/React.createElement(Pill, {
+      tone: "muted",
+      size: "sm"
+    }, "sem interesse");else if (isInterested) pill = submitted ? /*#__PURE__*/React.createElement(Pill, {
+      tone: "success",
+      size: "sm"
+    }, "✓ pronto") : /*#__PURE__*/React.createElement(Pill, {
+      tone: "muted",
+      size: "sm"
+    }, "a marcar…");else pill = /*#__PURE__*/React.createElement(Pill, {
+      tone: "muted",
+      size: "sm"
+    }, "sem responder");
     return /*#__PURE__*/React.createElement("div", {
       key: m.id,
       style: {
@@ -11999,7 +12281,7 @@ function DPhase6({
         alignItems: 'center',
         gap: 10,
         padding: '6px 0',
-        opacity: isOut ? 0.55 : 1
+        opacity: isInterested ? 1 : 0.55
       }
     }, /*#__PURE__*/React.createElement(Avatar, {
       member: m,
@@ -12010,16 +12292,7 @@ function DPhase6({
         fontSize: 13,
         color: 'var(--pa-ink)'
       }
-    }, m.name), isOut ? /*#__PURE__*/React.createElement(Pill, {
-      tone: "muted",
-      size: "sm"
-    }, "não vai") : submitted ? /*#__PURE__*/React.createElement(Pill, {
-      tone: "success",
-      size: "sm"
-    }, "✓ pronto") : /*#__PURE__*/React.createElement(Pill, {
-      tone: "muted",
-      size: "sm"
-    }, "a marcar…"));
+    }, m.name), pill);
   })), /*#__PURE__*/React.createElement(Btn, {
     variant: "accent",
     size: "lg",
@@ -12044,7 +12317,7 @@ function DPhase6({
       if (window._paToast) window._paToast('Disponibilidade limpa — marca de novo quando quiseres.', 'success');
     }
   }, "Limpar os meus dias"))), me.isAdmin && /*#__PURE__*/React.createElement(DAdminBar, {
-    hint: `${submittedIds.length} de ${allMembers.length} submeteram.`
+    hint: `${expectedSubmitted.length} de ${expectedMembers.length} submeteram.`
   }));
 }
 
@@ -14407,12 +14680,13 @@ function DesktopShell({
     1: DPhase1,
     2: DPhase6,
     3: DPhase7,
-    4: DPhase2,
-    5: DPhase3,
-    6: DPhase4,
-    7: DPhase5,
-    8: DPhase8
-  }; // nova ordem: datas antes de local/alojamento
+    4: DPhaseConfirm,
+    5: DPhase2,
+    6: DPhase3,
+    7: DPhase4,
+    8: DPhase5,
+    9: DPhase8
+  }; // 1 interesse · 2 disp · 3 datas · 4 confirmar · 5 local · 6 votar local · 7 aloj · 8 votar aloj · 9 plano
   const PhaseView = phases[phase] || DPhase1;
   return /*#__PURE__*/React.createElement(PhaseCtx.Provider, {
     value: ctx
@@ -14540,6 +14814,8 @@ function MPhaseNav({
 }) {
   const [open, setOpen] = mUseState(false);
   const nav = React.useContext(MNavCtx); // nav.me → gates de admin no menu
+  const _app = useAppStore();
+  phase = _app.currentPhase || phase; // fase real (números fixos são da ordem antiga)
   const total = D.phases.length;
   const go = n => {
     AppStore.setPhase(Math.max(1, Math.min(total, n)));
@@ -14551,10 +14827,11 @@ function MPhaseNav({
     1: 'rsvp',
     2: 'avail',
     3: 'locked',
-    4: 'locSuggs',
-    5: 'locVotes',
-    6: 'accSuggs',
-    7: 'accVotes'
+    4: 'going',
+    5: 'locSuggs',
+    6: 'locVotes',
+    7: 'accSuggs',
+    8: 'accVotes'
   }[phase];
   const resetLabel = {
     1: 'as respostas',
@@ -14847,6 +15124,10 @@ function MHeader({
   onOpenChat
 }) {
   const nav = React.useContext(MNavCtx);
+  // Fase REAL do store: os números fixos passados por cada MPhase refletem a
+  // posição antiga e deixariam de bater certo depois de reordenar as fases.
+  const _app = useAppStore();
+  const realPhase = _app.currentPhase || phase;
   return /*#__PURE__*/React.createElement("div", {
     style: {
       padding: '4px 18px 12px',
@@ -14897,7 +15178,7 @@ function MHeader({
       gap: 8
     }
   }, nav.me && nav.me.isAdmin ? /*#__PURE__*/React.createElement(MPhaseNav, {
-    phase: phase
+    phase: realPhase
   }) : /*#__PURE__*/React.createElement(Pill, {
     tone: "dark",
     size: "sm"
@@ -14905,7 +15186,7 @@ function MHeader({
     style: {
       fontFamily: 'var(--pa-mono)'
     }
-  }, "FASE ", String(phase).padStart(2, '0'), "/", String(D.phases.length).padStart(2, '0'))), onOpenChat && /*#__PURE__*/React.createElement("button", {
+  }, "FASE ", String(realPhase).padStart(2, '0'), "/", String(D.phases.length).padStart(2, '0'))), onOpenChat && /*#__PURE__*/React.createElement("button", {
     onClick: onOpenChat,
     title: "Chat",
     "aria-label": nav.chatUnread ? `Chat — ${nav.chatUnread} novas mensagens` : 'Chat',
@@ -15085,11 +15366,11 @@ function MPhase1({
     onOpenChat: onOpenChat
   }), /*#__PURE__*/React.createElement(MPhaseTitle, {
     kicker: `${memberById(D.adminId)?.name || 'Admin'} chamou-te`,
-    title: /*#__PURE__*/React.createElement(React.Fragment, null, "Quem entra", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("span", {
+    title: /*#__PURE__*/React.createElement(React.Fragment, null, "Tens interesse?", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("span", {
       style: {
         color: 'var(--pa-accent)'
       }
-    }, appData.editionTitle || 'Nova Aventura'), "?"),
+    }, appData.editionTitle || 'Nova Aventura')),
     sub: `${appData.editionNumber || 1}ª edição`
   }), /*#__PURE__*/React.createElement("div", {
     className: "pa-scroll",
@@ -15106,18 +15387,18 @@ function MPhase1({
       marginBottom: 14
     }
   }, [{
-    l: 'Dentro',
-    n: counts.in,
+    l: 'Com interesse',
+    n: counts.in + counts.maybe,
     tone: '#3d5e44',
     bg: 'rgba(107,142,111,0.16)'
   }, {
-    l: 'Fora',
+    l: 'Sem interesse',
     n: counts.out,
     tone: '#8a4220',
     bg: 'rgba(217,119,87,0.18)'
   }, {
-    l: 'A pensar',
-    n: counts.maybe,
+    l: 'Sem responder',
+    n: counts.pending,
     tone: 'var(--pa-muted)',
     bg: 'rgba(31,26,20,0.05)'
   }].map(c => /*#__PURE__*/React.createElement("div", {
@@ -15153,23 +15434,23 @@ function MPhase1({
     }
   }, [{
     id: 'in',
-    label: 'Dentro',
+    label: 'Tenho interesse',
     emoji: '🙋',
     sub: 'Conta comigo',
     tone: '#3d5e44',
     bg: 'rgba(107,142,111,0.16)'
   }, {
     id: 'maybe',
-    label: 'A pensar',
+    label: 'Talvez',
     emoji: '🤔',
-    sub: 'Digo até quinta',
+    sub: 'Ainda não sei',
     tone: 'var(--pa-ink)',
     bg: 'rgba(31,26,20,0.05)'
   }, {
     id: 'out',
-    label: 'Fora',
+    label: 'Desta vez não',
     emoji: '😩',
-    sub: 'Desta vez não',
+    sub: 'Fico de fora',
     tone: '#8a4220',
     bg: 'rgba(217,119,87,0.18)'
   }].map(o => {
@@ -15263,9 +15544,9 @@ function MPhase1({
   }, "Ninguém registado ainda. Partilha o link com o grupo!"), allMembers.map((m, i) => {
     const s = rsvp[m.id] || 'pending';
     const labels = {
-      in: 'Dentro',
-      out: 'Fora',
-      maybe: 'A pensar',
+      in: 'Com interesse',
+      out: 'Sem interesse',
+      maybe: 'Talvez',
       pending: 'Sem responder'
     };
     const tones = {
@@ -17042,6 +17323,168 @@ function MPhase7({
 }
 
 // PHASE 8 — Planeamento
+// ─────────────────────────────────────────────────────────────
+// MOBILE — Fase 4: Confirmar presença
+// ─────────────────────────────────────────────────────────────
+function MPhaseConfirm({
+  me,
+  onLogout,
+  onOpenChat
+}) {
+  const appData = useAppStore();
+  const locked = appData.locked || null;
+  const rangeLabel = locked ? paRangeLabel(locked.from, locked.to) : '—';
+  const interested = typeof getInterestedMembers === 'function' ? getInterestedMembers(appData) : getAllMembers();
+  const stateOf = id => typeof memberGoing === 'function' ? memberGoing(appData, id) : undefined;
+  const going = interested.filter(m => stateOf(m.id) === true);
+  const pending = interested.filter(m => stateOf(m.id) === undefined);
+  const myState = stateOf(me.id);
+  const meInterested = interested.some(m => m.id === me.id);
+  const answer = (uid, val) => AppStore.setGoing(uid, val);
+  return /*#__PURE__*/React.createElement(MShell, null, /*#__PURE__*/React.createElement(MHeader, {
+    phase: 4,
+    onLogout: onLogout,
+    onOpenChat: onOpenChat
+  }), /*#__PURE__*/React.createElement(MPhaseTitle, {
+    kicker: "Confirmar presença",
+    title: /*#__PURE__*/React.createElement(React.Fragment, null, "Quem vai", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: 'var(--pa-accent)'
+      }
+    }, "mesmo?")),
+    sub: locked ? `A aventura é de ${rangeLabel}.` : 'As datas ainda não estão trancadas.'
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "pa-scroll",
+    style: {
+      padding: '6px 16px 14px',
+      flex: 1,
+      minHeight: 0,
+      overflow: 'auto'
+    }
+  }, locked && meInterested && myState === undefined && /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: '#fff',
+      border: '1.5px solid var(--pa-accent)',
+      borderRadius: 16,
+      padding: 16,
+      marginBottom: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: 'var(--pa-display)',
+      fontSize: 19,
+      fontWeight: 600,
+      marginBottom: 4
+    }
+  }, "Vais? A aventura é de ", rangeLabel, "."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: 'var(--pa-body)',
+      fontSize: 13,
+      color: 'var(--pa-muted)',
+      marginBottom: 12
+    }
+  }, "Assim sabemos já quem conta para o destino e as contas."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement(Btn, {
+    variant: "accent",
+    size: "lg",
+    style: {
+      flex: 1
+    },
+    onClick: () => answer(me.id, true)
+  }, "Vou"), /*#__PURE__*/React.createElement(Btn, {
+    variant: "ghost",
+    size: "lg",
+    style: {
+      flex: 1
+    },
+    onClick: () => answer(me.id, false)
+  }, "Não vou"))), locked && meInterested && myState !== undefined && /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: '#fff',
+      border: '1px solid var(--pa-line)',
+      borderRadius: 14,
+      padding: 14,
+      marginBottom: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: 'var(--pa-body)',
+      fontSize: 14,
+      marginBottom: 8
+    }
+  }, "Estás como ", /*#__PURE__*/React.createElement("strong", null, myState ? 'Vou' : 'Não vou'), "."), /*#__PURE__*/React.createElement(Btn, {
+    variant: "ghost",
+    size: "sm",
+    style: {
+      width: '100%'
+    },
+    onClick: () => answer(me.id, !myState)
+  }, "Mudar para ", myState ? 'Não vou' : 'Vou')), /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: '#fff',
+      borderRadius: 16,
+      padding: 14,
+      border: '1px solid var(--pa-line)'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: 'var(--pa-mono)',
+      fontSize: 9.5,
+      letterSpacing: 1,
+      color: 'var(--pa-muted)',
+      textTransform: 'uppercase',
+      marginBottom: 8
+    }
+  }, going.length, " ", going.length === 1 ? 'vai' : 'vão', " · ", pending.length, " por confirmar"), interested.map(m => {
+    const s = stateOf(m.id);
+    return /*#__PURE__*/React.createElement("div", {
+      key: m.id,
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        padding: '6px 0',
+        opacity: s === false ? 0.55 : 1
+      }
+    }, /*#__PURE__*/React.createElement(Avatar, {
+      member: m,
+      size: 22
+    }), /*#__PURE__*/React.createElement("span", {
+      style: {
+        flex: 1,
+        fontSize: 13
+      }
+    }, m.name), me.isAdmin ? /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        gap: 6
+      }
+    }, /*#__PURE__*/React.createElement(Btn, {
+      variant: s === true ? 'accent' : 'ghost',
+      size: "sm",
+      onClick: () => answer(m.id, true)
+    }, "Vai"), /*#__PURE__*/React.createElement(Btn, {
+      variant: s === false ? 'accent' : 'ghost',
+      size: "sm",
+      onClick: () => answer(m.id, false)
+    }, "Não vai")) : s === true ? /*#__PURE__*/React.createElement(Pill, {
+      tone: "success",
+      size: "sm"
+    }, "✓ vai") : s === false ? /*#__PURE__*/React.createElement(Pill, {
+      tone: "muted",
+      size: "sm"
+    }, "não vai") : /*#__PURE__*/React.createElement(Pill, {
+      tone: "muted",
+      size: "sm"
+    }, "por confirmar"));
+  }))), /*#__PURE__*/React.createElement(MPhaseNav, {
+    phase: 4
+  }));
+}
 function MPhase8({
   me,
   onLogout,
@@ -17197,12 +17640,13 @@ function MobileApp({
     1: MPhase1,
     2: MPhase6,
     3: MPhase7,
-    4: MPhase2,
-    5: MPhase3,
-    6: MPhase4,
-    7: MPhase5,
-    8: MPhase8
-  }; // nova ordem: datas antes de local/alojamento
+    4: MPhaseConfirm,
+    5: MPhase2,
+    6: MPhase3,
+    7: MPhase4,
+    8: MPhase5,
+    9: MPhase8
+  }; // 1 interesse · 2 disp · 3 datas · 4 confirmar · 5 local · 6 votar local · 7 aloj · 8 votar aloj · 9 plano
   const View = phases[phase] || MPhase1;
   return /*#__PURE__*/React.createElement(MNavCtx.Provider, {
     value: {
@@ -17268,6 +17712,7 @@ Object.assign(window, {
   MPhase6,
   MPhase7,
   MPhase8,
+  MPhaseConfirm,
   MobileApp
 });</script>
 <script>// Perdidos Algures — Sistema de progressão de fases.
@@ -17295,10 +17740,46 @@ function getActiveMembers(appData) {
   const all = typeof getEditionMembers === 'function' ? getEditionMembers(appData) : typeof getAllMembers === 'function' ? getAllMembers() : [];
   return all.filter(m => rsvp[m.id] !== 'out');
 }
+
+// Interessados = quem disse "sim" ou "a pensar" (in ou maybe). É o conjunto que
+// conta ANTES de as datas serem trancadas (interesse + disponibilidade).
+function getInterestedMembers(appData) {
+  const rsvp = appData && appData.rsvp || {};
+  const all = typeof getEditionMembers === 'function' ? getEditionMembers(appData) : typeof getAllMembers === 'function' ? getAllMembers() : [];
+  return all.filter(m => rsvp[m.id] === 'in' || rsvp[m.id] === 'maybe');
+}
+
+// Um dia está dentro do intervalo trancado?
+function paWithinLocked(day, locked) {
+  if (!locked) return false;
+  const k = paNormDay(day);
+  return k >= paNormDay(locked.from) && k <= paNormDay(locked.to);
+}
+
+// Presença FIRME de um membro (fase 4 "Confirmar presença" em diante):
+//  - resposta explícita (Vou/Não vou) ou override do admin → esse valor
+//  - senão, marcou algum dos dias trancados → vai (auto)
+//  - senão → "por confirmar" (undefined)
+function memberGoing(appData, id) {
+  const going = appData && appData.going || {};
+  if (going[id] === true || going[id] === false) return going[id];
+  const locked = appData && appData.locked;
+  if (!locked) return undefined;
+  const days = (appData.avail || {})[id] || [];
+  return days.some(d => paWithinLocked(d, locked)) ? true : undefined;
+}
+
+// Quem VAI firme (a lista que manda a partir da fase 5).
+function getGoingMembers(appData) {
+  return getInterestedMembers(appData).filter(m => memberGoing(appData, m.id) === true);
+}
+
+// Conjunto que "conta" no momento atual — UM só, nunca dois a discordar:
+//  - antes de trancar as datas: os interessados (in/maybe)
+//  - depois de trancar: quem vai firme
 function getInMembers(appData) {
-  const rsvp = appData.rsvp || {};
-  const all = typeof getAllMembers === 'function' ? getAllMembers() : [];
-  return all.filter(m => rsvp[m.id] === 'in');
+  if (appData && appData.locked) return getGoingMembers(appData);
+  return getInterestedMembers(appData);
 }
 
 // Quantos membros TOTAIS existem (para fase 1, onde ainda ninguém disse 'in')
@@ -17318,37 +17799,42 @@ function getTotalMembers() {
 //   - Fase 8: nunca (é a última)
 // ─────────────────────────────────────────────────────────────
 function phaseComplete(phase, appData) {
-  const rsvp = appData.rsvp || {};
   const allMembers = typeof getEditionMembers === 'function' ? getEditionMembers(appData) : typeof getAllMembers === 'function' ? getAllMembers() : [];
-  const inIds = allMembers.filter(m => rsvp[m.id] === 'in').map(m => m.id);
+  const interested = typeof getInterestedMembers === 'function' ? getInterestedMembers(appData) : allMembers;
+  const inMembers = typeof getInMembers === 'function' ? getInMembers(appData) : interested;
+  const inIds = inMembers.map(m => m.id);
+  const avail = appData.avail || {};
 
-  // Ordem das fases: 1 quem entra → 2 disponibilidade → 3 datas → 4 locais →
-  // 5 votar local → 6 alojamentos → 7 votar alojamento → 8 planeamento.
-  // (Datas primeiro: a disponibilidade é a restrição mais dura, e escolher
-  // alojamento sem datas é fictício — preço/vagas dependem das datas.)
+  // Fluxo: 1 interesse → 2 disponibilidade → 3 datas → 4 confirmar presença →
+  // 5 locais → 6 votar local → 7 alojamentos → 8 votar alojamento → 9 plano.
+  // (Datas antes de local/alojamento: a disponibilidade é a restrição mais dura;
+  // e a presença firme só se pergunta depois de haver datas concretas.)
   if (phase === 1) {
-    if (allMembers.length === 0) return false;
-    return allMembers.every(m => rsvp[m.id]); // todos têm uma resposta
+    // interesse — arranque, não bloqueia
+    return interested.length > 0;
   }
   if (phase === 2) {
-    // disponibilidade
-    if (inIds.length === 0) return false;
-    const avail = appData.avail || {};
-    return inIds.every(id => paFutureDays(avail[id]).length > 0);
+    // disponibilidade — todos os interessados marcaram ≥1 dia
+    if (interested.length === 0) return false;
+    return interested.every(m => paFutureDays(avail[m.id]).length > 0);
   }
   if (phase === 3) {
     // datas trancadas
     return !!appData.locked;
   }
   if (phase === 4) {
+    // confirmar presença — cada interessado com estado resolvido
+    if (!appData.locked || interested.length === 0) return false;
+    return interested.every(m => memberGoing(appData, m.id) !== undefined);
+  }
+  if (phase === 5) {
     // sugestões de local
-    if (inIds.length === 0) return false;
     // Sugerir é OPCIONAL: nem toda a gente tem ideias, e obrigar gera sugestões
     // forçadas. A fase está pronta quando há escolha real (≥2 sugestões).
     return (appData.locSuggs || []).length >= 2;
   }
-  if (phase === 5) {
-    // votar local
+  if (phase === 6) {
+    // votar local — quem VAI votou + sem empate
     if (inIds.length === 0) return false;
     const votes = appData.locVotes || {};
     const allVoted = inIds.every(id => paVoteList(votes[id]).length > 0);
@@ -17356,20 +17842,19 @@ function phaseComplete(phase, appData) {
     // Se admin já desempatou, completo
     if (appData.locWinner) return true;
     // Se há empate por PONTOS (sem vencedor escolhido), NÃO completa
-    // Só votos de quem ESTÁ na aventura contam para o empate (removidos fora).
+    // Só votos de quem VAI contam para o empate.
     const tally = paVoteTally(votes, appData.locSuggs || [], inIds);
     const sorted = Object.values(tally).sort((a, b) => b - a);
     if (sorted.length < 2) return true;
     return !(sorted[0] === sorted[1]);
   }
-  if (phase === 6) {
+  if (phase === 7) {
     // sugestões de alojamento
-    if (inIds.length === 0) return false;
-    // Como na fase 4: opcional; pronta quando há escolha real (≥2 sugestões).
+    // Como na fase 5: opcional; pronta quando há escolha real (≥2 sugestões).
     return (appData.accSuggs || []).length >= 2;
   }
-  if (phase === 7) {
-    // votar alojamento
+  if (phase === 8) {
+    // votar alojamento — quem VAI votou + sem empate
     if (inIds.length === 0) return false;
     const votes = appData.accVotes || {};
     const allVoted = inIds.every(id => paVoteList(votes[id]).length > 0);
@@ -17380,7 +17865,7 @@ function phaseComplete(phase, appData) {
     if (sorted.length < 2) return true;
     return !(sorted[0] === sorted[1]);
   }
-  return false; // fase 8 é a última
+  return false; // fase 9 (planeamento) é a última
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -17391,7 +17876,7 @@ function phaseComplete(phase, appData) {
 // ─────────────────────────────────────────────────────────────
 function usePhaseProgress(phase, me) {
   const appData = useAppStore();
-  const isLast = phase >= 8;
+  const isLast = phase >= 9;
   const isComplete = phaseComplete(phase, appData);
   const allMembers = typeof getEditionMembers === 'function' ? getEditionMembers(appData) : typeof getAllMembers === 'function' ? getAllMembers() : [];
   const inMembers = phase === 1 ? allMembers : getInMembers(appData);
@@ -17668,13 +18153,13 @@ function PhaseProgressBanner({
 
   // Empate nas fases de votação (5 = local, 7 = alojamento): todos votaram mas há empate
   const _detectTie = typeof detectTie === 'function' ? detectTie : () => null;
-  const tieLoc = phase === 5 && !appData.locWinner ? (() => {
+  const tieLoc = phase === 6 && !appData.locWinner ? (() => {
     const inMembers = getInMembers(appData);
     const votes = appData.locVotes || {};
     const allVoted = inMembers.length > 0 && inMembers.every(m => votes[m.id]);
     return allVoted && _detectTie(votes, appData.locSuggs || []);
   })() : null;
-  const tieAcc = phase === 7 && !appData.accWinner ? (() => {
+  const tieAcc = phase === 8 && !appData.accWinner ? (() => {
     const inMembers = getInMembers(appData);
     const votes = appData.accVotes || {};
     const allVoted = inMembers.length > 0 && inMembers.every(m => votes[m.id]);
@@ -17750,7 +18235,7 @@ function PhaseProgressBanner({
         opacity: 0.75,
         textTransform: 'uppercase'
       }
-    }, phase === 4 || phase === 6 ? `${((phase === 4 ? appData.locSuggs : appData.accSuggs) || []).length} sugestões — já dá para votar` : 'Todos prontos'), /*#__PURE__*/React.createElement("div", {
+    }, phase === 5 || phase === 7 ? `${((phase === 5 ? appData.locSuggs : appData.accSuggs) || []).length} sugestões — já dá para votar` : 'Todos prontos'), /*#__PURE__*/React.createElement("div", {
       style: {
         fontFamily: 'var(--pa-display)',
         fontSize: narrow ? 14 : 16,
@@ -17891,6 +18376,10 @@ function PhaseProgressBanner({
 }
 Object.assign(window, {
   getInMembers,
+  getInterestedMembers,
+  getGoingMembers,
+  memberGoing,
+  paWithinLocked,
   getTotalMembers,
   phaseComplete,
   usePhaseProgress,
@@ -20369,7 +20858,7 @@ function DatesChip({
 }) {
   const appData = useAppStore();
   const locked = appData.locked;
-  if (!locked || phase < 4 || phase > 7) return null;
+  if (!locked || phase < 4 || phase > 8) return null;
   return /*#__PURE__*/React.createElement("div", {
     style: {
       padding: '8px 14px 0',
@@ -20592,15 +21081,15 @@ function AdminMembersModal({
   const rsvp = appData.rsvp || {};
   const STATES = [{
     k: 'in',
-    label: 'Dentro',
+    label: 'Com interesse',
     color: '#3d5e44'
   }, {
     k: 'maybe',
-    label: 'A pensar',
+    label: 'Talvez',
     color: '#8a6d3b'
   }, {
     k: 'out',
-    label: 'Fora',
+    label: 'Sem interesse',
     color: '#9a4b3b'
   }];
   // "Na temporada" = quem já tem uma resposta. "Disponíveis" = perfis ainda fora desta edição.
