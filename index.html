@@ -5080,7 +5080,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r81';
+window.PA_VERSION = '2026.06.01-r82';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -5597,7 +5597,11 @@ const EditionStore = {
     _editionsListeners.forEach(fn => fn(_editionsCache.slice()));
     _appListeners.forEach(fn => fn(AppStore._cache()));
   },
-  _notify() { _editionsListeners.forEach(fn => fn(_editionsCache.slice())); },
+  // Entrega a MESMA referência: os componentes comparam por identidade e saem
+  // logo à primeira linha. (Com .slice() era sempre um array novo → cada
+  // notificação obrigava a serializar todas as edições, em cada componente.)
+  // O cache é sempre substituído por um array novo quando muda, nunca mutado.
+  _notify() { _editionsListeners.forEach(fn => fn(_editionsCache)); },
 
   async fetchAll() {
     const { data } = await _sb.from('editions').select('*').order('number', { ascending: false });
@@ -5867,19 +5871,27 @@ const _appListeners = new Set();
 
 const AppStore = {
   _cache() { return _appCache || {}; },
-  _notify() { _appListeners.forEach(fn => fn({ ...this._cache() })); },
+  // Idem: sem o spread, a identidade de _appCache mantém-se quando nada muda
+  // e os 42 componentes que usam useAppStore não re-renderizam por nada.
+  _notify() { _appListeners.forEach(fn => fn(this._cache())); },
 
   // Reconstrói o cache a partir da edição ativa
   _syncFromActive() {
     const ed = (typeof EditionStore !== 'undefined') ? EditionStore.active() : null;
-    if (!ed) { _appCache = {}; return; }
-    _appCache = {
+    if (!ed) { if (Object.keys(_appCache).length) _appCache = {}; return; }
+    const next = {
       ...(ed.data || {}),
       currentPhase: paPhaseFromStored(ed),
       editionTitle: ed.title,
       editionSubtitle: ed.subtitle,
       editionNumber: ed.number,
     };
+    // Se o conteúdo é o mesmo, MANTÉM a referência antiga. Isto é o que faz o
+    // `_paSame(a === b)` dos 42 componentes que usam useAppStore sair logo à
+    // primeira linha. Sem isto, cada notificação custava 84 serializações do
+    // appData inteiro — no telemóvel, era a app a "engasgar" sem razão.
+    if (_paSame(_appCache, next)) return;
+    _appCache = next;
   },
 
   // Grava uma chave de dados na edição ativa (substitui o valor inteiro).
