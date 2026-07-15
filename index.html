@@ -155,6 +155,11 @@
 // ═════════════════════════════════════════════════════════════════════════
 // ═══ Dicionário PT→EN (gerado; chaves = strings exatas do código) ═══
 const PA_EN = {
+  "saiu": "left",
+  "→ Não vai": "→ Not going",
+  "← Vai": "← Going",
+  "Mudar para Não vai": "Move to Not going",
+  "Mudar para Vai": "Move to Going",
   "Por confirmar ·": "To confirm ·",
   "Por confirmar · ": "To confirm · ",
   "Mudar de coluna": "Move to the other column",
@@ -1324,6 +1329,8 @@ const PA_EN_PATTERNS = [
   ["^Vai · (\\d+)$", "Going · $1"],
   ["^Não vai · (\\d+)$", "Not going · $1"],
   ["^Por confirmar · (\\d+)$", "To confirm · $1"],
+  ["^Marcado · (\\d+) dias$", "Marked · $1 days"],
+  ["^Marcado · (\\d+) dia$", "Marked · $1 day"],
 ];
 
 const PA_MONTHS_EN = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -4953,18 +4960,38 @@ function Calendar({
       fontFamily: 'var(--pa-mono)',
       fontSize: 10,
       letterSpacing: 1.2,
-      color: 'var(--pa-muted)',
+      // Fim de semana (col. 5 e 6 numa grelha Seg→Dom) um pouco mais forte.
+      color: i >= 5 ? 'var(--pa-ink)' : 'var(--pa-muted)',
       textAlign: 'center',
       textTransform: 'uppercase',
-      fontWeight: 500
+      fontWeight: i >= 5 ? 700 : 500,
+      opacity: i >= 5 ? 0.75 : 1
     }
   }, d))), /*#__PURE__*/React.createElement("div", {
     style: {
+      position: 'relative',
       display: 'grid',
       gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
       gap: dense ? 3 : 6
     }
-  }, useGrid.map((day, i) => {
+  }, /*#__PURE__*/React.createElement("div", {
+    "aria-hidden": "true",
+    style: {
+      position: 'absolute',
+      inset: 0,
+      display: 'grid',
+      gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
+      gap: dense ? 3 : 6,
+      pointerEvents: 'none',
+      zIndex: 0
+    }
+  }, [0, 1, 2, 3, 4, 5, 6].map(c => /*#__PURE__*/React.createElement("div", {
+    key: c,
+    style: {
+      background: c >= 5 ? 'rgba(31,26,20,0.055)' : 'transparent',
+      borderRadius: 10
+    }
+  }))), useGrid.map((day, i) => {
     const empty = day === null;
     const past = !empty && isPast(day);
     return /*#__PURE__*/React.createElement("button", {
@@ -4979,6 +5006,7 @@ function Calendar({
         background: 'transparent',
         cursor: day && onCellClick && !past ? 'pointer' : 'default',
         position: 'relative',
+        zIndex: 1,
         minWidth: 0,
         maxWidth: '100%',
         overflow: 'hidden'
@@ -5051,7 +5079,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r76';
+window.PA_VERSION = '2026.06.01-r77';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -10269,11 +10297,13 @@ function GoingColumns({
         display: 'flex',
         alignItems: 'center',
         gap: 7,
-        padding: eu ? '5px 7px' : '5px 3px',
-        borderRadius: 9,
+        padding: '5px 6px 5px 7px',
+        borderRadius: 8,
         marginBottom: 3,
-        background: eu ? 'rgba(217,119,87,0.13)' : 'transparent',
-        border: eu ? '1px solid var(--pa-accent)' : '1px solid transparent'
+        // Destaque discreto: uma barra à esquerda e o nome a negrito. Chega
+        // para encontrares o teu nome sem gritar.
+        background: eu ? 'rgba(255,255,255,0.6)' : 'transparent',
+        borderLeft: eu ? '2px solid var(--pa-accent)' : '2px solid transparent'
       }
     }, /*#__PURE__*/React.createElement(Avatar, {
       member: m,
@@ -10292,19 +10322,25 @@ function GoingColumns({
       }
     }, m.name, eu ? ' (tu)' : ''), isAdmin && onSet && /*#__PURE__*/React.createElement("button", {
       onClick: () => onSet(m.id, !isGoing),
-      "aria-label": "Mudar de coluna",
-      title: "Mudar de coluna",
+      "aria-label": isGoing ? 'Mudar para Não vai' : 'Mudar para Vai',
+      title: isGoing ? 'Mudar para Não vai' : 'Mudar para Vai',
       style: {
-        background: 'transparent',
-        border: 'none',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 3,
+        flexShrink: 0,
+        background: '#fff',
+        border: '1px solid var(--pa-line)',
+        borderRadius: 999,
+        padding: '2px 7px',
         cursor: 'pointer',
-        color: 'var(--pa-muted)',
-        fontSize: 12,
-        padding: '0 2px',
-        lineHeight: 1,
-        flexShrink: 0
+        color: 'var(--pa-ink)',
+        fontFamily: 'var(--pa-body)',
+        fontSize: 10.5,
+        fontWeight: 600,
+        lineHeight: 1.6
       }
-    }, "⇄"));
+    }, isGoing ? '→ Não vai' : '← Vai'));
   };
   const col = (titulo, gente, isGoing, cor, fundo) => /*#__PURE__*/React.createElement("div", {
     style: {
@@ -10363,11 +10399,11 @@ function GoingColumns({
         display: 'flex',
         alignItems: 'center',
         gap: 8,
-        padding: eu ? '5px 7px' : '5px 2px',
-        borderRadius: 9,
+        padding: '5px 6px 5px 7px',
+        borderRadius: 8,
         marginBottom: 3,
-        background: eu ? 'rgba(217,119,87,0.13)' : 'transparent',
-        border: eu ? '1px solid var(--pa-accent)' : '1px solid transparent'
+        background: eu ? 'rgba(31,26,20,0.035)' : 'transparent',
+        borderLeft: eu ? '2px solid var(--pa-accent)' : '2px solid transparent'
       }
     }, /*#__PURE__*/React.createElement(Avatar, {
       member: m,
@@ -12674,24 +12710,20 @@ function DPhase6({
       marginBottom: 10
     }
   }, "Estado do grupo"), allMembers.map(m => {
-    const rsvpState = (appData.rsvp || {})[m.id];
-    const submitted = submittedIds.includes(m.id);
-    const isInterested = rsvpState === 'in' || rsvpState === 'maybe';
-    const isOut = rsvpState === 'out';
-    let pill;
-    if (isOut) pill = /*#__PURE__*/React.createElement(Pill, {
+    // Marcar dias É entrar: o estado vem da disponibilidade, não de um
+    // "rsvp" (que no fluxo novo só existe para quem SAIU da aventura).
+    const saiu = (appData.rsvp || {})[m.id] === 'out';
+    const nDias = paFutureDays(allAvail[m.id]).length;
+    const pill = saiu ? /*#__PURE__*/React.createElement(Pill, {
       tone: "muted",
       size: "sm"
-    }, "sem interesse");else if (isInterested) pill = submitted ? /*#__PURE__*/React.createElement(Pill, {
+    }, "saiu") : nDias > 0 ? /*#__PURE__*/React.createElement(Pill, {
       tone: "success",
       size: "sm"
-    }, "✓ pronto") : /*#__PURE__*/React.createElement(Pill, {
+    }, `Marcado · ${nDias} ${nDias === 1 ? 'dia' : 'dias'}`) : /*#__PURE__*/React.createElement(Pill, {
       tone: "muted",
       size: "sm"
-    }, "a marcar…");else pill = /*#__PURE__*/React.createElement(Pill, {
-      tone: "muted",
-      size: "sm"
-    }, "sem responder");
+    }, "a marcar…");
     return /*#__PURE__*/React.createElement("div", {
       key: m.id,
       style: {
@@ -12699,7 +12731,7 @@ function DPhase6({
         alignItems: 'center',
         gap: 10,
         padding: '6px 0',
-        opacity: isInterested ? 1 : 0.55
+        opacity: saiu ? 0.5 : 1
       }
     }, /*#__PURE__*/React.createElement(Avatar, {
       member: m,
@@ -17317,24 +17349,18 @@ function MPhase6({
       padding: '12px 16px 6px'
     }
   }, "Estado do grupo · ", inMembers.filter(m => submittedIds.includes(m.id)).length, "/", totalIn), allMembers.map(m => {
-    const rsvpState = (appData.rsvp || {})[m.id];
-    const submitted = submittedIds.includes(m.id);
-    const isInterested = rsvpState === 'in' || rsvpState === 'maybe';
-    const isOut = rsvpState === 'out';
-    let pill;
-    if (isOut) pill = /*#__PURE__*/React.createElement(Pill, {
+    const saiu = (appData.rsvp || {})[m.id] === 'out';
+    const nDias = paFutureDays(allAvail[m.id]).length;
+    const pill = saiu ? /*#__PURE__*/React.createElement(Pill, {
       tone: "muted",
       size: "sm"
-    }, "sem interesse");else if (isInterested) pill = submitted ? /*#__PURE__*/React.createElement(Pill, {
+    }, "saiu") : nDias > 0 ? /*#__PURE__*/React.createElement(Pill, {
       tone: "success",
       size: "sm"
-    }, "✓ pronto") : /*#__PURE__*/React.createElement(Pill, {
+    }, `Marcado · ${nDias} ${nDias === 1 ? 'dia' : 'dias'}`) : /*#__PURE__*/React.createElement(Pill, {
       tone: "muted",
       size: "sm"
-    }, "a marcar…");else pill = /*#__PURE__*/React.createElement(Pill, {
-      tone: "muted",
-      size: "sm"
-    }, "sem responder");
+    }, "a marcar…");
     return /*#__PURE__*/React.createElement("div", {
       key: m.id,
       style: {
@@ -17343,7 +17369,7 @@ function MPhase6({
         gap: 12,
         padding: '9px 16px',
         borderTop: '1px solid var(--pa-line)',
-        opacity: isInterested ? 1 : 0.55
+        opacity: saiu ? 0.5 : 1
       }
     }, /*#__PURE__*/React.createElement(Avatar, {
       member: m,

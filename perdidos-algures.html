@@ -156,6 +156,11 @@
 // ═════════════════════════════════════════════════════════════════════════
 // ═══ Dicionário PT→EN (gerado; chaves = strings exatas do código) ═══
 const PA_EN = {
+  "saiu": "left",
+  "→ Não vai": "→ Not going",
+  "← Vai": "← Going",
+  "Mudar para Não vai": "Move to Not going",
+  "Mudar para Vai": "Move to Going",
   "Por confirmar ·": "To confirm ·",
   "Por confirmar · ": "To confirm · ",
   "Mudar de coluna": "Move to the other column",
@@ -1325,6 +1330,8 @@ const PA_EN_PATTERNS = [
   ["^Vai · (\\d+)$", "Going · $1"],
   ["^Não vai · (\\d+)$", "Not going · $1"],
   ["^Por confirmar · (\\d+)$", "To confirm · $1"],
+  ["^Marcado · (\\d+) dias$", "Marked · $1 days"],
+  ["^Marcado · (\\d+) dia$", "Marked · $1 day"],
 ];
 
 const PA_MONTHS_EN = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -3746,15 +3753,34 @@ function Calendar({ grid = D.phase6.monthGrid, monthLabel = D.phase6.monthLabel,
         {dows.map((d, i) => (
           <div key={i} style={{
             fontFamily: 'var(--pa-mono)', fontSize: 10, letterSpacing: 1.2,
-            color: 'var(--pa-muted)', textAlign: 'center', textTransform: 'uppercase',
-            fontWeight: 500,
+            // Fim de semana (col. 5 e 6 numa grelha Seg→Dom) um pouco mais forte.
+            color: i >= 5 ? 'var(--pa-ink)' : 'var(--pa-muted)',
+            textAlign: 'center', textTransform: 'uppercase',
+            fontWeight: i >= 5 ? 700 : 500, opacity: i >= 5 ? 0.75 : 1,
           }}>{d}</div>
         ))}
       </div>
 
       <div style={{
+        position: 'relative',
         display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: dense ? 3 : 6,
       }}>
+        {/* Banda subtil por trás das colunas de sábado e domingo. Fica por baixo
+            das células (que são opacas), por isso só se vê nas margens — o
+            suficiente para o fim de semana saltar à vista sem competir com o
+            mapa de calor. */}
+        <div aria-hidden="true" style={{
+          position: 'absolute', inset: 0, display: 'grid',
+          gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: dense ? 3 : 6,
+          pointerEvents: 'none', zIndex: 0,
+        }}>
+          {[0,1,2,3,4,5,6].map((c) => (
+            <div key={c} style={{
+              background: c >= 5 ? 'rgba(31,26,20,0.055)' : 'transparent',
+              borderRadius: 10,
+            }} />
+          ))}
+        </div>
         {useGrid.map((day, i) => {
           const empty = day === null;
           const past = !empty && isPast(day);
@@ -3767,7 +3793,7 @@ function Calendar({ grid = D.phase6.monthGrid, monthLabel = D.phase6.monthLabel,
                 border: 'none', padding: 0,
                 background: 'transparent',
                 cursor: day && onCellClick && !past ? 'pointer' : 'default',
-                position: 'relative',
+                position: 'relative', zIndex: 1,
                 minWidth: 0, maxWidth: '100%', overflow: 'hidden',
               }}>
               {!empty && isToday(day) && (
@@ -3813,7 +3839,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r76';
+window.PA_VERSION = '2026.06.01-r77';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -7273,10 +7299,12 @@ function GoingColumns({ going, notGoing, pending, meId, isAdmin, onSet, compact 
     const eu = m.id === meId;
     return (
       <div key={m.id} style={{
-        display:'flex', alignItems:'center', gap:7, padding: eu ? '5px 7px' : '5px 3px',
-        borderRadius:9, marginBottom:3,
-        background: eu ? 'rgba(217,119,87,0.13)' : 'transparent',
-        border: eu ? '1px solid var(--pa-accent)' : '1px solid transparent' }}>
+        display:'flex', alignItems:'center', gap:7, padding:'5px 6px 5px 7px',
+        borderRadius:8, marginBottom:3,
+        // Destaque discreto: uma barra à esquerda e o nome a negrito. Chega
+        // para encontrares o teu nome sem gritar.
+        background: eu ? 'rgba(255,255,255,0.6)' : 'transparent',
+        borderLeft: eu ? '2px solid var(--pa-accent)' : '2px solid transparent' }}>
         <Avatar member={m} size={compact ? 18 : 20} />
         <span style={{ flex:1, minWidth:0, fontFamily:'var(--pa-body)', fontSize: compact ? 12 : 12.5,
           fontWeight: eu ? 700 : 500, color:'var(--pa-ink)',
@@ -7284,9 +7312,15 @@ function GoingColumns({ going, notGoing, pending, meId, isAdmin, onSet, compact 
           {m.name}{eu ? ' (tu)' : ''}
         </span>
         {isAdmin && onSet && (
-          <button onClick={() => onSet(m.id, !isGoing)} aria-label="Mudar de coluna" title="Mudar de coluna"
-            style={{ background:'transparent', border:'none', cursor:'pointer', color:'var(--pa-muted)',
-              fontSize:12, padding:'0 2px', lineHeight:1, flexShrink:0 }}>⇄</button>
+          <button onClick={() => onSet(m.id, !isGoing)}
+            aria-label={isGoing ? 'Mudar para Não vai' : 'Mudar para Vai'}
+            title={isGoing ? 'Mudar para Não vai' : 'Mudar para Vai'}
+            style={{ display:'flex', alignItems:'center', gap:3, flexShrink:0,
+              background:'#fff', border:'1px solid var(--pa-line)', borderRadius:999,
+              padding:'2px 7px', cursor:'pointer', color:'var(--pa-ink)',
+              fontFamily:'var(--pa-body)', fontSize:10.5, fontWeight:600, lineHeight:1.6 }}>
+            {isGoing ? '→ Não vai' : '← Vai'}
+          </button>
         )}
       </div>
     );
@@ -7318,10 +7352,10 @@ function GoingColumns({ going, notGoing, pending, meId, isAdmin, onSet, compact 
           {pending.map((m) => {
             const eu = m.id === meId;
             return (
-              <div key={m.id} style={{ display:'flex', alignItems:'center', gap:8, padding: eu ? '5px 7px' : '5px 2px',
-                borderRadius:9, marginBottom:3,
-                background: eu ? 'rgba(217,119,87,0.13)' : 'transparent',
-                border: eu ? '1px solid var(--pa-accent)' : '1px solid transparent' }}>
+              <div key={m.id} style={{ display:'flex', alignItems:'center', gap:8, padding:'5px 6px 5px 7px',
+                borderRadius:8, marginBottom:3,
+                background: eu ? 'rgba(31,26,20,0.035)' : 'transparent',
+                borderLeft: eu ? '2px solid var(--pa-accent)' : '2px solid transparent' }}>
                 <Avatar member={m} size={compact ? 18 : 20} />
                 <span style={{ flex:1, minWidth:0, fontFamily:'var(--pa-body)', fontSize: compact ? 12 : 12.5,
                   fontWeight: eu ? 700 : 500, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
@@ -8340,16 +8374,17 @@ function DPhase6({ me }) {
           <div style={{ background:'#fff', borderRadius:16, padding:16, border:'1px solid var(--pa-line)' }}>
             <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:10 }}>Estado do grupo</div>
             {allMembers.map((m) => {
-              const rsvpState = (appData.rsvp || {})[m.id];
-              const submitted = submittedIds.includes(m.id);
-              const isInterested = rsvpState === 'in' || rsvpState === 'maybe';
-              const isOut = rsvpState === 'out';
-              let pill;
-              if (isOut) pill = <Pill tone="muted" size="sm">sem interesse</Pill>;
-              else if (isInterested) pill = submitted ? <Pill tone="success" size="sm">✓ pronto</Pill> : <Pill tone="muted" size="sm">a marcar…</Pill>;
-              else pill = <Pill tone="muted" size="sm">sem responder</Pill>;
+              // Marcar dias É entrar: o estado vem da disponibilidade, não de um
+              // "rsvp" (que no fluxo novo só existe para quem SAIU da aventura).
+              const saiu = (appData.rsvp || {})[m.id] === 'out';
+              const nDias = paFutureDays(allAvail[m.id]).length;
+              const pill = saiu
+                ? <Pill tone="muted" size="sm">saiu</Pill>
+                : nDias > 0
+                  ? <Pill tone="success" size="sm">{`Marcado · ${nDias} ${nDias === 1 ? 'dia' : 'dias'}`}</Pill>
+                  : <Pill tone="muted" size="sm">a marcar…</Pill>;
               return (
-                <div key={m.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'6px 0', opacity: isInterested ? 1 : 0.55 }}>
+                <div key={m.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'6px 0', opacity: saiu ? 0.5 : 1 }}>
                   <Avatar member={m} size={22} />
                   <span style={{ flex:1, fontSize:13, color:'var(--pa-ink)' }}>{m.name}</span>
                   {pill}
@@ -10233,16 +10268,15 @@ function MPhase6({ me, onLogout, onOpenChat, modeToggle }) {
             Estado do grupo · {inMembers.filter((m) => submittedIds.includes(m.id)).length}/{totalIn}
           </div>
           {allMembers.map((m) => {
-            const rsvpState = (appData.rsvp || {})[m.id];
-            const submitted = submittedIds.includes(m.id);
-            const isInterested = rsvpState === 'in' || rsvpState === 'maybe';
-            const isOut = rsvpState === 'out';
-            let pill;
-            if (isOut) pill = <Pill tone="muted" size="sm">sem interesse</Pill>;
-            else if (isInterested) pill = submitted ? <Pill tone="success" size="sm">✓ pronto</Pill> : <Pill tone="muted" size="sm">a marcar…</Pill>;
-            else pill = <Pill tone="muted" size="sm">sem responder</Pill>;
+            const saiu = (appData.rsvp || {})[m.id] === 'out';
+            const nDias = paFutureDays(allAvail[m.id]).length;
+            const pill = saiu
+              ? <Pill tone="muted" size="sm">saiu</Pill>
+              : nDias > 0
+                ? <Pill tone="success" size="sm">{`Marcado · ${nDias} ${nDias === 1 ? 'dia' : 'dias'}`}</Pill>
+                : <Pill tone="muted" size="sm">a marcar…</Pill>;
             return (
-              <div key={m.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'9px 16px', borderTop:'1px solid var(--pa-line)', opacity: isInterested ? 1 : 0.55 }}>
+              <div key={m.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'9px 16px', borderTop:'1px solid var(--pa-line)', opacity: saiu ? 0.5 : 1 }}>
                 <Avatar member={m} size={28} />
                 <span style={{ flex:1, minWidth:0, fontSize:13.5, color:'var(--pa-ink)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{m.name}</span>
                 {pill}
