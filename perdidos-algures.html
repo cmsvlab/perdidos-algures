@@ -3484,11 +3484,11 @@ const ADMIN = memberById(D.adminId);
 // Avatar / Stack
 // ─────────────────────────────────────────────────────────────
 function Avatar({ member, size = 36, ring = false, ringColor }) {
-  // Presença: o Avatar observa quem está online por si — a bolinha verde aparece
-  // em qualquer sítio onde haja um avatar (listas, chat, modais), sem props.
-  const presence = (typeof usePresence === 'function') ? usePresence() : new Set();
+  // Presença: o Avatar observa só a SUA pessoa (não o grupo todo), por isso não
+  // redesenha quando outra pessoa entra ou sai — era o que fazia o scroll
+  // engasgar com muitos avatares no ecrã.
+  const online = (typeof useIsOnline === 'function') ? useIsOnline(member && member.id) : false;
   if (!member) return null;
-  const online = member.id && presence.has(member.id);
   const photo = member.photoDataUrl;
   // Wrapper sem overflow: a foto/iniciais ficam recortadas no círculo interior,
   // e os indicadores (★ admin, bolinha online) vivem no wrapper sem serem cortados.
@@ -3844,7 +3844,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r82';
+window.PA_VERSION = '2026.06.01-r83';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -5205,12 +5205,34 @@ const PresenceStore = {
 Object.assign(window, { PresenceStore });
 
 // Hook reativo: devolve o Set de ids online (re-renderiza só quando muda).
+// Presença de UMA pessoa. É isto que o Avatar precisa — e como devolve um
+// booleano, o React ignora sozinho as notificações que não mexem com ele.
+// (Com o Set inteiro, cada avatar re-renderizava sempre que QUALQUER pessoa
+// abria ou fechava a app — dezenas de avatares a redesenhar por nada.)
+function useIsOnline(id) {
+  const [on, setOn] = React.useState(() => !!id && PresenceStore._online.has(id));
+  React.useEffect(() => {
+    if (!id) return;
+    setOn(PresenceStore._online.has(id));
+    return PresenceStore.subscribe((ids) => setOn(ids.has(id)));
+  }, [id]);
+  return on;
+}
+
 function usePresence() {
   const [online, setOnline] = React.useState(() => new Set(PresenceStore._online));
-  React.useEffect(() => PresenceStore.subscribe((ids) => setOnline(new Set(ids))), []);
+  React.useEffect(() => PresenceStore.subscribe((ids) => setOnline((prev) => {
+    // Só troca a referência se o conteúdo mudou mesmo.
+    if (prev.size === ids.size) {
+      let igual = true;
+      for (const x of ids) { if (!prev.has(x)) { igual = false; break; } }
+      if (igual) return prev;
+    }
+    return new Set(ids);
+  })), []);
   return online;
 }
-Object.assign(window, { usePresence });
+Object.assign(window, { usePresence, useIsOnline });
 
 function useAppStore() {
   const [data, setData] = React.useState(() => AppStore._cache());
