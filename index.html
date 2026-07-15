@@ -155,6 +155,13 @@
 // ═════════════════════════════════════════════════════════════════════════
 // ═══ Dicionário PT→EN (gerado; chaves = strings exatas do código) ═══
 const PA_EN = {
+  "Escolher datas finais 🔒": "Choose final dates 🔒",
+  "← Ver os dias marcados": "← See the marked days",
+  "Ver os dias marcados": "See the marked days",
+  "Sair da aventura": "Leave the adventure",
+  "Voltar à aventura": "Rejoin the adventure",
+  "Aventura": "Adventure",
+  "Sair desta aventura?\n\nDeixas de contar para as datas, votos e contas. Podes voltar a qualquer momento.": "Leave this adventure?\n\nYou'll stop counting for the dates, votes and costs. You can come back any time.",
   "Vão": "Going",
   "Não vão": "Not going",
   "Por confirmar": "To confirm",
@@ -1509,17 +1516,25 @@ window.PA_DATA = {
     startedBy: 'miguel',
   },
 
+  // Fluxo v3 — 5 fases principais, com sub-fases de votação (3.1 e 4.1).
+  //  `n`     = número interno (1..7), usado em current_phase, router e portões.
+  //  `label` = o que o utilizador vê ('3.1'). `main` = conta como fase principal.
+  // Marcar dias É entrar: não há fase de "interesse". Trancar as datas é uma
+  // ação do admin dentro da fase 1, não uma fase.
   phases: [
-    { n: 1, key: 'interest', name: 'Interesse',         hint: 'Tens interesse?' },
-    { n: 2, key: 'avail',    name: 'Disponibilidade',   hint: 'Quando podes?' },
-    { n: 3, key: 'lock',     name: 'Datas finais',      hint: 'Admin tranca' },
-    { n: 4, key: 'confirm',  name: 'Confirmar presença', hint: 'Vais?' },
-    { n: 5, key: 'locSug',   name: 'Localizações',      hint: 'Até 3 por cabeça' },
-    { n: 6, key: 'locVote',  name: 'Votar local',       hint: 'Voto secreto' },
-    { n: 7, key: 'accSug',   name: 'Alojamentos',       hint: 'Sem limite' },
-    { n: 8, key: 'accVote',  name: 'Votar alojamento',  hint: 'Voto secreto' },
-    { n: 9, key: 'plan',     name: 'Planeamento',       hint: 'Arrumar tudo' },
+    { n: 1, key: 'avail',   label: '1',   main: true,  name: 'Disponibilidade',    hint: 'Quando podes?' },
+    { n: 2, key: 'confirm', label: '2',   main: true,  name: 'Confirmar presença', hint: 'Vais?' },
+    { n: 3, key: 'locSug',  label: '3',   main: true,  name: 'Localizações',       hint: 'Até 3 por cabeça' },
+    { n: 4, key: 'locVote', label: '3.1', main: false, name: 'Votar local',        hint: 'Voto secreto' },
+    { n: 5, key: 'accSug',  label: '4',   main: true,  name: 'Alojamentos',        hint: 'Sem limite' },
+    { n: 6, key: 'accVote', label: '4.1', main: false, name: 'Votar alojamento',   hint: 'Voto secreto' },
+    { n: 7, key: 'plan',    label: '5',   main: true,  name: 'Planeamento',        hint: 'Arrumar tudo' },
   ],
+
+  // Rótulo visível de uma fase interna (1..7) → '1','2','3','3.1','4','4.1','5'.
+  phaseLabel(n) { return (this.phases.find((p) => p.n === n) || {}).label || String(n); },
+  // Quantas fases PRINCIPAIS existem (as sub-fases não contam para o total).
+  get mainCount() { return this.phases.filter((p) => p.main).length; },
 
   // Estrutura estática usada como fallback; dados reais vêm do AppStore.
   phase1: { deadline: null, state: {} },
@@ -5029,7 +5044,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r73';
+window.PA_VERSION = '2026.06.01-r75';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -5566,7 +5581,7 @@ const EditionStore = {
     // Convites: quem NÃO foi convidado entra como "removido" da edição —
     // o mesmo mecanismo do Gerir membros, e readmissível a qualquer momento.
     // flow:2 → edições novas nascem já no fluxo de 9 fases (sem remap na leitura).
-    const data0 = { flow: 2, ...((excludedIds && excludedIds.length) ? { removedMembers: excludedIds } : {}) };
+    const data0 = { flow: 3, ...((excludedIds && excludedIds.length) ? { removedMembers: excludedIds } : {}) };
     const rp = await paRpc('edition_create', {
       p_number: num, p_title: title || 'Nova Aventura',
       p_subtitle: subtitle || 'Algures no mundo.', p_status: 'active', p_data: data0,
@@ -5590,7 +5605,7 @@ const EditionStore = {
   // Qualquer membro pode propor; fica com status 'proposed' até o admin decidir.
   // Aprovar promove a edição normal (número atribuído na hora); recusar apaga.
   async propose({ title, subtitle, excludedIds, by, byName }) {
-    const data0 = { flow: 2, proposal: { by, byName, when: new Date().toISOString() } };
+    const data0 = { flow: 3, proposal: { by, byName, when: new Date().toISOString() } };
     if (excludedIds && excludedIds.length) data0.removedMembers = excludedIds;
     const rp = await paRpc('edition_create', {
       p_number: 0, p_title: title || 'Nova Aventura',
@@ -5705,16 +5720,32 @@ const EditionStore = {
     this._setupVisibility();
     try {
       _sb.channel('editions_ch')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'editions' }, async () => {
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'editions' }, async (payload) => {
           if (document.hidden) return; // não processa em background
-          const before = JSON.stringify(_editionsCache);
-          await this.fetchAll();
-          if (JSON.stringify(_editionsCache) !== before) {
-            this._notify();
-            _appListeners.forEach(fn => fn(AppStore._cache()));
+          // O evento já traz a linha alterada: aplicamo-la em vez de ir buscar
+          // TODAS as edições outra vez. Com 14 pessoas a marcar dias, isto era
+          // um refetch completo por cada toque de cada pessoa.
+          const row = payload && payload.new;
+          const kind = payload && (payload.eventType || payload.event);
+          if (kind === 'UPDATE' && row && row.id) {
+            const i = _editionsCache.findIndex((e) => e.id === row.id);
+            if (i >= 0) {
+              if (_paSame(_editionsCache[i], row)) return;   // nada mudou de facto
+              _editionsCache = _editionsCache.map((e, j) => (j === i ? row : e));
+              AppStore._syncFromActive();
+              this._notify();
+              _appListeners.forEach(fn => fn(AppStore._cache()));
+              return;
+            }
           }
+          await this._pollOnce();  // INSERT/DELETE ou edição desconhecida → recarrega
         })
         .subscribe((status) => {
+          // Realtime ligado: o polling de emergência deixa de fazer falta.
+          // (Sem isto, bastava o realtime demorar 5s a ligar — normal em 4G —
+          //  para o polling arrancar e ficar a recarregar tudo PARA SEMPRE,
+          //  em paralelo com o realtime. Era a causa do "dá refresh a toda a hora".)
+          if (status === 'SUBSCRIBED') this._stopPolling();
           if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') this._startPolling();
         });
       setTimeout(() => { const ch = _sb.getChannels().find(c=>c.topic.includes('editions_ch')); if (!ch || ch.state !== 'joined') this._startPolling(); }, 5000);
@@ -5750,6 +5781,11 @@ const EditionStore = {
       await this._pollOnce();
     }, 5000);
   },
+  _stopPolling() {
+    if (!this._pollingInterval) return;
+    clearInterval(this._pollingInterval);
+    this._pollingInterval = null;
+  },
 };
 
 function useEditions() {
@@ -5769,23 +5805,25 @@ function useEditions() {
 // A interface pública (getRsvp, setRsvp, etc.) mantém-se igual.
 // ─────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────
-// Fluxo v2 (9 fases): 1 interesse · 2 disponibilidade · 3 datas ·
-// 4 confirmar presença · 5 local · 6 votar local · 7 alojamento ·
-// 8 votar alojamento · 9 plano.
+// Fluxo v3 (7 internas / 5 principais): 1 disponibilidade (+trancar) ·
+// 2 confirmar presença · 3 local · 4 votar local (3.1) · 5 alojamento ·
+// 6 votar alojamento (4.1) · 7 plano.
 //
-// As edições criadas no fluxo antigo (8 fases: 1 rsvp · 2 disp · 3 datas ·
-// 4 local · 5 votar local · 6 aloj · 7 votar aloj · 8 plano) guardaram um
-// current_phase com a numeração antiga. Traduzimos NA LEITURA — não se
-// reescreve nada na base, e os dados (avail, votos, sugestões) ficam intactos.
-// A marca `flow:2` no data identifica as edições já no fluxo novo.
+// Edições antigas guardaram current_phase noutra numeração. Traduzimos NA
+// LEITURA — não se reescreve nada na base e os dados ficam intactos.
+//   flow ausente = v1 (8 fases): 1 rsvp · 2 disp · 3 datas · 4 local · 5 votar
+//                  local · 6 aloj · 7 votar aloj · 8 plano
+//   flow: 2       = v2 (9 fases): 1 interesse · 2 disp · 3 datas · 4 confirmar ·
+//                  5 local · 6 votar local · 7 aloj · 8 votar aloj · 9 plano
+//   flow: 3       = v3 (atual) — sem tradução.
 function paPhaseFromStored(ed) {
   const n = (ed && ed.current_phase) || 1;
-  const isNewFlow = !!(ed && ed.data && ed.data.flow === 2);
-  if (isNewFlow) return n;
-  // Antigo → novo: 1→1, 2→2, 3→3, 4→5, 5→6, 6→7, 7→8, 8→9.
-  // (a fase 4 "confirmar presença" é nova; edições antigas nunca lá estiveram)
-  const map = { 1:1, 2:2, 3:3, 4:5, 5:6, 6:7, 7:8, 8:9 };
-  return map[n] || n;
+  const flow = (ed && ed.data && ed.data.flow) || 1;
+  if (flow === 3) return n;
+  const MAP_V1 = { 1:1, 2:1, 3:1, 4:3, 5:4, 6:5, 7:6, 8:7 };
+  const MAP_V2 = { 1:1, 2:1, 3:1, 4:2, 5:3, 6:4, 7:5, 8:6, 9:7 };
+  const map = (flow === 2) ? MAP_V2 : MAP_V1;
+  return map[n] || 1;
 }
 
 let _appCache = {};
@@ -6039,8 +6077,8 @@ const AppStore = {
     ed.current_phase = n;
     // Marca a edição como já no fluxo v2: a partir daqui o número gravado JÁ é
     // da numeração nova e não deve voltar a ser traduzido na leitura.
-    if (!(ed.data && ed.data.flow === 2)) {
-      try { await this._set('flow', 2); } catch (e) { /* segue: a fase é o essencial */ }
+    if (!(ed.data && ed.data.flow === 3)) {
+      try { await this._set('flow', 3); } catch (e) { /* segue: a fase é o essencial */ }
     }
     await EditionStore.update(ed.id, { current_phase: n });
   },
@@ -6429,10 +6467,18 @@ const ChatStore = {
           _chatListeners.forEach(fn=>fn(_chatCache.slice()));
         })
         .subscribe((status) => {
+          // Realtime ligado → parar o polling de emergência (senão ficava a
+          // correr para sempre em paralelo, a puxar mensagens de 4 em 4s).
+          if (status === 'SUBSCRIBED') this._stopPolling();
           if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') this._startPolling();
         });
       setTimeout(() => { if (ch.state !== 'joined') this._startPolling(); }, 5000);
     } catch(e) { this._startPolling(); }
+  },
+  _stopPolling() {
+    if (!this._pollingInterval) return;
+    clearInterval(this._pollingInterval);
+    this._pollingInterval = null;
   },
   _startPolling() {
     if (this._pollingInterval) return;
@@ -9425,7 +9471,7 @@ function AdminPhaseNav() {
       justifyContent: 'center',
       flexShrink: 0
     }
-  }, p.n), /*#__PURE__*/React.createElement("span", {
+  }, p.label), /*#__PURE__*/React.createElement("span", {
     style: {
       fontFamily: 'var(--pa-body)',
       fontSize: 13,
@@ -9698,7 +9744,7 @@ function DLeftRail({
       strokeWidth: "1.8",
       fill: "none",
       strokeLinecap: "round"
-    })) : p.n), /*#__PURE__*/React.createElement("div", {
+    })) : p.label), /*#__PURE__*/React.createElement("div", {
       style: {
         fontFamily: 'var(--pa-body)',
         fontSize: 12.5,
@@ -9942,7 +9988,7 @@ function useActivityFeed(phase) {
       });
     });
   }
-  if (phase >= 5) {
+  if (phase >= 3) {
     locSuggs.slice(0, 3).forEach(s => {
       feed.push({
         who: s.by,
@@ -9951,7 +9997,7 @@ function useActivityFeed(phase) {
       });
     });
   }
-  if (phase >= 7) {
+  if (phase >= 5) {
     accSuggs.slice(0, 3).forEach(s => {
       feed.push({
         who: s.by,
@@ -9994,7 +10040,7 @@ function DPhaseHeader({
       fontFamily: 'var(--pa-mono)',
       letterSpacing: 0.8
     }
-  }, "FASE ", String(realPhase).padStart(2, '0'), " / ", String(D.phases.length).padStart(2, '0'))), status && /*#__PURE__*/React.createElement(Pill, {
+  }, "FASE ", D.phaseLabel(realPhase), " / ", D.mainCount)), status && /*#__PURE__*/React.createElement(Pill, {
     tone: statusTone,
     size: "sm"
   }, /*#__PURE__*/React.createElement("span", {
@@ -12900,7 +12946,7 @@ function DPhase8({
       fontFamily: 'var(--pa-mono)',
       letterSpacing: 0.8
     }
-  }, "FASE ", String(D.phases.length).padStart(2, '0'), " / ", String(D.phases.length).padStart(2, '0'))), locked && /*#__PURE__*/React.createElement(Pill, {
+  }, "FASE ", D.mainCount, " / ", D.mainCount)), locked && /*#__PURE__*/React.createElement(Pill, {
     tone: "success",
     size: "sm"
   }, /*#__PURE__*/React.createElement("span", {
@@ -14801,6 +14847,44 @@ function PlanCompras({
 // DesktopShell
 // ─────────────────────────────────────────────────────────────
 const PHASE_STORAGE_KEY = 'pa-current-phase';
+
+// ─────────────────────────────────────────────────────────────
+// FASE 1 — Disponibilidade. Marcar dias É entrar na aventura.
+// O admin tranca as datas aqui dentro (o calendário troca para o modo de
+// seleção), em vez de existir uma fase só para isso.
+// ─────────────────────────────────────────────────────────────
+function DPhaseAvail({
+  me
+}) {
+  const appData = useAppStore();
+  const locked = !!appData.locked;
+  const [mode, setMode] = dUseState2(null); // null = segue o estado (trancado ou não)
+  const showLock = mode === null ? locked : mode === 'lock';
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minHeight: 0,
+      display: 'flex',
+      flexDirection: 'column',
+      overflow: 'hidden'
+    }
+  }, me.isAdmin && /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: '14px 36px 0',
+      display: 'flex',
+      justifyContent: 'flex-end',
+      flexShrink: 0
+    }
+  }, /*#__PURE__*/React.createElement(Btn, {
+    variant: "soft",
+    size: "sm",
+    onClick: () => setMode(showLock ? 'mark' : 'lock')
+  }, showLock ? '← Ver os dias marcados' : 'Escolher datas finais 🔒')), showLock ? /*#__PURE__*/React.createElement(DPhase7, {
+    me: me
+  }) : /*#__PURE__*/React.createElement(DPhase6, {
+    me: me
+  }));
+}
 function DesktopShell({
   viewAs = 'admin',
   phase: initialPhase,
@@ -14834,17 +14918,15 @@ function DesktopShell({
     canEdit: me.isAdmin
   };
   const phases = {
-    1: DPhase1,
-    2: DPhase6,
-    3: DPhase7,
-    4: DPhaseConfirm,
-    5: DPhase2,
-    6: DPhase3,
-    7: DPhase4,
-    8: DPhase5,
-    9: DPhase8
-  }; // 1 interesse · 2 disp · 3 datas · 4 confirmar · 5 local · 6 votar local · 7 aloj · 8 votar aloj · 9 plano
-  const PhaseView = phases[phase] || DPhase1;
+    1: DPhaseAvail,
+    2: DPhaseConfirm,
+    3: DPhase2,
+    4: DPhase3,
+    5: DPhase4,
+    6: DPhase5,
+    7: DPhase8
+  }; // 1 disp(+trancar) · 2 confirmar · 3 local · 4 votar local · 5 aloj · 6 votar aloj · 7 plano
+  const PhaseView = phases[phase] || DPhaseAvail;
   return /*#__PURE__*/React.createElement(PhaseCtx.Provider, {
     value: ctx
   }, /*#__PURE__*/React.createElement("div", {
@@ -14892,7 +14974,7 @@ function DesktopShell({
     key: phase,
     className: "pa-phase-enter",
     role: "main",
-    "aria-label": `Fase ${phase} de ${D.phases.length}`,
+    "aria-label": `Fase ${D.phaseLabel(phase)} de ${D.mainCount}`,
     style: {
       flex: 1,
       display: 'flex',
@@ -14981,14 +15063,12 @@ function MPhaseNav({
   };
   // Reiniciar a fase atual (paridade com o desktop): cada fase limpa a sua chave
   const resetKey = {
-    1: 'rsvp',
-    2: 'avail',
-    3: 'locked',
-    4: 'going',
-    5: 'locSuggs',
-    6: 'locVotes',
-    7: 'accSuggs',
-    8: 'accVotes'
+    1: 'avail',
+    2: 'going',
+    3: 'locSuggs',
+    4: 'locVotes',
+    5: 'accSuggs',
+    6: 'accVotes'
   }[phase];
   const resetLabel = {
     1: 'as respostas',
@@ -15146,7 +15226,7 @@ function MPhaseNav({
       fontSize: 10,
       opacity: 0.7
     }
-  }, String(p.n).padStart(2, '0')), p.name)), /*#__PURE__*/React.createElement("div", {
+  }, p.label), p.name)), /*#__PURE__*/React.createElement("div", {
     style: {
       borderTop: '1px solid var(--pa-line)',
       margin: '4px 0'
@@ -15343,7 +15423,7 @@ function MHeader({
     style: {
       fontFamily: 'var(--pa-mono)'
     }
-  }, "FASE ", String(realPhase).padStart(2, '0'), "/", String(D.phases.length).padStart(2, '0'))), onOpenChat && /*#__PURE__*/React.createElement("button", {
+  }, "FASE ", D.phaseLabel(realPhase), "/", D.mainCount)), onOpenChat && /*#__PURE__*/React.createElement("button", {
     onClick: onOpenChat,
     title: "Chat",
     "aria-label": nav.chatUnread ? `Chat — ${nav.chatUnread} novas mensagens` : 'Chat',
@@ -16824,7 +16904,8 @@ function MPhase5({
 function MPhase6({
   me,
   onLogout,
-  onOpenChat
+  onOpenChat,
+  modeToggle
 }) {
   const appData = useAppStore();
   const allMembers = getEditionMembers(appData);
@@ -16900,7 +16981,7 @@ function MPhase6({
       minHeight: 0,
       overflow: 'auto'
     }
-  }, winnerLoc && /*#__PURE__*/React.createElement("div", {
+  }, modeToggle, winnerLoc && /*#__PURE__*/React.createElement("div", {
     style: {
       background: 'var(--pa-ink)',
       color: '#fff',
@@ -17154,7 +17235,8 @@ function MPhase6({
 function MPhase7({
   me,
   onLogout,
-  onOpenChat
+  onOpenChat,
+  modeToggle
 }) {
   const appData = useAppStore();
   const locked = appData.locked;
@@ -17228,7 +17310,7 @@ function MPhase7({
       minHeight: 0,
       overflow: 'auto'
     }
-  }, /*#__PURE__*/React.createElement("div", {
+  }, modeToggle, /*#__PURE__*/React.createElement("div", {
     style: {
       background: 'var(--pa-ink)',
       color: '#fff',
@@ -17289,7 +17371,7 @@ function MPhase7({
       minHeight: 0,
       overflow: 'auto'
     }
-  }, /*#__PURE__*/React.createElement("div", {
+  }, modeToggle, /*#__PURE__*/React.createElement("div", {
     style: {
       background: '#fff',
       borderRadius: 16,
@@ -17469,7 +17551,7 @@ function MPhaseConfirm({
       minHeight: 0,
       overflow: 'auto'
     }
-  }, locked && meInterested && myState === undefined && /*#__PURE__*/React.createElement("div", {
+  }, modeToggle, locked && meInterested && myState === undefined && /*#__PURE__*/React.createElement("div", {
     style: {
       background: '#fff',
       border: '1.5px solid var(--pa-accent)',
@@ -17754,6 +17836,40 @@ function MPhase8({
 }
 
 // Top-level mobile router
+// ─────────────────────────────────────────────────────────────
+// MOBILE — Fase 1: Disponibilidade (marcar dias = entrar).
+// O admin tranca as datas aqui, trocando o calendário para o modo de seleção.
+// ─────────────────────────────────────────────────────────────
+function MPhaseAvail({
+  me,
+  onLogout,
+  onOpenChat
+}) {
+  const appData = useAppStore();
+  const locked = !!appData.locked;
+  const [mode, setMode] = mUseState(null); // null = segue o estado
+  const showLock = mode === null ? locked : mode === 'lock';
+  const toggle = me.isAdmin ? /*#__PURE__*/React.createElement(Btn, {
+    variant: "soft",
+    size: "sm",
+    style: {
+      width: '100%',
+      marginBottom: 10
+    },
+    onClick: () => setMode(showLock ? 'mark' : 'lock')
+  }, showLock ? '← Ver os dias marcados' : 'Escolher datas finais 🔒') : null;
+  return showLock ? /*#__PURE__*/React.createElement(MPhase7, {
+    me: me,
+    onLogout: onLogout,
+    onOpenChat: onOpenChat,
+    modeToggle: toggle
+  }) : /*#__PURE__*/React.createElement(MPhase6, {
+    me: me,
+    onLogout: onLogout,
+    onOpenChat: onOpenChat,
+    modeToggle: toggle
+  });
+}
 function MobileApp({
   viewAs = 'member',
   liveUser,
@@ -17791,15 +17907,13 @@ function MobileApp({
   }, [allMsgs.length, chatOpen]);
   const phase = initialPhase !== undefined ? initialPhase : appData.currentPhase || D.edition.currentPhase || 1;
   const phases = {
-    1: MPhase1,
-    2: MPhase6,
-    3: MPhase7,
-    4: MPhaseConfirm,
-    5: MPhase2,
-    6: MPhase3,
-    7: MPhase4,
-    8: MPhase5,
-    9: MPhase8
+    1: MPhaseAvail,
+    2: MPhaseConfirm,
+    3: MPhase2,
+    4: MPhase3,
+    5: MPhase4,
+    6: MPhase5,
+    7: MPhase8
   }; // 1 interesse · 2 disp · 3 datas · 4 confirmar · 5 local · 6 votar local · 7 aloj · 8 votar aloj · 9 plano
   const View = phases[phase] || MPhase1;
   return /*#__PURE__*/React.createElement(MNavCtx.Provider, {
@@ -17895,12 +18009,13 @@ function getActiveMembers(appData) {
   return all.filter(m => rsvp[m.id] !== 'out');
 }
 
-// Interessados = quem disse "sim" ou "a pensar" (in ou maybe). É o conjunto que
-// conta ANTES de as datas serem trancadas (interesse + disponibilidade).
+// Participantes = toda a gente MENOS quem saiu da aventura ('out').
+// Marcar dias é entrar: não há passo de "tenho interesse". Quem nunca abrir a
+// app continua participante e é apanhado na fase 2 ("Vais?").
 function getInterestedMembers(appData) {
   const rsvp = appData && appData.rsvp || {};
   const all = typeof getEditionMembers === 'function' ? getEditionMembers(appData) : typeof getAllMembers === 'function' ? getAllMembers() : [];
-  return all.filter(m => rsvp[m.id] === 'in' || rsvp[m.id] === 'maybe');
+  return all.filter(m => rsvp[m.id] !== 'out');
 }
 
 // Um dia está dentro do intervalo trancado?
@@ -17964,50 +18079,40 @@ function phaseComplete(phase, appData) {
   // (Datas antes de local/alojamento: a disponibilidade é a restrição mais dura;
   // e a presença firme só se pergunta depois de haver datas concretas.)
   if (phase === 1) {
-    // interesse — arranque, não bloqueia
-    return interested.length > 0;
-  }
-  if (phase === 2) {
-    // disponibilidade — todos os interessados marcaram ≥1 dia
-    if (interested.length === 0) return false;
-    return interested.every(m => paFutureDays(avail[m.id]).length > 0);
-  }
-  if (phase === 3) {
-    // datas trancadas
+    // disponibilidade — pronta quando o ADMIN tranca as datas.
+    // Nota: NÃO é "todos marcaram". Quem não marcar é apanhado na fase 2
+    // ("Vais?"), e assim ninguém bloqueia a aventura sem responder. O contador
+    // "X de Y marcaram" é informação para o admin decidir quando trancar.
     return !!appData.locked;
   }
-  if (phase === 4) {
-    // confirmar presença — cada interessado com estado resolvido
+  if (phase === 2) {
+    // confirmar presença — cada participante com estado resolvido
     if (!appData.locked || interested.length === 0) return false;
     return interested.every(m => memberGoing(appData, m.id) !== undefined);
   }
-  if (phase === 5) {
+  if (phase === 3) {
     // sugestões de local
     // Sugerir é OPCIONAL: nem toda a gente tem ideias, e obrigar gera sugestões
     // forçadas. A fase está pronta quando há escolha real (≥2 sugestões).
     return (appData.locSuggs || []).length >= 2;
   }
-  if (phase === 6) {
+  if (phase === 4) {
     // votar local — quem VAI votou + sem empate
     if (inIds.length === 0) return false;
     const votes = appData.locVotes || {};
     const allVoted = inIds.every(id => paVoteList(votes[id]).length > 0);
     if (!allVoted) return false;
-    // Se admin já desempatou, completo
     if (appData.locWinner) return true;
-    // Se há empate por PONTOS (sem vencedor escolhido), NÃO completa
-    // Só votos de quem VAI contam para o empate.
     const tally = paVoteTally(votes, appData.locSuggs || [], inIds);
     const sorted = Object.values(tally).sort((a, b) => b - a);
     if (sorted.length < 2) return true;
     return !(sorted[0] === sorted[1]);
   }
-  if (phase === 7) {
+  if (phase === 5) {
     // sugestões de alojamento
-    // Como na fase 5: opcional; pronta quando há escolha real (≥2 sugestões).
     return (appData.accSuggs || []).length >= 2;
   }
-  if (phase === 8) {
+  if (phase === 6) {
     // votar alojamento — quem VAI votou + sem empate
     if (inIds.length === 0) return false;
     const votes = appData.accVotes || {};
@@ -18019,7 +18124,7 @@ function phaseComplete(phase, appData) {
     if (sorted.length < 2) return true;
     return !(sorted[0] === sorted[1]);
   }
-  return false; // fase 9 (planeamento) é a última
+  return false; // fase 7 (planeamento) é a última
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -18030,12 +18135,12 @@ function phaseComplete(phase, appData) {
 // ─────────────────────────────────────────────────────────────
 function usePhaseProgress(phase, me) {
   const appData = useAppStore();
-  const isLast = phase >= 9;
+  const isLast = phase >= 7;
   const isComplete = phaseComplete(phase, appData);
   const allMembers = typeof getEditionMembers === 'function' ? getEditionMembers(appData) : typeof getAllMembers === 'function' ? getAllMembers() : [];
   const interested = typeof getInterestedMembers === 'function' ? getInterestedMembers(appData) : allMembers;
   // Quem "conta" agora: interessados antes de trancar, quem VAI depois.
-  const inMembers = phase === 1 ? allMembers : getInMembers(appData);
+  const inMembers = getInMembers(appData);
   // Prazo opcional (countdown). Guardado em appData.deadline (ISO). Só o admin define.
   const deadline = appData.deadline || null;
   const expired = deadline ? Date.now() >= new Date(deadline).getTime() : false;
@@ -18046,33 +18151,31 @@ function usePhaseProgress(phase, me) {
   let pending = [];
   if (!isComplete) {
     if (phase === 1) {
-      // interesse — quem ainda não respondeu
-      pending = allMembers.filter(m => !(appData.rsvp || {})[m.id]);
-    } else if (phase === 2) {
-      // disponibilidade — interessados sem dias marcados
+      // disponibilidade — quem ainda não marcou nenhum dia
+      // (informativo: o portão é "datas trancadas", não isto)
       const avail = appData.avail || {};
       pending = interested.filter(m => paFutureDays(avail[m.id]).length === 0);
-    } else if (phase === 4) {
+    } else if (phase === 2) {
       // confirmar presença — quem não marcou os dias trancados
       pending = interested.filter(m => memberGoing(appData, m.id) === undefined);
-    } else if (phase === 5) {
+    } else if (phase === 3) {
       // sugestões de local
       const suggs = appData.locSuggs || [];
       pending = inMembers.filter(m => !suggs.some(s => s.by === m.id));
-    } else if (phase === 6) {
+    } else if (phase === 4) {
       // votar local
       const votes = appData.locVotes || {};
       pending = inMembers.filter(m => paVoteList(votes[m.id]).length === 0);
-    } else if (phase === 7) {
+    } else if (phase === 5) {
       // sugestões de alojamento
       const suggs = appData.accSuggs || [];
       pending = inMembers.filter(m => !suggs.some(s => s.by === m.id));
-    } else if (phase === 8) {
+    } else if (phase === 6) {
       // votar alojamento
       const votes = appData.accVotes || {};
       pending = inMembers.filter(m => paVoteList(votes[m.id]).length === 0);
     }
-    // fase 3 (trancar datas) e 9 (plano): ação do admin, sem lista de pendentes.
+    // fase 7 (plano): sem lista de pendentes.
   }
 
   // Só o admin avança a fase, sempre por clique. Avançar limpa qualquer prazo definido.
@@ -18327,13 +18430,13 @@ function PhaseProgressBanner({
 
   // Empate nas fases de votação (5 = local, 7 = alojamento): todos votaram mas há empate
   const _detectTie = typeof detectTie === 'function' ? detectTie : () => null;
-  const tieLoc = phase === 6 && !appData.locWinner ? (() => {
+  const tieLoc = phase === 4 && !appData.locWinner ? (() => {
     const inMembers = getInMembers(appData);
     const votes = appData.locVotes || {};
     const allVoted = inMembers.length > 0 && inMembers.every(m => votes[m.id]);
     return allVoted && _detectTie(votes, appData.locSuggs || []);
   })() : null;
-  const tieAcc = phase === 8 && !appData.accWinner ? (() => {
+  const tieAcc = phase === 6 && !appData.accWinner ? (() => {
     const inMembers = getInMembers(appData);
     const votes = appData.accVotes || {};
     const allVoted = inMembers.length > 0 && inMembers.every(m => votes[m.id]);
@@ -18409,7 +18512,7 @@ function PhaseProgressBanner({
         opacity: 0.75,
         textTransform: 'uppercase'
       }
-    }, phase === 5 || phase === 7 ? `${((phase === 5 ? appData.locSuggs : appData.accSuggs) || []).length} sugestões — já dá para votar` : 'Todos prontos'), /*#__PURE__*/React.createElement("div", {
+    }, phase === 3 || phase === 5 ? `${((phase === 3 ? appData.locSuggs : appData.accSuggs) || []).length} sugestões — já dá para votar` : 'Todos prontos'), /*#__PURE__*/React.createElement("div", {
       style: {
         fontFamily: 'var(--pa-display)',
         fontSize: narrow ? 14 : 16,
@@ -20677,7 +20780,37 @@ function ProfileEditor({
       onClose();
       setTimeout(() => window.dispatchEvent(new CustomEvent('pa-change-password')), 120);
     }
-  }, "Mudar password")), /*#__PURE__*/React.createElement("div", {
+  }, "Mudar password")), typeof AppStore !== 'undefined' && AppStore._cache && AppStore._cache().rsvp !== undefined && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      padding: '2px 0 8px',
+      borderTop: '1px solid var(--pa-line)',
+      marginTop: 2
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontFamily: 'var(--pa-body)',
+      fontSize: 13,
+      color: 'var(--pa-muted)'
+    }
+  }, "Aventura"), (AppStore._cache().rsvp || {})[me?.id] === 'out' ? /*#__PURE__*/React.createElement(Btn, {
+    variant: "soft",
+    size: "sm",
+    onClick: () => {
+      AppStore.setRsvp(me.id, 'in');
+      onClose();
+    }
+  }, "Voltar à aventura") : /*#__PURE__*/React.createElement(Btn, {
+    variant: "ghost",
+    size: "sm",
+    onClick: () => {
+      if (!window.confirm('Sair desta aventura?\n\nDeixas de contar para as datas, votos e contas. Podes voltar a qualquer momento.')) return;
+      AppStore.setRsvp(me.id, 'out');
+      onClose();
+    }
+  }, "Sair da aventura")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
       justifyContent: 'flex-end',
@@ -21132,7 +21265,7 @@ function DatesChip({
 }) {
   const appData = useAppStore();
   const locked = appData.locked;
-  if (!locked || phase < 4 || phase > 8) return null;
+  if (!locked || phase < 2 || phase > 6) return null;
   return /*#__PURE__*/React.createElement("div", {
     style: {
       padding: '8px 14px 0',
@@ -22112,7 +22245,7 @@ function EditionCard({
       color: 'var(--pa-muted)',
       textTransform: 'uppercase'
     }
-  }, "Fase ", shownPhase, " de ", totalPhases)), /*#__PURE__*/React.createElement("div", {
+  }, "Fase ", D.phaseLabel(shownPhase), " de ", D.mainCount)), /*#__PURE__*/React.createElement("div", {
     style: {
       height: 6,
       background: 'var(--pa-line)',
@@ -22121,7 +22254,7 @@ function EditionCard({
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
-      width: `${Math.round(shownPhase / totalPhases * 100)}%`,
+      width: `${Math.round(shownPhase / D.phases.length * 100)}%`,
       height: '100%',
       background: 'var(--pa-accent)',
       borderRadius: 999,
