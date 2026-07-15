@@ -4979,8 +4979,7 @@ function Calendar({
       color: i >= 5 ? 'var(--pa-accent-strong)' : 'var(--pa-muted)',
       textAlign: 'center',
       textTransform: 'uppercase',
-      fontWeight: i >= 5 ? 700 : 500,
-      marginLeft: i === 5 ? dense ? 4 : 6 : 0
+      fontWeight: i >= 5 ? 700 : 500
     }
   }, d))), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -4999,15 +4998,14 @@ function Calendar({
       title: past ? 'Dia já passado' : undefined,
       onClick: () => day && !past && onCellClick && onCellClick(day),
       style: {
-        aspectRatio: dense ? '1.4 / 1' : '1 / 1',
+        // Telemóvel: 1.15 dá ~41px de altura (perto dos 44px recomendados
+        // para toque). Com 1.4 eram 34px — marcar dias exigia pontaria.
+        aspectRatio: dense ? '1.15 / 1' : '1 / 1',
         border: 'none',
         padding: 0,
         background: 'transparent',
         cursor: day && onCellClick && !past ? 'pointer' : 'default',
         position: 'relative',
-        // Costura antes de sábado: separa visualmente o fim de semana
-        // sem gastar cor. O cabeçalho leva a mesma margem, para alinhar.
-        marginLeft: i % 7 === 5 ? dense ? 4 : 6 : 0,
         minWidth: 0,
         maxWidth: '100%',
         overflow: 'hidden'
@@ -5080,7 +5078,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r83';
+window.PA_VERSION = '2026.06.01-r84';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -12652,7 +12650,7 @@ function DPhase6({
           borderRadius: 8,
           background: past ? sel ? 'rgba(31,26,20,0.10)' : 'rgba(31,26,20,0.03)' : intensity > 0 ? `rgba(217,119,87,${0.10 + intensity * 0.55})` : '#fff',
           color: past ? 'var(--pa-muted)' : 'var(--pa-ink)',
-          border: past ? sel ? '2px dashed rgba(31,26,20,0.28)' : '1px solid var(--pa-line)' : sel ? '2.5px solid var(--pa-accent)' : intensity === 0 ? '1px solid var(--pa-line)' : '1px solid transparent',
+          border: past ? sel ? '2px dashed rgba(31,26,20,0.28)' : '1px solid var(--pa-line)' : sel ? '2.5px solid var(--pa-accent)' : intensity === 0 ? weekend ? '1px solid rgba(184,84,54,0.40)' : '1px solid var(--pa-line)' : '1px solid transparent',
           boxShadow: !past && sel ? '0 0 0 2px rgba(217,119,87,0.22), 0 2px 8px rgba(217,119,87,0.28)' : 'none',
           display: 'flex',
           flexDirection: 'column',
@@ -12968,7 +12966,7 @@ function DPhase7({
           opacity: past && !isLocked ? 0.5 : 1,
           background: isLocked ? 'var(--pa-accent)' : inRange ? 'var(--pa-ink)' : past ? 'rgba(31,26,20,0.03)' : intensity > 0 ? `rgba(217,119,87,${0.10 + intensity * 0.6})` : '#fff',
           color: isLocked || inRange ? '#fff' : past ? 'var(--pa-muted)' : 'var(--pa-ink)',
-          border: intensity === 0 && !inRange && !isLocked ? '1px solid var(--pa-line)' : 'none',
+          border: intensity === 0 && !inRange && !isLocked ? weekend ? '1px solid rgba(184,84,54,0.40)' : '1px solid var(--pa-line)' : 'none',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
@@ -17306,7 +17304,7 @@ function MPhase6({
           borderRadius: 6,
           background: past ? sel ? 'rgba(31,26,20,0.10)' : 'rgba(31,26,20,0.03)' : intensity > 0 ? `rgba(217,119,87,${0.10 + intensity * 0.55})` : '#fff',
           color: past ? 'var(--pa-muted)' : 'var(--pa-ink)',
-          border: past ? sel ? '2px dashed rgba(31,26,20,0.28)' : '1px solid var(--pa-line)' : sel ? '2px solid var(--pa-accent)' : intensity === 0 ? '1px solid var(--pa-line)' : '1px solid transparent',
+          border: past ? sel ? '2px dashed rgba(31,26,20,0.28)' : '1px solid var(--pa-line)' : sel ? '2px solid var(--pa-accent)' : intensity === 0 ? weekend ? '1px solid rgba(184,84,54,0.40)' : '1px solid var(--pa-line)' : '1px solid transparent',
           boxShadow: !past && sel ? '0 0 0 1.5px rgba(217,119,87,0.25)' : 'none',
           display: 'flex',
           flexDirection: 'column',
@@ -17630,7 +17628,7 @@ function MPhase7({
           opacity: past ? 0.5 : 1,
           background: inRange ? 'var(--pa-ink)' : past ? 'rgba(31,26,20,0.03)' : intensity > 0 ? `rgba(217,119,87,${0.10 + intensity * 0.6})` : '#fff',
           color: inRange ? '#fff' : past ? 'var(--pa-muted)' : 'var(--pa-ink)',
-          border: intensity === 0 && !inRange ? '1px solid var(--pa-line)' : 'none',
+          border: intensity === 0 && !inRange ? weekend ? '1px solid rgba(184,84,54,0.40)' : '1px solid var(--pa-line)' : 'none',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
