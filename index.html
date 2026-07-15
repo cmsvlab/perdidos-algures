@@ -155,6 +155,11 @@
 // ═════════════════════════════════════════════════════════════════════════
 // ═══ Dicionário PT→EN (gerado; chaves = strings exatas do código) ═══
 const PA_EN = {
+  "Para onde ": "Where are we ",
+  "vamos?": "going?",
+  "a bordo para a viagem": "aboard for the trip",
+  "Ainda não há sítios sugeridos.": "No places suggested yet.",
+  "Ainda não há alojamentos sugeridos.": "No stays suggested yet.",
   "Não vais nesta aventura — podes acompanhar, mas não contas para os votos nem para as contas.": "You're not going on this adventure — you can follow along, but you don't count for the votes or the costs.",
   "Ainda não disseste se vais — confirma em \"Confirmar presença\" para poderes participar.": "You haven't said if you're going — confirm in \"Confirm attendance\" to take part.",
   "Não vais nesta aventura — podes ver, mas não participar.": "You're not going on this adventure — you can watch, but not take part.",
@@ -1335,6 +1340,9 @@ const PA_EN_PATTERNS = [
   ["^Por confirmar · (\\d+)$", "To confirm · $1"],
   ["^Marcado · (\\d+) dias$", "Marked · $1 days"],
   ["^Marcado · (\\d+) dia$", "Marked · $1 day"],
+  ["^Cada um pode lançar até (\\d+) sítios$", "Everyone can post up to $1 places"],
+  ["^(\\d+) a bordo$", "$1 aboard"],
+  ["^(\\d+) de (\\d+)$", "$1 of $2"],
 ];
 
 const PA_MONTHS_EN = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -5072,7 +5080,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r79';
+window.PA_VERSION = '2026.06.01-r81';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -8038,7 +8046,13 @@ function TieMethodBorda({
   allMembers.forEach((m, i) => {
     if (m.id !== me.id) {
       // Each member has a different shuffle
-      const order = tied.map((_, j) => j).sort(() => Math.sin(i * 7 + j * 13) > 0 ? 1 : -1);
+      // Baralha de forma determinística por membro (i). Nota: o `j` do map não
+      // existe dentro do comparador do sort — usar--lo ali dava ReferenceError
+      // e rebentava o painel de desempate.
+      const order = tied.map((_, j) => ({
+        idx: j,
+        k: Math.sin(i * 7 + j * 13)
+      })).sort((a, b) => a.k - b.k).map(o => o.idx);
       seedRankings[m.id] = order.map(idx => tied[idx].id);
     }
   });
@@ -9720,9 +9734,12 @@ function DLeftRail({
 }) {
   const appData = useAppStore();
   const allMembers = getEditionMembers(appData);
-  const rsvp = appData.rsvp || {};
-  const inCount = Object.values(rsvp).filter(s => s === 'in').length;
   const history = appData.history || [];
+  // A bordo: antes de trancar as datas, quem está na aventura (todos menos quem
+  // saiu). Depois de trancadas, o que interessa é quem VAI mesmo à viagem.
+  const trancado = !!appData.locked;
+  const naAventura = typeof getInterestedMembers === 'function' ? getInterestedMembers(appData) : allMembers;
+  const vao = typeof getGoingMembers === 'function' ? getGoingMembers(appData) : naAventura;
   return /*#__PURE__*/React.createElement("div", {
     style: {
       width: 240,
@@ -9762,6 +9779,9 @@ function DLeftRail({
         gap: 10,
         padding: '7px 10px',
         borderRadius: 8,
+        // Sub-fases (3.1, 4.1) ligeiramente à frente: leem-se como filhas
+        // da fase principal em vez de passos soltos.
+        marginLeft: p.main ? 0 : 14,
         background: active ? 'var(--pa-ink)' : 'transparent',
         color: active ? '#fff' : 'var(--pa-ink)'
       }
@@ -9821,7 +9841,7 @@ function DLeftRail({
       gap: 10
     }
   }, /*#__PURE__*/React.createElement(Stack, {
-    members: allMembers.filter(m => rsvp[m.id] === 'in'),
+    members: trancado ? vao : naAventura,
     max: 5,
     size: 28
   }), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
@@ -9830,13 +9850,13 @@ function DLeftRail({
       fontSize: 13,
       fontWeight: 600
     }
-  }, inCount, " a bordo"), /*#__PURE__*/React.createElement("div", {
+  }, trancado ? `${vao.length} de ${naAventura.length}` : `${naAventura.length} a bordo`), trancado && /*#__PURE__*/React.createElement("div", {
     style: {
       fontFamily: 'var(--pa-mono)',
       fontSize: 10,
       color: 'var(--pa-muted)'
     }
-  }, "de ", allMembers.length)))), history.length > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "a bordo para a viagem")))), history.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 'auto',
       paddingTop: 20,
@@ -10734,8 +10754,7 @@ function DPhase1({
       style: {
         color: 'var(--pa-accent)'
       }
-    }, appData.editionTitle || 'Nova Aventura'), ". Tens interesse?"),
-    sub: /*#__PURE__*/React.createElement(React.Fragment, null, "Ainda não é compromisso — só queremos ver quem está atento. As datas decidem-se a seguir, e só depois é que se confirma quem vai mesmo.")
+    }, appData.editionTitle || 'Nova Aventura'), ". Tens interesse?")
   }), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
@@ -10961,12 +10980,12 @@ function DPhase2({
     phase: 4,
     status: "Em curso",
     statusTone: "accent",
-    title: /*#__PURE__*/React.createElement(React.Fragment, null, "Cada um lança", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("span", {
+    title: /*#__PURE__*/React.createElement(React.Fragment, null, "Para onde ", /*#__PURE__*/React.createElement("span", {
       style: {
         color: 'var(--pa-accent)'
       }
-    }, "até ", limit, " sítios.")),
-    sub: "Sem censura. Convencer o grupo é com o nome e os argumentos."
+    }, "vamos?")),
+    sub: `Cada um pode lançar até ${limit} sítios`
   }), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
@@ -11361,7 +11380,7 @@ function DPhase3({
           color: 'var(--pa-accent)'
         }
       }, "destinos para votar.")),
-      sub: "Volta à fase 4 e pede ao grupo para sugerir sítios primeiro."
+      sub: "Ainda não há sítios sugeridos."
     }), me.isAdmin && /*#__PURE__*/React.createElement(DAdminBar, {
       hint: "Sem sugestões ainda."
     }));
@@ -11565,7 +11584,7 @@ function DPhase3({
   })(id)}`).join(' · ') + '.' : `Voto em ${(id => {
     const s = suggestions.find(x => x.id === id);
     return s ? s.name || s.area || s.type : '?';
-  })(myList[0])}.`) : 'Ainda não votaste.', myList.length > 0 && !closed && /*#__PURE__*/React.createElement("button", {
+  })(myList[0])}.`) : 'Ainda não votaste.', myList.length > 0 && /*#__PURE__*/React.createElement("button", {
     onClick: () => {
       setVote(null);
       VoteStore.clearVote(me.id, 'loc');
@@ -11715,8 +11734,7 @@ function DPhase4({
       style: {
         color: 'var(--pa-accent)'
       }
-    }, "dormimos?")),
-    sub: "Cada um pode lançar quantos alojamentos quiser. Aprende a vender — o teu favorito merece argumentos."
+    }, "dormimos?"))
   }), /*#__PURE__*/React.createElement(DLocationWinnerStrip, null), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
@@ -12163,7 +12181,7 @@ function DPhase5({
           color: 'var(--pa-accent)'
         }
       }, "alojamentos para votar.")),
-      sub: "Volta à fase 6 e adiciona alojamentos primeiro."
+      sub: "Ainda não há alojamentos sugeridos."
     }), me.isAdmin && /*#__PURE__*/React.createElement(DAdminBar, {
       hint: "Sem alojamentos ainda."
     }));
@@ -12528,8 +12546,7 @@ function DPhase6({
       style: {
         color: 'var(--pa-accent)'
       }
-    }, "podes ir.")),
-    sub: "Marca generoso. As células mais escuras já têm mais gente — o teu contorno laranja marca os teus dias."
+    }, "podes ir."))
   }), winnerLoc && /*#__PURE__*/React.createElement("div", {
     style: {
       background: 'var(--pa-ink)',
@@ -16054,11 +16071,12 @@ function MPhase2({
     onOpenChat: onOpenChat
   }), /*#__PURE__*/React.createElement(MPhaseTitle, {
     kicker: `${mine.length} de ${limit} usados`,
-    title: /*#__PURE__*/React.createElement(React.Fragment, null, "Sugere até", /*#__PURE__*/React.createElement("br", null), /*#__PURE__*/React.createElement("span", {
+    title: /*#__PURE__*/React.createElement(React.Fragment, null, "Para onde ", /*#__PURE__*/React.createElement("span", {
       style: {
         color: 'var(--pa-accent)'
       }
-    }, limit, " sítios."))
+    }, "vamos?")),
+    sub: `Cada um pode lançar até ${limit} sítios`
   }), /*#__PURE__*/React.createElement("div", {
     className: "pa-scroll",
     style: {
@@ -16600,8 +16618,7 @@ function MPhase4({
       style: {
         color: 'var(--pa-accent)'
       }
-    }, "dormimos?")),
-    sub: "Sem limite — lança o que vires."
+    }, "dormimos?"))
   }), /*#__PURE__*/React.createElement("div", {
     className: "pa-scroll",
     style: {
@@ -17674,8 +17691,7 @@ function MPhase7({
       style: {
         color: 'var(--pa-accent)'
       }
-    }, "a escolher os dias.")),
-    sub: "Já submeteste disponibilidade. Brevemente sabes."
+    }, "a escolher os dias."))
   }), /*#__PURE__*/React.createElement("div", {
     style: {
       padding: '6px 16px',
@@ -17733,7 +17749,7 @@ function MPhaseConfirm({
       minHeight: 0,
       overflow: 'auto'
     }
-  }, modeToggle, locked && meInterested && myState === undefined && /*#__PURE__*/React.createElement("div", {
+  }, locked && meInterested && myState === undefined && /*#__PURE__*/React.createElement("div", {
     style: {
       background: '#fff',
       border: '1.5px solid var(--pa-accent)',
@@ -17909,8 +17925,7 @@ function MPhase8({
       background: '#3d5e44'
     }
   }), paRangeLabel(locked.from, locked.to), " · trancado")), /*#__PURE__*/React.createElement(MPhaseTitle, {
-    title: /*#__PURE__*/React.createElement(React.Fragment, null, "Planeamento."),
-    sub: "A viagem nos detalhes."
+    title: /*#__PURE__*/React.createElement(React.Fragment, null, "Planeamento.")
   }), /*#__PURE__*/React.createElement("div", {
     style: {
       padding: '0 16px 12px',
@@ -22455,7 +22470,7 @@ function EditionCard({
       fontSize: 13,
       color: 'var(--pa-muted)'
     }
-  }, inCount === 1 ? 'pessoa a bordo' : 'a bordo')), createdLabel && /*#__PURE__*/React.createElement("span", {
+  }, data.locked ? 'a bordo para a viagem' : inCount === 1 ? 'pessoa a bordo' : 'a bordo')), createdLabel && /*#__PURE__*/React.createElement("span", {
     style: {
       fontFamily: 'var(--pa-body)',
       fontSize: 12.5,

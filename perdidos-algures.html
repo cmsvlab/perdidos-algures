@@ -156,6 +156,11 @@
 // ═════════════════════════════════════════════════════════════════════════
 // ═══ Dicionário PT→EN (gerado; chaves = strings exatas do código) ═══
 const PA_EN = {
+  "Para onde ": "Where are we ",
+  "vamos?": "going?",
+  "a bordo para a viagem": "aboard for the trip",
+  "Ainda não há sítios sugeridos.": "No places suggested yet.",
+  "Ainda não há alojamentos sugeridos.": "No stays suggested yet.",
   "Não vais nesta aventura — podes acompanhar, mas não contas para os votos nem para as contas.": "You're not going on this adventure — you can follow along, but you don't count for the votes or the costs.",
   "Ainda não disseste se vais — confirma em \"Confirmar presença\" para poderes participar.": "You haven't said if you're going — confirm in \"Confirm attendance\" to take part.",
   "Não vais nesta aventura — podes ver, mas não participar.": "You're not going on this adventure — you can watch, but not take part.",
@@ -1336,6 +1341,9 @@ const PA_EN_PATTERNS = [
   ["^Por confirmar · (\\d+)$", "To confirm · $1"],
   ["^Marcado · (\\d+) dias$", "Marked · $1 days"],
   ["^Marcado · (\\d+) dia$", "Marked · $1 day"],
+  ["^Cada um pode lançar até (\\d+) sítios$", "Everyone can post up to $1 places"],
+  ["^(\\d+) a bordo$", "$1 aboard"],
+  ["^(\\d+) de (\\d+)$", "$1 of $2"],
 ];
 
 const PA_MONTHS_EN = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -3836,7 +3844,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r79';
+window.PA_VERSION = '2026.06.01-r81';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -6190,7 +6198,13 @@ function TieMethodBorda({ tied, me, onResolve, onBack }) {
   allMembers.forEach((m, i) => {
     if (m.id !== me.id) {
       // Each member has a different shuffle
-      const order = tied.map((_, j) => j).sort(() => (Math.sin(i * 7 + j * 13) > 0 ? 1 : -1));
+      // Baralha de forma determinística por membro (i). Nota: o `j` do map não
+      // existe dentro do comparador do sort — usar--lo ali dava ReferenceError
+      // e rebentava o painel de desempate.
+      const order = tied
+        .map((_, j) => ({ idx: j, k: Math.sin(i * 7 + j * 13) }))
+        .sort((a, b) => a.k - b.k)
+        .map((o) => o.idx);
       seedRankings[m.id] = order.map((idx) => tied[idx].id);
     }
   });
@@ -7061,9 +7075,12 @@ function DTopBar({ me, edition, onLogout, onBackToHub, onEditProfile }) {
 function DLeftRail({ phase, me }) {
   const appData = useAppStore();
   const allMembers = getEditionMembers(appData);
-  const rsvp = appData.rsvp || {};
-  const inCount = Object.values(rsvp).filter((s) => s === 'in').length;
   const history = appData.history || [];
+  // A bordo: antes de trancar as datas, quem está na aventura (todos menos quem
+  // saiu). Depois de trancadas, o que interessa é quem VAI mesmo à viagem.
+  const trancado = !!appData.locked;
+  const naAventura = (typeof getInterestedMembers === 'function') ? getInterestedMembers(appData) : allMembers;
+  const vao = (typeof getGoingMembers === 'function') ? getGoingMembers(appData) : naAventura;
 
   return (
     <div style={{ width:240, padding:'24px 18px', flexShrink:0, borderRight:'1px solid var(--pa-line)',
@@ -7075,6 +7092,9 @@ function DLeftRail({ phase, me }) {
             const done = p.n < phase, active = p.n === phase, locked = p.n > phase;
             return (
               <div key={p.n} style={{ display:'flex', alignItems:'center', gap:10, padding:'7px 10px', borderRadius:8,
+                // Sub-fases (3.1, 4.1) ligeiramente à frente: leem-se como filhas
+                // da fase principal em vez de passos soltos.
+                marginLeft: p.main ? 0 : 14,
                 background: active?'var(--pa-ink)':'transparent', color: active?'#fff':'var(--pa-ink)' }}>
                 <div style={{ width:20, height:20, borderRadius:20,
                   background: active?'var(--pa-accent)': done?'#3d5e44':'transparent',
@@ -7097,10 +7117,14 @@ function DLeftRail({ phase, me }) {
           A tripulação
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-          <Stack members={allMembers.filter((m) => rsvp[m.id] === 'in')} max={5} size={28} />
+          <Stack members={trancado ? vao : naAventura} max={5} size={28} />
           <div>
-            <div style={{ fontFamily:'var(--pa-body)', fontSize:13, fontWeight:600 }}>{inCount} a bordo</div>
-            <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, color:'var(--pa-muted)' }}>de {allMembers.length}</div>
+            <div style={{ fontFamily:'var(--pa-body)', fontSize:13, fontWeight:600 }}>
+              {trancado ? `${vao.length} de ${naAventura.length}` : `${naAventura.length} a bordo`}
+            </div>
+            {trancado && (
+              <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, color:'var(--pa-muted)' }}>a bordo para a viagem</div>
+            )}
           </div>
         </div>
       </div>
@@ -7520,7 +7544,7 @@ function DPhase1({ me }) {
     <div className="pa-scroll" style={{ flex:1, minHeight:0, padding:'32px 36px', display:'flex', flexDirection:'column', overflow:'auto' }}>
       <DPhaseHeader status="Em curso" statusTone="accent"
         title={<>Há aventura a caminho: <span style={{ color:'var(--pa-accent)' }}>{appData.editionTitle || 'Nova Aventura'}</span>. Tens interesse?</>}
-        sub={<>Ainda não é compromisso — só queremos ver quem está atento. As datas decidem-se a seguir, e só depois é que se confirma quem vai mesmo.</>} />
+ />
 
       {/* balcões — o que interessa aqui é o interesse, não o compromisso */}
       <div style={{ display:'flex', gap:12, marginBottom:24 }}>
@@ -7622,8 +7646,8 @@ function DPhase2({ me }) {
   return (
     <div className="pa-scroll" style={{ flex:1, minHeight:0, padding:'32px 36px', display:'flex', flexDirection:'column', overflow:'auto' }}>
       <DPhaseHeader phase={4} status="Em curso" statusTone="accent"
-        title={<>Cada um lança<br/><span style={{ color:'var(--pa-accent)' }}>até {limit} sítios.</span></>}
-        sub="Sem censura. Convencer o grupo é com o nome e os argumentos." />
+        title={<>Para onde <span style={{ color:'var(--pa-accent)' }}>vamos?</span></>}
+        sub={`Cada um pode lançar até ${limit} sítios`} />
 
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:16 }}>
         <div style={{ fontFamily:'var(--pa-mono)', fontSize:11, letterSpacing:1, color:'var(--pa-muted)', textTransform:'uppercase' }}>
@@ -7789,7 +7813,7 @@ function DPhase3({ me }) {
       <div className="pa-scroll" style={{ flex:1, minHeight:0, padding:'32px 36px', display:'flex', flexDirection:'column', overflow:'auto' }}>
         <DPhaseHeader phase={5} status="Sem destinos" statusTone="muted"
           title={<>Ainda não há<br/><span style={{ color:'var(--pa-accent)' }}>destinos para votar.</span></>}
-          sub="Volta à fase 4 e pede ao grupo para sugerir sítios primeiro." />
+          sub="Ainda não há sítios sugeridos." />
         {me.isAdmin && <DAdminBar hint="Sem sugestões ainda." />}
       </div>
     );
@@ -7860,7 +7884,7 @@ function DPhase3({ me }) {
                   ? 'O teu top: ' + myList.map((id, i) => `${i+1}º ${((id) => { const s = suggestions.find((x) => x.id === id); return s ? (s.name || s.area || s.type) : '?'; })(id)}`).join(' · ') + '.'
                   : `Voto em ${((id) => { const s = suggestions.find((x) => x.id === id); return s ? (s.name || s.area || s.type) : '?'; })(myList[0])}.`}</span>
               : 'Ainda não votaste.'}
-          {myList.length > 0 && !closed && (
+          {myList.length > 0 && (
             <button onClick={() => { setVote(null); VoteStore.clearVote(me.id, 'loc'); if (window._paToast) window._paToast('Voto removido — podes votar de novo.', 'success'); }}
               style={{ marginLeft: 10, border:'none', background:'transparent', color:'var(--pa-muted)', textDecoration:'underline', cursor:'pointer', fontFamily:'var(--pa-body)', fontSize:12.5, padding:0 }}>
               Remover o meu voto
@@ -7938,7 +7962,7 @@ function DPhase4({ me }) {
     <div className="pa-scroll" style={{ flex:1, minHeight:0, padding:'32px 36px', display:'flex', flexDirection:'column', overflow:'auto' }}>
       <DPhaseHeader phase={6} status="Em curso" statusTone="accent"
         title={<>Onde é que <span style={{ color:'var(--pa-accent)' }}>dormimos?</span></>}
-        sub="Cada um pode lançar quantos alojamentos quiser. Aprende a vender — o teu favorito merece argumentos." />
+ />
 
       <DLocationWinnerStrip />
 
@@ -8126,7 +8150,7 @@ function DPhase5({ me }) {
       <div className="pa-scroll" style={{ flex:1, minHeight:0, padding:'32px 36px', display:'flex', flexDirection:'column', overflow:'auto' }}>
         <DPhaseHeader phase={7} status="Sem alojamentos" statusTone="muted"
           title={<>Ainda não há<br/><span style={{ color:'var(--pa-accent)' }}>alojamentos para votar.</span></>}
-          sub="Volta à fase 6 e adiciona alojamentos primeiro." />
+          sub="Ainda não há alojamentos sugeridos." />
         {me.isAdmin && <DAdminBar hint="Sem alojamentos ainda." />}
       </div>
     );
@@ -8331,7 +8355,7 @@ function DPhase6({ me }) {
     <div className="pa-scroll" style={{ flex:1, minHeight:0, padding:'32px 36px', display:'flex', flexDirection:'column', overflow:'auto' }}>
       <DPhaseHeader phase={2} status="A recolher disponibilidades" statusTone="accent"
         title={<>Toca nos dias<br/>em que <span style={{ color:'var(--pa-accent)' }}>podes ir.</span></>}
-        sub="Marca generoso. As células mais escuras já têm mais gente — o teu contorno laranja marca os teus dias." />
+ />
 
       {winnerLoc && (
         <div style={{ background:'var(--pa-ink)', color:'#fff', borderRadius:16, padding:'14px 18px',
@@ -9769,7 +9793,8 @@ function MPhase2({ me, onLogout, onOpenChat }) {
     <MShell>
       <MHeader phase={4} onLogout={onLogout} onOpenChat={onOpenChat} />
       <MPhaseTitle kicker={`${mine.length} de ${limit} usados`}
-        title={<>Sugere até<br/><span style={{ color:'var(--pa-accent)' }}>{limit} sítios.</span></>} />
+        title={<>Para onde <span style={{ color:'var(--pa-accent)' }}>vamos?</span></>}
+        sub={`Cada um pode lançar até ${limit} sítios`} />
       <div className="pa-scroll" style={{ padding:'6px 16px', flex:1, minHeight:0, overflow:'auto', display:'flex', flexDirection:'column', gap:10 }}>
         {mine.map((s) => (
           <div key={s.id} style={{ background:'#fff', borderRadius:14, padding:12, border:'1.5px solid var(--pa-accent)', display:'flex', alignItems:'center', justifyContent:'space-between', gap:10 }}>
@@ -9979,7 +10004,7 @@ function MPhase4({ me, onLogout, onOpenChat }) {
       )}
       <MPhaseTitle kicker={`${suggestions.length} alojamentos`}
         title={<>Onde é que<br/><span style={{ color:'var(--pa-accent)' }}>dormimos?</span></>}
-        sub="Sem limite — lança o que vires." />
+ />
       <div className="pa-scroll" style={{ padding:'6px 16px 14px', flex:1, minHeight:0, overflow:'auto', display:'flex', flexDirection:'column', gap:8 }}>
         {suggestions.map((s) => {
           const by = memberById(s.by) || { name:s.by, initials:'?' };
@@ -10416,7 +10441,7 @@ function MPhase7({ me, onLogout, onOpenChat, modeToggle }) {
         <>
           <MPhaseTitle kicker="A aguardar"
             title={<>Admin está<br/><span style={{ color:'var(--pa-accent)' }}>a escolher os dias.</span></>}
-            sub="Já submeteste disponibilidade. Brevemente sabes." />
+ />
           <div style={{ padding:'6px 16px', flex:1 }}>
             <div style={{ padding:16, background:'rgba(31,26,20,0.04)', borderRadius:14, fontSize:13, color:'var(--pa-muted)', textAlign:'center' }}>
               Aguarda que o {memberById(D.adminId)?.name || 'admin'} tranche as datas.
@@ -10452,7 +10477,6 @@ function MPhaseConfirm({ me, onLogout, onOpenChat }) {
         title={<>Quem <span style={{ color:'var(--pa-accent)' }}>vai?</span></>}
         sub={locked ? `A aventura é de ${rangeLabel}.` : 'As datas ainda não estão trancadas.'} />
       <div className="pa-scroll" style={{ padding:'6px 16px 14px', flex:1, minHeight:0, overflow:'auto' }}>
-        {modeToggle}
         {locked && meInterested && myState === undefined && (
           <div style={{ background:'#fff', border:'1.5px solid var(--pa-accent)', borderRadius:16, padding:16, marginBottom:14 }}>
             <div style={{ fontFamily:'var(--pa-display)', fontSize:19, fontWeight:600, marginBottom:4 }}>Vais? A aventura é de {rangeLabel}.</div>
@@ -10516,7 +10540,7 @@ function MPhase8({ me, onLogout, onOpenChat }) {
           </Pill>
         </div>
       )}
-      <MPhaseTitle title={<>Planeamento.</>} sub="A viagem nos detalhes." />
+      <MPhaseTitle title={<>Planeamento.</>} />
 
       {/* Tab bar deslizável */}
       <div style={{ padding:'0 16px 12px', overflowX:'auto', WebkitOverflowScrolling:'touch' }}>
@@ -12804,7 +12828,7 @@ function EditionCard({ edition, isAdmin, onEnter, onEdit, onAction, narrow }) {
         <div style={{ display:'flex', alignItems:'center', gap:18, marginTop:14 }}>
           <div style={{ display:'flex', alignItems:'baseline', gap:6 }}>
             <span style={{ fontFamily:'var(--pa-display)', fontSize:20, fontWeight:600 }}>{inCount}</span>
-            <span style={{ fontFamily:'var(--pa-body)', fontSize:13, color:'var(--pa-muted)' }}>{inCount === 1 ? 'pessoa a bordo' : 'a bordo'}</span>
+            <span style={{ fontFamily:'var(--pa-body)', fontSize:13, color:'var(--pa-muted)' }}>{data.locked ? 'a bordo para a viagem' : (inCount === 1 ? 'pessoa a bordo' : 'a bordo')}</span>
           </div>
           {createdLabel && (
             <span style={{ fontFamily:'var(--pa-body)', fontSize:12.5, color:'var(--pa-muted)', marginLeft:'auto' }}>criada {createdLabel}</span>
