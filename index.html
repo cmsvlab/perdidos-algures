@@ -4960,40 +4960,27 @@ function Calendar({
       fontFamily: 'var(--pa-mono)',
       fontSize: 10,
       letterSpacing: 1.2,
-      // Fim de semana (col. 5 e 6 numa grelha Seg→Dom) um pouco mais forte.
-      color: i >= 5 ? 'var(--pa-ink)' : 'var(--pa-muted)',
+      // Fim de semana = sábado e domingo (colunas 5 e 6, grelha Seg→Dom).
+      // Marcamo-lo com a COR DO TEXTO e uma costura antes de sábado — nunca
+      // com preenchimento, que já pertence ao mapa de calor (quantas pessoas).
+      // Tom "strong": o accent claro só dá 3.1:1 sobre branco (WCAG pede 4.5).
+      color: i >= 5 ? 'var(--pa-accent-strong)' : 'var(--pa-muted)',
       textAlign: 'center',
       textTransform: 'uppercase',
       fontWeight: i >= 5 ? 700 : 500,
-      opacity: i >= 5 ? 0.75 : 1
+      marginLeft: i === 5 ? dense ? 4 : 6 : 0
     }
   }, d))), /*#__PURE__*/React.createElement("div", {
     style: {
-      position: 'relative',
       display: 'grid',
       gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
       gap: dense ? 3 : 6
     }
-  }, /*#__PURE__*/React.createElement("div", {
-    "aria-hidden": "true",
-    style: {
-      position: 'absolute',
-      inset: 0,
-      display: 'grid',
-      gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
-      gap: dense ? 3 : 6,
-      pointerEvents: 'none',
-      zIndex: 0
-    }
-  }, [0, 1, 2, 3, 4, 5, 6].map(c => /*#__PURE__*/React.createElement("div", {
-    key: c,
-    style: {
-      background: c >= 5 ? 'rgba(31,26,20,0.055)' : 'transparent',
-      borderRadius: 10
-    }
-  }))), useGrid.map((day, i) => {
+  }, useGrid.map((day, i) => {
     const empty = day === null;
     const past = !empty && isPast(day);
+    // Sábado e domingo: as células pintam-se em creme (ver renderCell).
+    const weekend = i % 7 >= 5;
     return /*#__PURE__*/React.createElement("button", {
       key: i,
       disabled: empty || !onCellClick || past,
@@ -5006,7 +4993,9 @@ function Calendar({
         background: 'transparent',
         cursor: day && onCellClick && !past ? 'pointer' : 'default',
         position: 'relative',
-        zIndex: 1,
+        // Costura antes de sábado: separa visualmente o fim de semana
+        // sem gastar cor. O cabeçalho leva a mesma margem, para alinhar.
+        marginLeft: i % 7 === 5 ? dense ? 4 : 6 : 0,
         minWidth: 0,
         maxWidth: '100%',
         overflow: 'hidden'
@@ -5025,7 +5014,7 @@ function Calendar({
         zIndex: 2,
         pointerEvents: 'none'
       }
-    }), !empty && (renderCell ? renderCell(day, i, past) : /*#__PURE__*/React.createElement("div", {
+    }), !empty && (renderCell ? renderCell(day, i, past, weekend) : /*#__PURE__*/React.createElement("div", {
       style: {
         width: '100%',
         height: '100%',
@@ -5079,7 +5068,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r77';
+window.PA_VERSION = '2026.06.01-r78';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -10327,20 +10316,25 @@ function GoingColumns({
       style: {
         display: 'flex',
         alignItems: 'center',
+        justifyContent: 'center',
         gap: 3,
         flexShrink: 0,
         background: '#fff',
         border: '1px solid var(--pa-line)',
         borderRadius: 999,
-        padding: '2px 7px',
+        // No telemóvel a coluna tem ~150px: um botão de texto deixaria o
+        // nome cortado, por isso fica só o ícone (com contorno, para se ver).
+        padding: compact ? 0 : '2px 7px',
+        width: compact ? 26 : 'auto',
+        height: compact ? 24 : 'auto',
         cursor: 'pointer',
         color: 'var(--pa-ink)',
         fontFamily: 'var(--pa-body)',
-        fontSize: 10.5,
+        fontSize: compact ? 12 : 10.5,
         fontWeight: 600,
         lineHeight: 1.6
       }
-    }, isGoing ? '→ Não vai' : '← Vai'));
+    }, compact ? '⇄' : isGoing ? '→ Não vai' : '← Vai'));
   };
   const col = (titulo, gente, isGoing, cor, fundo) => /*#__PURE__*/React.createElement("div", {
     style: {
@@ -12571,7 +12565,7 @@ function DPhase6({
     mi: mi,
     onMonth: setMi,
     onCellClick: d => toggle(paDayKey(PA_MONTHS[mi].y, PA_MONTHS[mi].m, d)),
-    renderCell: (d, _i, past) => {
+    renderCell: (d, _i, past, weekend) => {
       const k = paDayKey(PA_MONTHS[mi].y, PA_MONTHS[mi].m, d);
       const sel = days.includes(k);
       const n = heat[k] || 0;
@@ -12885,7 +12879,7 @@ function DPhase7({
     mi: mi,
     onMonth: setMi,
     onCellClick: me.isAdmin ? d => pickDay(paDayKey(PA_MONTHS[mi].y, PA_MONTHS[mi].m, d)) : undefined,
-    renderCell: (d, _i, past) => {
+    renderCell: (d, _i, past, weekend) => {
       const k = paDayKey(PA_MONTHS[mi].y, PA_MONTHS[mi].m, d);
       const n = heat[k] || 0;
       const inRange = selFrom && k >= selFrom && k <= selTo;
@@ -17225,7 +17219,7 @@ function MPhase6({
     mi: mi,
     onMonth: setMi,
     onCellClick: d => toggle(paDayKey(PA_MONTHS[mi].y, PA_MONTHS[mi].m, d)),
-    renderCell: (d, _i, past) => {
+    renderCell: (d, _i, past, weekend) => {
       const k = paDayKey(PA_MONTHS[mi].y, PA_MONTHS[mi].m, d);
       const sel = days.includes(k);
       const n = heat[k] || 0;
@@ -17549,7 +17543,7 @@ function MPhase7({
     mi: mi,
     onMonth: setMi,
     onCellClick: d => pickDay(paDayKey(PA_MONTHS[mi].y, PA_MONTHS[mi].m, d)),
-    renderCell: (d, _i, past) => {
+    renderCell: (d, _i, past, weekend) => {
       const k = paDayKey(PA_MONTHS[mi].y, PA_MONTHS[mi].m, d);
       const n = heat[k] || 0;
       const inRange = range.from && k >= range.from && k <= (range.to || range.from);
