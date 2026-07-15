@@ -155,6 +155,10 @@
 // ═════════════════════════════════════════════════════════════════════════
 // ═══ Dicionário PT→EN (gerado; chaves = strings exatas do código) ═══
 const PA_EN = {
+  "Por confirmar ·": "To confirm ·",
+  "Por confirmar · ": "To confirm · ",
+  "Mudar de coluna": "Move to the other column",
+  " (tu)": " (you)",
   "Escolher datas finais 🔒": "Choose final dates 🔒",
   "← Ver os dias marcados": "← See the marked days",
   "Ver os dias marcados": "See the marked days",
@@ -1317,6 +1321,9 @@ const PA_EN_PATTERNS = [
   ["^Estado do grupo · (\\d+) (vai|vão) · (\\d+) por confirmar$", "Group status · $1 going · $3 to confirm"],
   ["^Ver todos os dias \\((\\d+)\\)$", "See all days ($1)"],
   ["^(\\d+) em falta$", "$1 missing"],
+  ["^Vai · (\\d+)$", "Going · $1"],
+  ["^Não vai · (\\d+)$", "Not going · $1"],
+  ["^Por confirmar · (\\d+)$", "To confirm · $1"],
 ];
 
 const PA_MONTHS_EN = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -5044,7 +5051,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r75';
+window.PA_VERSION = '2026.06.01-r76';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -10240,6 +10247,159 @@ function DayPeoplePanel({
     }
   }, showAll ? 'Ver menos' : `Ver todos os dias (${days.length})`));
 }
+
+// ─────────────────────────────────────────────────────────────
+// Quem vai / quem não vai — duas colunas. Ao responderes, o teu nome muda de
+// coluna. O teu próprio nome fica destacado. Partilhado desktop + mobile.
+// ─────────────────────────────────────────────────────────────
+function GoingColumns({
+  going,
+  notGoing,
+  pending,
+  meId,
+  isAdmin,
+  onSet,
+  compact = false
+}) {
+  const chip = (m, isGoing) => {
+    const eu = m.id === meId;
+    return /*#__PURE__*/React.createElement("div", {
+      key: m.id,
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 7,
+        padding: eu ? '5px 7px' : '5px 3px',
+        borderRadius: 9,
+        marginBottom: 3,
+        background: eu ? 'rgba(217,119,87,0.13)' : 'transparent',
+        border: eu ? '1px solid var(--pa-accent)' : '1px solid transparent'
+      }
+    }, /*#__PURE__*/React.createElement(Avatar, {
+      member: m,
+      size: compact ? 18 : 20
+    }), /*#__PURE__*/React.createElement("span", {
+      style: {
+        flex: 1,
+        minWidth: 0,
+        fontFamily: 'var(--pa-body)',
+        fontSize: compact ? 12 : 12.5,
+        fontWeight: eu ? 700 : 500,
+        color: 'var(--pa-ink)',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap'
+      }
+    }, m.name, eu ? ' (tu)' : ''), isAdmin && onSet && /*#__PURE__*/React.createElement("button", {
+      onClick: () => onSet(m.id, !isGoing),
+      "aria-label": "Mudar de coluna",
+      title: "Mudar de coluna",
+      style: {
+        background: 'transparent',
+        border: 'none',
+        cursor: 'pointer',
+        color: 'var(--pa-muted)',
+        fontSize: 12,
+        padding: '0 2px',
+        lineHeight: 1,
+        flexShrink: 0
+      }
+    }, "⇄"));
+  };
+  const col = (titulo, gente, isGoing, cor, fundo) => /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 0,
+      background: fundo,
+      borderRadius: 14,
+      padding: compact ? 10 : 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: 'var(--pa-mono)',
+      fontSize: 9.5,
+      letterSpacing: 1,
+      color: cor,
+      textTransform: 'uppercase',
+      marginBottom: 8,
+      fontWeight: 600
+    }
+  }, titulo, " · ", gente.length), gente.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: 'var(--pa-body)',
+      fontSize: 11.5,
+      color: 'var(--pa-muted)',
+      padding: '4px 2px'
+    }
+  }, "—") : gente.map(m => chip(m, isGoing)));
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      gap: 10
+    }
+  }, col('Vai', going, true, '#3d5e44', 'rgba(107,142,111,0.13)'), col('Não vai', notGoing, false, '#8a4220', 'rgba(217,119,87,0.13)')), pending.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: '#fff',
+      border: '1px solid var(--pa-line)',
+      borderRadius: 14,
+      padding: compact ? 10 : 12,
+      marginTop: 10
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontFamily: 'var(--pa-mono)',
+      fontSize: 9.5,
+      letterSpacing: 1,
+      color: 'var(--pa-muted)',
+      textTransform: 'uppercase',
+      marginBottom: 8,
+      fontWeight: 600
+    }
+  }, "Por confirmar · ", pending.length), pending.map(m => {
+    const eu = m.id === meId;
+    return /*#__PURE__*/React.createElement("div", {
+      key: m.id,
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 8,
+        padding: eu ? '5px 7px' : '5px 2px',
+        borderRadius: 9,
+        marginBottom: 3,
+        background: eu ? 'rgba(217,119,87,0.13)' : 'transparent',
+        border: eu ? '1px solid var(--pa-accent)' : '1px solid transparent'
+      }
+    }, /*#__PURE__*/React.createElement(Avatar, {
+      member: m,
+      size: compact ? 18 : 20
+    }), /*#__PURE__*/React.createElement("span", {
+      style: {
+        flex: 1,
+        minWidth: 0,
+        fontFamily: 'var(--pa-body)',
+        fontSize: compact ? 12 : 12.5,
+        fontWeight: eu ? 700 : 500,
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap'
+      }
+    }, m.name, eu ? ' (tu)' : ''), isAdmin && onSet && /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        gap: 5,
+        flexShrink: 0
+      }
+    }, /*#__PURE__*/React.createElement(Btn, {
+      variant: "ghost",
+      size: "sm",
+      onClick: () => onSet(m.id, true)
+    }, "Vai"), /*#__PURE__*/React.createElement(Btn, {
+      variant: "ghost",
+      size: "sm",
+      onClick: () => onSet(m.id, false)
+    }, "Não vai")));
+  })));
+}
 function DAdminBar({
   children,
   hint,
@@ -10463,67 +10623,14 @@ function DPhaseConfirm({
       textTransform: 'uppercase',
       marginTop: 2
     }
-  }, c.l)))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      background: '#fff',
-      borderRadius: 16,
-      padding: 16,
-      border: '1px solid var(--pa-line)'
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontFamily: 'var(--pa-mono)',
-      fontSize: 10,
-      letterSpacing: 1.2,
-      color: 'var(--pa-muted)',
-      textTransform: 'uppercase',
-      marginBottom: 10
-    }
-  }, "Estado do grupo"), interested.map(m => {
-    const s = stateOf(m.id);
-    const pill = s === true ? /*#__PURE__*/React.createElement(Pill, {
-      tone: "success",
-      size: "sm"
-    }, "✓ vai") : s === false ? /*#__PURE__*/React.createElement(Pill, {
-      tone: "muted",
-      size: "sm"
-    }, "não vai") : /*#__PURE__*/React.createElement(Pill, {
-      tone: "muted",
-      size: "sm"
-    }, "por confirmar");
-    return /*#__PURE__*/React.createElement("div", {
-      key: m.id,
-      style: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: 10,
-        padding: '6px 0',
-        opacity: s === false ? 0.55 : 1
-      }
-    }, /*#__PURE__*/React.createElement(Avatar, {
-      member: m,
-      size: 22
-    }), /*#__PURE__*/React.createElement("span", {
-      style: {
-        flex: 1,
-        fontSize: 13,
-        color: 'var(--pa-ink)'
-      }
-    }, m.name), me.isAdmin ? /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: 'flex',
-        gap: 6
-      }
-    }, /*#__PURE__*/React.createElement(Btn, {
-      variant: s === true ? 'accent' : 'ghost',
-      size: "sm",
-      onClick: () => answer(m.id, true)
-    }, "Vai"), /*#__PURE__*/React.createElement(Btn, {
-      variant: s === false ? 'accent' : 'ghost',
-      size: "sm",
-      onClick: () => answer(m.id, false)
-    }, "Não vai")) : pill);
-  })), me.isAdmin && /*#__PURE__*/React.createElement(DAdminBar, {
+  }, c.l)))), /*#__PURE__*/React.createElement(GoingColumns, {
+    going: going,
+    notGoing: notGoing,
+    pending: pending,
+    meId: me.id,
+    isAdmin: me.isAdmin,
+    onSet: answer
+  }), me.isAdmin && /*#__PURE__*/React.createElement(DAdminBar, {
     hint: `${going.length} ${going.length === 1 ? 'vai' : 'vão'} · ${pending.length} por confirmar. Avança quando estiver decidido.`
   }));
 }
@@ -11449,6 +11556,7 @@ Object.assign(window, {
   DPhaseHeader,
   DAdminBar,
   DayPeoplePanel,
+  GoingColumns,
   DPhase1,
   DPhase2,
   DPhase3,
@@ -12263,10 +12371,41 @@ function DPhase6({
   const winnerAcc = accWinnerId ? accSuggs.find(s => s.id === accWinnerId) : null;
   const [mi, setMi] = dUseState2(0) /* mês corrente primeiro */;
   const [days, setDays] = dUseState2(() => (AppStore.getAvailability(me.id) || []).map(paNormDay));
+  // Guardar automático: o que marcas É a tua disponibilidade — não há botão.
+  // - `dirty` evita que uma atualização em tempo real de outra pessoa apague
+  //   toques que ainda não foram gravados;
+  // - o debounce junta uma rajada de toques numa só escrita;
+  // - ao sair da fase, grava o que estiver pendente.
+  const saveTimer = React.useRef(null);
+  const dirty = React.useRef(false);
+  const daysRef = React.useRef(days);
+  daysRef.current = days;
+  const flush = React.useCallback(() => {
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+    if (!dirty.current) return;
+    dirty.current = false;
+    AppStore.setAvailability(me.id, daysRef.current);
+  }, [me.id]);
+  const scheduleSave = React.useCallback(() => {
+    dirty.current = true;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      saveTimer.current = null;
+      flush();
+    }, 500);
+  }, [flush]);
+  dUseEffect2(() => () => flush(), [flush]); // grava ao sair
   dUseEffect2(() => {
+    if (dirty.current) return; // não sobrepor o que ainda não gravou
     setDays((AppStore.getAvailability(me.id) || []).map(paNormDay));
   }, [appData.avail, me.id]);
-  const toggle = k => setDays(arr => arr.includes(k) ? arr.filter(x => x !== k) : [...arr, k]);
+  const toggle = k => {
+    setDays(arr => arr.includes(k) ? arr.filter(x => x !== k) : [...arr, k]);
+    scheduleSave();
+  };
   const allAvail = appData.avail || {};
   // "Pronto" = a MESMA métrica do quórum da fase: pelo menos 1 dia marcado.
   // (A existência da chave não chega — uma lista vazia não é uma resposta.)
@@ -12575,25 +12714,15 @@ function DPhase6({
   })), /*#__PURE__*/React.createElement(DayPeoplePanel, {
     peopleByDay: peopleByDay,
     total: expectedMembers.length
-  }), /*#__PURE__*/React.createElement(Btn, {
-    variant: "accent",
-    size: "lg",
+  }), (days.length > 0 || (allAvail[me.id] || []).length > 0) && /*#__PURE__*/React.createElement(Btn, {
+    variant: "ghost",
+    size: "sm",
     style: {
       width: '100%'
     },
     onClick: () => {
-      AppStore.setAvailability(me.id, days);
-      if (window._paToast) window._paToast('Disponibilidade guardada!', 'success');
-    }
-  }, "Guardar disponibilidade"), (days.length > 0 || (allAvail[me.id] || []).length > 0) && /*#__PURE__*/React.createElement(Btn, {
-    variant: "ghost",
-    size: "sm",
-    style: {
-      width: '100%',
-      marginTop: 8
-    },
-    onClick: () => {
       if (!window.confirm('Limpar todos os teus dias marcados?')) return;
+      dirty.current = false;
       setDays([]);
       AppStore.clearAvailability(me.id);
       if (window._paToast) window._paToast('Disponibilidade limpa — marca de novo quando quiseres.', 'success');
@@ -16915,10 +17044,37 @@ function MPhase6({
   const winnerAcc = appData.accWinner ? accSuggs.find(s => s.id === appData.accWinner) : null;
   const [mi, setMi] = mUseState(0) /* mês corrente primeiro */;
   const [days, setDays] = mUseState(() => (AppStore.getAvailability(me.id) || []).map(paNormDay));
+  // Guardar automático: o que marcas É a tua disponibilidade (sem botão).
+  const saveTimer = React.useRef(null);
+  const dirty = React.useRef(false);
+  const daysRef = React.useRef(days);
+  daysRef.current = days;
+  const flush = React.useCallback(() => {
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+    if (!dirty.current) return;
+    dirty.current = false;
+    AppStore.setAvailability(me.id, daysRef.current);
+  }, [me.id]);
+  const scheduleSave = React.useCallback(() => {
+    dirty.current = true;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      saveTimer.current = null;
+      flush();
+    }, 500);
+  }, [flush]);
+  mUseEffect(() => () => flush(), [flush]); // grava ao sair da fase
   mUseEffect(() => {
+    if (dirty.current) return; // não sobrepor toques por gravar
     setDays((AppStore.getAvailability(me.id) || []).map(paNormDay));
   }, [appData.avail, me.id]);
-  const toggle = k => setDays(arr => arr.includes(k) ? arr.filter(x => x !== k) : [...arr, k]);
+  const toggle = k => {
+    setDays(arr => arr.includes(k) ? arr.filter(x => x !== k) : [...arr, k]);
+    scheduleSave();
+  };
   const allAvail = appData.avail || {};
   // "Pronto" = a MESMA métrica do quórum da fase: pelo menos 1 dia marcado.
   // (A existência da chave não chega — uma lista vazia não é uma resposta.)
@@ -17123,34 +17279,17 @@ function MPhase6({
       fontSize: 10.5,
       color: 'var(--pa-muted)'
     }
-  }, "os teus dias")))), /*#__PURE__*/React.createElement("button", {
-    onClick: () => {
-      AppStore.setAvailability(me.id, days);
-      if (window._paToast) window._paToast('Disponibilidade guardada!', 'success');
-    },
-    style: {
-      marginTop: 14,
-      width: '100%',
-      padding: '14px',
-      borderRadius: 999,
-      border: 'none',
-      background: 'var(--pa-accent-strong)',
-      color: '#fff',
-      cursor: 'pointer',
-      fontFamily: 'var(--pa-body)',
-      fontSize: 14,
-      fontWeight: 600
-    }
-  }, "Guardar disponibilidade"), (days.length > 0 || (allAvail[me.id] || []).length > 0) && /*#__PURE__*/React.createElement("button", {
+  }, "os teus dias")))), (days.length > 0 || (allAvail[me.id] || []).length > 0) && /*#__PURE__*/React.createElement("button", {
     onClick: () => {
       if (!window.confirm('Limpar todos os teus dias marcados?')) return;
+      dirty.current = false;
       setDays([]);
       AppStore.clearAvailability(me.id);
       if (window._paToast) window._paToast('Disponibilidade limpa.', 'success');
     },
     style: {
       width: '100%',
-      marginTop: 8,
+      marginTop: 14,
       padding: '10px',
       borderRadius: 12,
       border: '1px solid var(--pa-line)',
@@ -17659,65 +17798,15 @@ function MPhaseConfirm({
       textTransform: 'uppercase',
       marginTop: 1
     }
-  }, c.l)))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      background: '#fff',
-      borderRadius: 16,
-      padding: 14,
-      border: '1px solid var(--pa-line)'
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontFamily: 'var(--pa-mono)',
-      fontSize: 9.5,
-      letterSpacing: 1,
-      color: 'var(--pa-muted)',
-      textTransform: 'uppercase',
-      marginBottom: 8
-    }
-  }, "Estado do grupo"), interested.map(m => {
-    const s = stateOf(m.id);
-    return /*#__PURE__*/React.createElement("div", {
-      key: m.id,
-      style: {
-        display: 'flex',
-        alignItems: 'center',
-        gap: 10,
-        padding: '6px 0',
-        opacity: s === false ? 0.55 : 1
-      }
-    }, /*#__PURE__*/React.createElement(Avatar, {
-      member: m,
-      size: 22
-    }), /*#__PURE__*/React.createElement("span", {
-      style: {
-        flex: 1,
-        fontSize: 13
-      }
-    }, m.name), me.isAdmin ? /*#__PURE__*/React.createElement("div", {
-      style: {
-        display: 'flex',
-        gap: 6
-      }
-    }, /*#__PURE__*/React.createElement(Btn, {
-      variant: s === true ? 'accent' : 'ghost',
-      size: "sm",
-      onClick: () => answer(m.id, true)
-    }, "Vai"), /*#__PURE__*/React.createElement(Btn, {
-      variant: s === false ? 'accent' : 'ghost',
-      size: "sm",
-      onClick: () => answer(m.id, false)
-    }, "Não vai")) : s === true ? /*#__PURE__*/React.createElement(Pill, {
-      tone: "success",
-      size: "sm"
-    }, "✓ vai") : s === false ? /*#__PURE__*/React.createElement(Pill, {
-      tone: "muted",
-      size: "sm"
-    }, "não vai") : /*#__PURE__*/React.createElement(Pill, {
-      tone: "muted",
-      size: "sm"
-    }, "por confirmar"));
-  }))), /*#__PURE__*/React.createElement(MPhaseNav, {
+  }, c.l)))), /*#__PURE__*/React.createElement(GoingColumns, {
+    going: going,
+    notGoing: notGoing,
+    pending: pending,
+    meId: me.id,
+    isAdmin: me.isAdmin,
+    onSet: answer,
+    compact: true
+  })), /*#__PURE__*/React.createElement(MPhaseNav, {
     phase: 4
   }));
 }

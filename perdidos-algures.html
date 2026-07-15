@@ -156,6 +156,10 @@
 // ═════════════════════════════════════════════════════════════════════════
 // ═══ Dicionário PT→EN (gerado; chaves = strings exatas do código) ═══
 const PA_EN = {
+  "Por confirmar ·": "To confirm ·",
+  "Por confirmar · ": "To confirm · ",
+  "Mudar de coluna": "Move to the other column",
+  " (tu)": " (you)",
   "Escolher datas finais 🔒": "Choose final dates 🔒",
   "← Ver os dias marcados": "← See the marked days",
   "Ver os dias marcados": "See the marked days",
@@ -1318,6 +1322,9 @@ const PA_EN_PATTERNS = [
   ["^Estado do grupo · (\\d+) (vai|vão) · (\\d+) por confirmar$", "Group status · $1 going · $3 to confirm"],
   ["^Ver todos os dias \\((\\d+)\\)$", "See all days ($1)"],
   ["^(\\d+) em falta$", "$1 missing"],
+  ["^Vai · (\\d+)$", "Going · $1"],
+  ["^Não vai · (\\d+)$", "Not going · $1"],
+  ["^Por confirmar · (\\d+)$", "To confirm · $1"],
 ];
 
 const PA_MONTHS_EN = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -3806,7 +3813,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r75';
+window.PA_VERSION = '2026.06.01-r76';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -7257,6 +7264,84 @@ function DayPeoplePanel({ peopleByDay, total, limit = 5, title = 'Quem marcou ca
   );
 }
 
+// ─────────────────────────────────────────────────────────────
+// Quem vai / quem não vai — duas colunas. Ao responderes, o teu nome muda de
+// coluna. O teu próprio nome fica destacado. Partilhado desktop + mobile.
+// ─────────────────────────────────────────────────────────────
+function GoingColumns({ going, notGoing, pending, meId, isAdmin, onSet, compact = false }) {
+  const chip = (m, isGoing) => {
+    const eu = m.id === meId;
+    return (
+      <div key={m.id} style={{
+        display:'flex', alignItems:'center', gap:7, padding: eu ? '5px 7px' : '5px 3px',
+        borderRadius:9, marginBottom:3,
+        background: eu ? 'rgba(217,119,87,0.13)' : 'transparent',
+        border: eu ? '1px solid var(--pa-accent)' : '1px solid transparent' }}>
+        <Avatar member={m} size={compact ? 18 : 20} />
+        <span style={{ flex:1, minWidth:0, fontFamily:'var(--pa-body)', fontSize: compact ? 12 : 12.5,
+          fontWeight: eu ? 700 : 500, color:'var(--pa-ink)',
+          overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+          {m.name}{eu ? ' (tu)' : ''}
+        </span>
+        {isAdmin && onSet && (
+          <button onClick={() => onSet(m.id, !isGoing)} aria-label="Mudar de coluna" title="Mudar de coluna"
+            style={{ background:'transparent', border:'none', cursor:'pointer', color:'var(--pa-muted)',
+              fontSize:12, padding:'0 2px', lineHeight:1, flexShrink:0 }}>⇄</button>
+        )}
+      </div>
+    );
+  };
+  const col = (titulo, gente, isGoing, cor, fundo) => (
+    <div style={{ flex:1, minWidth:0, background:fundo, borderRadius:14, padding: compact ? 10 : 12 }}>
+      <div style={{ fontFamily:'var(--pa-mono)', fontSize:9.5, letterSpacing:1, color:cor,
+        textTransform:'uppercase', marginBottom:8, fontWeight:600 }}>
+        {titulo} · {gente.length}
+      </div>
+      {gente.length === 0
+        ? <div style={{ fontFamily:'var(--pa-body)', fontSize:11.5, color:'var(--pa-muted)', padding:'4px 2px' }}>—</div>
+        : gente.map((m) => chip(m, isGoing))}
+    </div>
+  );
+  return (
+    <div>
+      <div style={{ display:'flex', gap:10 }}>
+        {col('Vai', going, true, '#3d5e44', 'rgba(107,142,111,0.13)')}
+        {col('Não vai', notGoing, false, '#8a4220', 'rgba(217,119,87,0.13)')}
+      </div>
+      {pending.length > 0 && (
+        <div style={{ background:'#fff', border:'1px solid var(--pa-line)', borderRadius:14,
+          padding: compact ? 10 : 12, marginTop:10 }}>
+          <div style={{ fontFamily:'var(--pa-mono)', fontSize:9.5, letterSpacing:1, color:'var(--pa-muted)',
+            textTransform:'uppercase', marginBottom:8, fontWeight:600 }}>
+            Por confirmar · {pending.length}
+          </div>
+          {pending.map((m) => {
+            const eu = m.id === meId;
+            return (
+              <div key={m.id} style={{ display:'flex', alignItems:'center', gap:8, padding: eu ? '5px 7px' : '5px 2px',
+                borderRadius:9, marginBottom:3,
+                background: eu ? 'rgba(217,119,87,0.13)' : 'transparent',
+                border: eu ? '1px solid var(--pa-accent)' : '1px solid transparent' }}>
+                <Avatar member={m} size={compact ? 18 : 20} />
+                <span style={{ flex:1, minWidth:0, fontFamily:'var(--pa-body)', fontSize: compact ? 12 : 12.5,
+                  fontWeight: eu ? 700 : 500, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                  {m.name}{eu ? ' (tu)' : ''}
+                </span>
+                {isAdmin && onSet && (
+                  <div style={{ display:'flex', gap:5, flexShrink:0 }}>
+                    <Btn variant="ghost" size="sm" onClick={() => onSet(m.id, true)}>Vai</Btn>
+                    <Btn variant="ghost" size="sm" onClick={() => onSet(m.id, false)}>Não vai</Btn>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DAdminBar({ children, hint, showNext = true }) {
   const { phase, setPhase, canEdit } = dUseContext(PhaseCtx);
   if (!canEdit) return null; // ações de admin: invisíveis para os restantes participantes
@@ -7346,29 +7431,8 @@ function DPhaseConfirm({ me }) {
         ))}
       </div>
 
-      <div style={{ background:'#fff', borderRadius:16, padding:16, border:'1px solid var(--pa-line)' }}>
-        <div style={{ fontFamily:'var(--pa-mono)', fontSize:10, letterSpacing:1.2, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:10 }}>
-          Estado do grupo
-        </div>
-        {interested.map((m) => {
-          const s = stateOf(m.id);
-          const pill = s === true ? <Pill tone="success" size="sm">✓ vai</Pill>
-            : s === false ? <Pill tone="muted" size="sm">não vai</Pill>
-            : <Pill tone="muted" size="sm">por confirmar</Pill>;
-          return (
-            <div key={m.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'6px 0', opacity: s === false ? 0.55 : 1 }}>
-              <Avatar member={m} size={22} />
-              <span style={{ flex:1, fontSize:13, color:'var(--pa-ink)' }}>{m.name}</span>
-              {me.isAdmin ? (
-                <div style={{ display:'flex', gap:6 }}>
-                  <Btn variant={s === true ? 'accent' : 'ghost'} size="sm" onClick={() => answer(m.id, true)}>Vai</Btn>
-                  <Btn variant={s === false ? 'accent' : 'ghost'} size="sm" onClick={() => answer(m.id, false)}>Não vai</Btn>
-                </div>
-              ) : pill}
-            </div>
-          );
-        })}
-      </div>
+      <GoingColumns going={going} notGoing={notGoing} pending={pending}
+        meId={me.id} isAdmin={me.isAdmin} onSet={answer} />
 
       {me.isAdmin && (
         <DAdminBar hint={`${going.length} ${going.length === 1 ? 'vai' : 'vão'} · ${pending.length} por confirmar. Avança quando estiver decidido.`} />
@@ -7772,7 +7836,7 @@ function DPhase3({ me }) {
 
 Object.assign(window, {
   getAllMembers,
-  DTopBar, DLeftRail, DRightRail, DPhaseHeader, DAdminBar, DayPeoplePanel,
+  DTopBar, DLeftRail, DRightRail, DPhaseHeader, DAdminBar, DayPeoplePanel, GoingColumns,
   DPhase1, DPhase2, DPhase3, DPhaseConfirm, LocSuggestionForm,
   useActivityFeed,
 });
@@ -8149,8 +8213,35 @@ function DPhase6({ me }) {
 
   const [mi, setMi] = dUseState2(0) /* mês corrente primeiro */;
   const [days, setDays] = dUseState2(() => (AppStore.getAvailability(me.id) || []).map(paNormDay));
-  dUseEffect2(() => { setDays((AppStore.getAvailability(me.id) || []).map(paNormDay)); }, [appData.avail, me.id]);
-  const toggle = (k) => setDays((arr) => arr.includes(k) ? arr.filter((x) => x !== k) : [...arr, k]);
+  // Guardar automático: o que marcas É a tua disponibilidade — não há botão.
+  // - `dirty` evita que uma atualização em tempo real de outra pessoa apague
+  //   toques que ainda não foram gravados;
+  // - o debounce junta uma rajada de toques numa só escrita;
+  // - ao sair da fase, grava o que estiver pendente.
+  const saveTimer = React.useRef(null);
+  const dirty = React.useRef(false);
+  const daysRef = React.useRef(days);
+  daysRef.current = days;
+  const flush = React.useCallback(() => {
+    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
+    if (!dirty.current) return;
+    dirty.current = false;
+    AppStore.setAvailability(me.id, daysRef.current);
+  }, [me.id]);
+  const scheduleSave = React.useCallback(() => {
+    dirty.current = true;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => { saveTimer.current = null; flush(); }, 500);
+  }, [flush]);
+  dUseEffect2(() => () => flush(), [flush]);   // grava ao sair
+  dUseEffect2(() => {
+    if (dirty.current) return;                 // não sobrepor o que ainda não gravou
+    setDays((AppStore.getAvailability(me.id) || []).map(paNormDay));
+  }, [appData.avail, me.id]);
+  const toggle = (k) => {
+    setDays((arr) => arr.includes(k) ? arr.filter((x) => x !== k) : [...arr, k]);
+    scheduleSave();
+  };
 
   const allAvail = appData.avail || {};
   // "Pronto" = a MESMA métrica do quórum da fase: pelo menos 1 dia marcado.
@@ -8269,13 +8360,10 @@ function DPhase6({ me }) {
 
           <DayPeoplePanel peopleByDay={peopleByDay} total={expectedMembers.length} />
 
-          <Btn variant="accent" size="lg" style={{ width:'100%' }} onClick={() => {
-            AppStore.setAvailability(me.id, days);
-            if (window._paToast) window._paToast('Disponibilidade guardada!', 'success');
-          }}>Guardar disponibilidade</Btn>
           {(days.length > 0 || (allAvail[me.id] || []).length > 0) && (
-            <Btn variant="ghost" size="sm" style={{ width:'100%', marginTop:8 }} onClick={() => {
+            <Btn variant="ghost" size="sm" style={{ width:'100%' }} onClick={() => {
               if (!window.confirm('Limpar todos os teus dias marcados?')) return;
+              dirty.current = false;
               setDays([]);
               AppStore.clearAvailability(me.id);
               if (window._paToast) window._paToast('Disponibilidade limpa — marca de novo quando quiseres.', 'success');
@@ -10032,8 +10120,31 @@ function MPhase6({ me, onLogout, onOpenChat, modeToggle }) {
   const winnerAcc = appData.accWinner ? accSuggs.find((s) => s.id === appData.accWinner) : null;
   const [mi, setMi] = mUseState(0) /* mês corrente primeiro */;
   const [days, setDays] = mUseState(() => (AppStore.getAvailability(me.id) || []).map(paNormDay));
-  mUseEffect(() => { setDays((AppStore.getAvailability(me.id) || []).map(paNormDay)); }, [appData.avail, me.id]);
-  const toggle = (k) => setDays((arr) => arr.includes(k) ? arr.filter((x) => x !== k) : [...arr, k]);
+  // Guardar automático: o que marcas É a tua disponibilidade (sem botão).
+  const saveTimer = React.useRef(null);
+  const dirty = React.useRef(false);
+  const daysRef = React.useRef(days);
+  daysRef.current = days;
+  const flush = React.useCallback(() => {
+    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
+    if (!dirty.current) return;
+    dirty.current = false;
+    AppStore.setAvailability(me.id, daysRef.current);
+  }, [me.id]);
+  const scheduleSave = React.useCallback(() => {
+    dirty.current = true;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => { saveTimer.current = null; flush(); }, 500);
+  }, [flush]);
+  mUseEffect(() => () => flush(), [flush]);          // grava ao sair da fase
+  mUseEffect(() => {
+    if (dirty.current) return;                        // não sobrepor toques por gravar
+    setDays((AppStore.getAvailability(me.id) || []).map(paNormDay));
+  }, [appData.avail, me.id]);
+  const toggle = (k) => {
+    setDays((arr) => arr.includes(k) ? arr.filter((x) => x !== k) : [...arr, k]);
+    scheduleSave();
+  };
   const allAvail = appData.avail || {};
   // "Pronto" = a MESMA métrica do quórum da fase: pelo menos 1 dia marcado.
   // (A existência da chave não chega — uma lista vazia não é uma resposta.)
@@ -10109,15 +10220,9 @@ function MPhase6({ me, onLogout, onOpenChat, modeToggle }) {
             </div>
           </div>
         </div>
-        <button onClick={() => { AppStore.setAvailability(me.id, days); if (window._paToast) window._paToast('Disponibilidade guardada!', 'success'); }}
-          style={{ marginTop:14, width:'100%', padding:'14px', borderRadius:999, border:'none',
-            background:'var(--pa-accent-strong)', color:'#fff', cursor:'pointer',
-            fontFamily:'var(--pa-body)', fontSize:14, fontWeight:600 }}>
-          Guardar disponibilidade
-        </button>
         {(days.length > 0 || (allAvail[me.id] || []).length > 0) && (
-          <button onClick={() => { if (!window.confirm('Limpar todos os teus dias marcados?')) return; setDays([]); AppStore.clearAvailability(me.id); if (window._paToast) window._paToast('Disponibilidade limpa.', 'success'); }}
-            style={{ width:'100%', marginTop:8, padding:'10px', borderRadius:12, border:'1px solid var(--pa-line)', background:'#fff', color:'var(--pa-muted)', fontFamily:'var(--pa-body)', fontSize:13, cursor:'pointer' }}>
+          <button onClick={() => { if (!window.confirm('Limpar todos os teus dias marcados?')) return; dirty.current = false; setDays([]); AppStore.clearAvailability(me.id); if (window._paToast) window._paToast('Disponibilidade limpa.', 'success'); }}
+            style={{ width:'100%', marginTop:14, padding:'10px', borderRadius:12, border:'1px solid var(--pa-line)', background:'#fff', color:'var(--pa-muted)', fontFamily:'var(--pa-body)', fontSize:13, cursor:'pointer' }}>
             Limpar os meus dias
           </button>
         )}
@@ -10324,30 +10429,8 @@ function MPhaseConfirm({ me, onLogout, onOpenChat }) {
             </div>
           ))}
         </div>
-        <div style={{ background:'#fff', borderRadius:16, padding:14, border:'1px solid var(--pa-line)' }}>
-          <div style={{ fontFamily:'var(--pa-mono)', fontSize:9.5, letterSpacing:1, color:'var(--pa-muted)', textTransform:'uppercase', marginBottom:8 }}>
-            Estado do grupo
-          </div>
-          {interested.map((m) => {
-            const s = stateOf(m.id);
-            return (
-              <div key={m.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'6px 0', opacity: s === false ? 0.55 : 1 }}>
-                <Avatar member={m} size={22} />
-                <span style={{ flex:1, fontSize:13 }}>{m.name}</span>
-                {me.isAdmin ? (
-                  <div style={{ display:'flex', gap:6 }}>
-                    <Btn variant={s === true ? 'accent' : 'ghost'} size="sm" onClick={() => answer(m.id, true)}>Vai</Btn>
-                    <Btn variant={s === false ? 'accent' : 'ghost'} size="sm" onClick={() => answer(m.id, false)}>Não vai</Btn>
-                  </div>
-                ) : (
-                  s === true ? <Pill tone="success" size="sm">✓ vai</Pill>
-                  : s === false ? <Pill tone="muted" size="sm">não vai</Pill>
-                  : <Pill tone="muted" size="sm">por confirmar</Pill>
-                )}
-              </div>
-            );
-          })}
-        </div>
+        <GoingColumns going={going} notGoing={notGoing} pending={pending}
+          meId={me.id} isAdmin={me.isAdmin} onSet={answer} compact />
       </div>
       <MPhaseNav phase={4} />
     </MShell>
