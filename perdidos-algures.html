@@ -156,6 +156,10 @@
 // ═════════════════════════════════════════════════════════════════════════
 // ═══ Dicionário PT→EN (gerado; chaves = strings exatas do código) ═══
 const PA_EN = {
+  "Não vais nesta aventura — podes acompanhar, mas não contas para os votos nem para as contas.": "You're not going on this adventure — you can follow along, but you don't count for the votes or the costs.",
+  "Ainda não disseste se vais — confirma em \"Confirmar presença\" para poderes participar.": "You haven't said if you're going — confirm in \"Confirm attendance\" to take part.",
+  "Não vais nesta aventura — podes ver, mas não participar.": "You're not going on this adventure — you can watch, but not take part.",
+  "Confirma primeiro se vais, em \"Confirmar presença\".": "First confirm whether you're going, in \"Confirm attendance\".",
   "saiu": "left",
   "→ Não vai": "→ Not going",
   "← Vai": "← Going",
@@ -3832,7 +3836,7 @@ Object.assign(window, {
 // ============================================================
 
 // Versão da app — confirma no rodapé do hub que tens a última versão.
-window.PA_VERSION = '2026.06.01-r78';
+window.PA_VERSION = '2026.06.01-r79';
 
 // Regista o service worker com ATUALIZAÇÃO AUTOMÁTICA — sem precisar de hard refresh.
 // A nova versão aplica-se num momento seguro (quando voltas ao separador ou reabres),
@@ -4883,7 +4887,26 @@ const AppStore = {
 
   // ── Sugestões de localização ──
   getLocSuggestions()           { return this._cache().locSuggs||[]; },
-  async addLocSuggestion(s)     { await this._appendToArray('locSuggs', s); },
+  // Guarda de participação: depois de as datas estarem trancadas, quem disse
+  // "Não vou" deixa de poder sugerir/votar. Fica num sítio só, para nenhum
+  // caminho da UI escapar.
+  _podeParticipar() {
+    const d = this._cache();
+    let me = null;
+    try { me = AuthStore.getSession(); } catch (e) {}
+    const uid = me && me.id;
+    if (!uid) return true;
+    const ok = (typeof paCanParticipate === 'function') ? paCanParticipate(d, uid) : true;
+    if (!ok && window._paToast) {
+      const estado = (typeof memberGoing === 'function') ? memberGoing(d, uid) : undefined;
+      window._paToast(estado === false
+        ? 'Não vais nesta aventura — podes ver, mas não participar.'
+        : 'Confirma primeiro se vais, em "Confirmar presença".', 'error');
+    }
+    return ok;
+  },
+
+  async addLocSuggestion(s)     { if (!this._podeParticipar()) return; await this._appendToArray('locSuggs', s); },
   async removeLocSuggestion(id) {
     await this._removeFromArray('locSuggs', id);
     await this._cleanupOrphanVotes('locVotes', 'locWinner', id);
@@ -4891,7 +4914,7 @@ const AppStore = {
   getLocWinner()                { return this._cache().locWinner||null; },
   async setLocWinner(id)        { await this._set('locWinner',id); },
   getLocVotes()                 { return this._cache().locVotes||{}; },
-  async setLocVote(uid,id)      { await this._merge('locVotes', { [uid]:id }); },
+  async setLocVote(uid,id)      { if (!this._podeParticipar()) return; await this._merge('locVotes', { [uid]:id }); },
   // Reset pessoal: limpar a própria disponibilidade (remove a chave — sem
   // resposta —, para todos os indicadores voltarem coerentemente a "a marcar").
   // Remove UMA chave de um objeto partilhado sem apagar o trabalho dos outros.
@@ -4985,7 +5008,7 @@ const AppStore = {
 
   // ── Sugestões de alojamento ──
   getAccSuggestions()           { return this._cache().accSuggs||[]; },
-  async addAccSuggestion(s)     { await this._appendToArray('accSuggs', s); },
+  async addAccSuggestion(s)     { if (!this._podeParticipar()) return; await this._appendToArray('accSuggs', s); },
   async removeAccSuggestion(id) {
     await this._removeFromArray('accSuggs', id);
     await this._cleanupOrphanVotes('accVotes', 'accWinner', id);
@@ -4993,7 +5016,7 @@ const AppStore = {
   getAccWinner()                { return this._cache().accWinner||null; },
   async setAccWinner(id)        { await this._set('accWinner',id); },
   getAccVotes()                 { return this._cache().accVotes||{}; },
-  async setAccVote(uid,id)      { await this._merge('accVotes', { [uid]:id }); },
+  async setAccVote(uid,id)      { if (!this._podeParticipar()) return; await this._merge('accVotes', { [uid]:id }); },
 
   // ── Disponibilidade ──
   getAvailability(uid)          { return (this._cache().avail||{})[uid] || []; },
@@ -10649,6 +10672,15 @@ function getGoingMembers(appData) {
   return getInterestedMembers(appData).filter(m => memberGoing(appData, m.id) === true);
 }
 
+// Pode participar (sugerir, votar, entrar nas contas)?
+//  - antes de as datas estarem trancadas: toda a gente (fases 1 e 2);
+//  - depois de trancadas: só quem VAI. Quem disse "Não vou" continua a ver
+//    tudo, mas deixa de contar e de poder mexer.
+function paCanParticipate(appData, id) {
+  if (!appData || !appData.locked) return true;
+  return memberGoing(appData, id) === true;
+}
+
 // Conjunto que "conta" no momento atual — UM só, nunca dois a discordar:
 //  - antes de trancar as datas: os interessados (in/maybe)
 //  - depois de trancar: quem vai firme
@@ -10907,6 +10939,22 @@ function PhaseProgressBanner({ phase, me, narrow }) {
   })() : null;
   const hasUnresolvedTie = tieLoc || tieAcc;
 
+  // Espectador: as datas já estão trancadas e ainda não é um "Vou". Vê tudo,
+  // mas não participa. Um aviso aqui cobre todas as fases (desktop e mobile).
+  const _meuEstado = (typeof memberGoing === 'function') ? memberGoing(appData, me.id) : true;
+  const espectador = !!appData.locked && _meuEstado !== true;
+  const avisoEspectador = espectador ? (
+    <div style={{ background:'rgba(31,26,20,0.05)', border:'1px solid var(--pa-line)', borderRadius:12,
+      padding: narrow ? '9px 12px' : '11px 16px', display:'flex', alignItems:'center', gap:10 }}>
+      <span style={{ fontSize:15 }}>{_meuEstado === false ? '👀' : '✋'}</span>
+      <div style={{ flex:1, minWidth:0, fontFamily:'var(--pa-body)', fontSize:13, color:'var(--pa-ink)' }}>
+        {_meuEstado === false
+          ? 'Não vais nesta aventura — podes acompanhar, mas não contas para os votos nem para as contas.'
+          : 'Ainda não disseste se vais — confirma em "Confirmar presença" para poderes participar.'}
+      </div>
+    </div>
+  ) : null;
+
   const pendingNames = p.pending.slice(0, 3).map(m => m.name).join(', ');
   const extraPending = p.pending.length > 3 ? ` +${p.pending.length - 3}` : '';
 
@@ -11022,6 +11070,7 @@ function PhaseProgressBanner({ phase, me, narrow }) {
             </button>
           )}
         </div>
+        {avisoEspectador}
         {!collapsed && (
           <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
             {showCountdown && <CountdownBanner deadline={p.deadline} narrow={narrow} />}
@@ -11039,6 +11088,7 @@ function PhaseProgressBanner({ phase, me, narrow }) {
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+      {avisoEspectador}
       {showCountdown && <CountdownBanner deadline={p.deadline} narrow={narrow} />}
       {statusContent}
       {showDeadlineCtrl && (
@@ -11051,7 +11101,7 @@ function PhaseProgressBanner({ phase, me, narrow }) {
 }
 
 
-Object.assign(window, { getInMembers, getInterestedMembers, getGoingMembers, memberGoing, paWithinLocked, getTotalMembers, phaseComplete, usePhaseProgress, PhaseProgressBanner });
+Object.assign(window, { getInMembers, getInterestedMembers, getGoingMembers, memberGoing, paCanParticipate, paWithinLocked, getTotalMembers, phaseComplete, usePhaseProgress, PhaseProgressBanner });
 </script>
 
 <script type="text/babel">// Perdidos Algures — Painel de desempate (admin).
